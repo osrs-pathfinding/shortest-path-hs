@@ -1,0 +1,85 @@
+html,
+body,
+.layout,
+#map {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  color: #1d1b19;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+}
+
+.panel {
+  background: rgba(255, 253, 248, 0.97);
+  border-right: 1px solid rgba(29, 27, 25, 0.16);
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 18px;
+  z-index: 500;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0 0 18px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+select,
+button {
+  border: 1px solid rgba(29, 27, 25, 0.2);
+  border-radius: 6px;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+button {
+  background: #1f2937;
+  color: #fff;
+  cursor: pointer;
+  margin: 4px 0 16px;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 12px;
+  margin: 0;
+}
+
+dt {
+  color: #5f5a52;
+}
+
+dd {
+  font-family: "SF Mono", "Cascadia Mono", Menlo, monospace;
+  margin: 0;
+}
+
+@media (max-width: 800px) {
+  .layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .panel {
+    border-bottom: 1px solid rgba(29, 27, 25, 0.16);
+    border-right: 0;
+    max-height: 42vh;
+  }
+}
