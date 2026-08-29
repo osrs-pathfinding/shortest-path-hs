@@ -1,3 +1,5 @@
+{-# LANGUAGE MonoLocalBinds #-}
+
 module ShortestPath.Hierarchy.Preprocess
   ( preprocessHierarchy
   , preprocessHierarchyWith
@@ -8,8 +10,10 @@ module ShortestPath.Hierarchy.Preprocess
   ) where
 
 import Control.Monad (foldM, forM, forM_, when)
+import Control.Monad.ST (runST)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
+import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Vector.Unboxed as Vector
@@ -64,7 +68,7 @@ preprocessHierarchyWith partition neighbours roles = do
           , leafDistanceEntries = Map.size distances
           , leafElapsedMilliseconds = round (realToFrac (diffUTCTime finished started) * (1000 :: Double))
           }
-        overlay = LeafOverlay terminals distances stats
+        overlay = LeafOverlay terminals distances (terminalAdjacency distances) stats
     when (leafTileCount stats >= 10000 || leafTerminalCount stats >= 50 || position `mod` 100 == 0 || position == leafCount) $ do
       putStrLn ("preprocessed leaf " <> show position <> "/" <> show leafCount <> " " <> show leaf <> ": " <> show stats)
       hFlush stdout
@@ -208,6 +212,17 @@ leafDistance :: LeafOverlay -> Tile -> Tile -> Maybe Int
 leafDistance _ a b | a == b = Just 0
 leafDistance overlay a b = Map.lookup (canonicalPair a b) (leafDistances overlay)
 
+terminalAdjacency :: Map.Map (Tile, Tile) Int -> Map.Map Tile (Map.Map Tile Int)
+terminalAdjacency distances =
+  Map.map (Map.fromAscList . sortEntries) (Map.fromListWith (<>) entries)
+ where
+  entries =
+    [ (source, [(target, distance)])
+    | ((left, right), distance) <- Map.toAscList distances
+    , (source, target) <- [(left, right), (right, left)]
+    ]
+  sortEntries = sortOn fst
+
 canonicalPair :: Ord a => a -> a -> (a, a)
 canonicalPair a b = if a <= b then (a, b) else (b, a)
 
@@ -216,45 +231,43 @@ reconstructLeafPath
   -> IntSet.IntSet
   -> Tile
   -> Tile
-  -> IO (Maybe [Tile])
-reconstructLeafPath neighbours tiles source target = do
+  -> Maybe [Tile]
+reconstructLeafPath neighbours tiles source target = runST $ do
   let indexed = IntMap.fromList (zip (IntSet.toList tiles) [0 ..])
       tileByIndex = Vector.fromList (IntSet.toList tiles)
   queue <- Mutable.new (max 1 (IntSet.size tiles))
   parents <- Mutable.replicate (max 1 (IntSet.size tiles)) (-1 :: Int)
   seen <- Mutable.replicate (max 1 (IntSet.size tiles)) False
+  let visit parent writeIx next = do
+        let index = indexed IntMap.! unTile next
+        already <- Mutable.read seen index
+        if already then pure writeIx else do
+          Mutable.write seen index True
+          Mutable.write parents index parent
+          Mutable.write queue writeIx index
+          pure (writeIx + 1)
+      search writeIx readIx goal
+        | readIx == writeIx = pure False
+        | otherwise = do
+            index <- Mutable.read queue readIx
+            if index == goal
+              then pure True
+              else do
+                let tile = Tile (tileByIndex Vector.! index)
+                    next = [n | n <- neighbours tile, Just _ <- [IntMap.lookup (unTile n) indexed]]
+                writeIx' <- foldM (visit index) writeIx next
+                search writeIx' (readIx + 1) goal
+      unwind goal = go goal []
+       where
+        go i acc
+          | i < 0 = pure acc
+          | otherwise = do
+              parent <- Mutable.read parents i
+              go parent (Tile (tileByIndex Vector.! i) : acc)
   case (IntMap.lookup (unTile source) indexed, IntMap.lookup (unTile target) indexed) of
     (Just start, Just goal) -> do
       Mutable.write queue 0 start
       Mutable.write seen start True
-      found <- search indexed tileByIndex queue parents seen 1 0 goal
-      if not found then pure Nothing else Just <$> unwind tileByIndex parents goal
+      found <- search 1 0 goal
+      if not found then pure Nothing else Just <$> unwind goal
     _ -> pure Nothing
- where
-  search indexed tileByIndex queue parents seen writeIx readIx goal
-    | readIx == writeIx = pure False
-    | otherwise = do
-        index <- Mutable.read queue readIx
-        if index == goal
-          then pure True
-          else do
-            let tile = Tile (tileByIndex Vector.! index)
-                next = [n | n <- neighbours tile, Just _ <- [IntMap.lookup (unTile n) indexed]]
-            writeIx' <- foldM (visit indexed queue parents seen index) writeIx next
-            search indexed tileByIndex queue parents seen writeIx' (readIx + 1) goal
-  visit indexed queue parents seen parent writeIx next = do
-    let index = indexed IntMap.! unTile next
-    already <- Mutable.read seen index
-    if already then pure writeIx else do
-      Mutable.write seen index True
-      Mutable.write parents index parent
-      Mutable.write queue writeIx index
-      pure (writeIx + 1)
-  unwind tileByIndex parents goal = do
-    go goal []
-   where
-    go i acc
-      | i < 0 = pure acc
-      | otherwise = do
-          parent <- Mutable.read parents i
-          go parent (Tile (tileByIndex Vector.! i) : acc)

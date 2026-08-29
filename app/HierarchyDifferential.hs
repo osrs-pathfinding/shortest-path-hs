@@ -23,7 +23,7 @@ import System.FilePath ((</>))
 import System.IO (hFlush, isEOF, stdout)
 import Text.Printf (printf)
 
-import ShortestPath.Exact.Hierarchical (Hierarchical(..), QueryTimings(..), findRouteProfiled)
+import ShortestPath.Exact.Hierarchical (Hierarchical(..), QueryTimings(..), SearchCounters(..), findRouteProfiled)
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess (preprocessHierarchy)
@@ -275,6 +275,23 @@ timingsJson timings = object
   , "abstractSearchMs" .= abstractSearchMilliseconds timings
   , "reconstructionMs" .= reconstructionMilliseconds timings
   , "totalMs" .= totalMilliseconds timings
+  , "search" .= searchCountersJson (querySearchCounters timings)
+  ]
+
+searchCountersJson :: SearchCounters -> Value
+searchCountersJson counters = object
+  [ "queuePops" .= searchQueuePops counters
+  , "stalePops" .= searchStalePops counters
+  , "edgesConsidered" .= searchEdgesConsidered counters
+  , "successfulRelaxations" .= searchSuccessfulRelaxations counters
+  , "sourceEdges" .= searchSourceEdges counters
+  , "targetEdges" .= searchTargetEdges counters
+  , "metricEdges" .= searchMetricEdges counters
+  , "separatorEdges" .= searchSeparatorEdges counters
+  , "localTransportEdges" .= searchLocalTransportEdges counters
+  , "globalEntryEdges" .= searchGlobalEntryEdges counters
+  , "globalTeleportEdges" .= searchGlobalTeleportEdges counters
+  , "bankEdges" .= searchBankEdges counters
   ]
 
 timedPhase :: String -> IO a -> IO a
@@ -314,13 +331,18 @@ loadCache = timedPhase "load hierarchy cache" $ do
 
 forceHierarchy :: Hierarchy -> IO Hierarchy
 forceHierarchy hierarchy = do
-  let overlaySize = Map.foldl' (\total overlay -> total + Map.size (leafTerminals overlay) + Map.size (leafDistances overlay)) 0 (leafOverlays hierarchy)
+  let overlaySize = Map.foldl' (\total overlay -> total + overlayEntries overlay) 0 (leafOverlays hierarchy)
       size = IntMap.size (tileClasses (hierarchyPartition hierarchy))
         + Map.size (leafTileSets (hierarchyPartition hierarchy))
         + Map.size (terminalLeaf hierarchy)
         + overlaySize
   _ <- evaluate size
   pure hierarchy
+ where
+  overlayEntries overlay =
+    Map.size (leafTerminals overlay)
+      + Map.size (leafDistances overlay)
+      + Map.foldl' (\total adjacent -> total + Map.size adjacent) 0 (leafTerminalAdjacency overlay)
 
 cacheIsFresh :: IO Bool
 cacheIsFresh = do
@@ -345,7 +367,7 @@ filesBelow path = do
       pure (files <> nested)
 
 cacheVersion :: Word64
-cacheVersion = 1
+cacheVersion = 2
 
 cachePath, partitionPath :: FilePath
 cachePath = "out/hierarchy-cache.bin"
@@ -355,7 +377,6 @@ cacheInputRoots :: [FilePath]
 cacheInputRoots =
   [ partitionPath
   , resourcesDir defaultSourcePaths
-  , "src/ShortestPath/Exact/Hierarchical.hs"
   , "src/ShortestPath/Hierarchy"
   , "src/ShortestPath/Tile.hs"
   , "src/ShortestPath/Transport.hs"

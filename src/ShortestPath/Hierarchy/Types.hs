@@ -58,6 +58,7 @@ data LeafStats = LeafStats
 data LeafOverlay = LeafOverlay
   { leafTerminals :: Map.Map Tile (Set.Set TerminalKind)
   , leafDistances :: Map.Map (Tile, Tile) Int
+  , leafTerminalAdjacency :: Map.Map Tile (Map.Map Tile Int)
   , leafStats :: LeafStats
   }
   deriving stock (Eq, Generic, Show)

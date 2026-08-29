@@ -111,12 +111,19 @@ checkPreprocess hierarchy world partition tiles = do
   assert (leafDistance overlay (tA0 tiles) (tA1 tiles) == Just 1)
   assert (leafDistance overlay (tA1 tiles) (tA25 tiles) == Just 24)
   assert (leafDistance overlay (tA0 tiles) (tB1 tiles) == Nothing)
+  assert (Map.lookup (tA0 tiles) (leafTerminalAdjacency overlay) == Just (Map.fromList [(tA1 tiles, 1), (tA25 tiles, 25)]))
+  assert (Map.lookup (tA1 tiles) (leafTerminalAdjacency overlay) == Just (Map.fromList [(tA0 tiles, 1), (tA25 tiles, 24)]))
+  assert (all (symmetric (leafTerminalAdjacency overlay)) (Map.toList (leafTerminalAdjacency overlay)))
+  assert (all (\(source, neighbours) -> not (Map.member source neighbours)) (Map.toList (leafTerminalAdjacency overlay)))
   assert (isWalkable (worldCollision world) (tD0 tiles))
   assert (tS1 tiles `elem` walkingNeighborsRaw world (tS0 tiles))
   assert (tS2 tiles `elem` walkingNeighborsRaw world (tS1 tiles))
   assert (Map.member (tS0 tiles) (hierarchySeparatorNodes hierarchy))
   assert (Map.member (tS2 tiles) (hierarchySeparatorNodes hierarchy))
   assert (Map.member (LeafId 1 "b") (leafOverlays hierarchy))
+ where
+  symmetric adjacency (source, neighbours) =
+    all (\(target, distance) -> (Map.lookup target adjacency >>= Map.lookup source) == Just distance) (Map.toList neighbours)
 
 data Case = Case String Query Expect
 data Expect = Reachable | Unreachable

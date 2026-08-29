@@ -1,20 +1,26 @@
+{-# LANGUAGE MonoLocalBinds #-}
+
 module ShortestPath.Exact.Hierarchical
   ( Hierarchical(..)
   , QueryTimings(..)
+  , SearchCounters(..)
   , findRouteProfiled
   ) where
 
 import Control.Exception (assert, evaluate)
 import Control.Monad (foldM, forM)
+import Control.Monad.ST (runST)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
+import qualified Data.PQueue.Prio.Min as PQueue
 import qualified Data.Set as Set
+import qualified Data.Vector as Boxed
+import qualified Data.Vector.Mutable as BoxedMutable
 import qualified Data.Vector.Unboxed as Vector
 import qualified Data.Vector.Unboxed.Mutable as Mutable
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
-import System.IO.Unsafe (unsafePerformIO)
 
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess
@@ -26,9 +32,6 @@ import ShortestPath.World
 
 data Hierarchical = Hierarchical World Hierarchy
 
-data State = State Node Bool
-  deriving stock (Eq, Ord, Show)
-
 data Edge
   = EdgeWalk Int Tile
   | EdgeTransport Int String Tile
@@ -36,12 +39,43 @@ data Edge
   | EdgeAttach Tile
   deriving stock (Eq, Show)
 
-data Prev = Prev State Edge
-  deriving stock (Eq, Show)
-
 data SearchResult
-  = SearchFailed Int
-  | SearchFound Int Int (Map.Map State Prev) State
+  = SearchFailed Int SearchCounters
+  | SearchFound Int Int (Vector.Vector Int) (Boxed.Vector (Maybe Edge)) Int SearchCounters
+
+data DenseIndex = DenseIndex
+  { denseNodes :: Boxed.Vector Node
+  , denseTileNodes :: IntMap.IntMap Int
+  , denseGlobalHub :: Int
+  , denseQuerySource :: Int
+  , denseQueryTarget :: Int
+  }
+
+data EdgeKind
+  = SourceEdge
+  | TargetEdge
+  | MetricEdge
+  | SeparatorEdge
+  | LocalTransportEdge
+  | GlobalEntryEdge
+  | GlobalTeleportEdge
+  | BankEdge
+
+data SearchCounters = SearchCounters
+  { searchQueuePops :: !Int
+  , searchStalePops :: !Int
+  , searchEdgesConsidered :: !Int
+  , searchSuccessfulRelaxations :: !Int
+  , searchSourceEdges :: !Int
+  , searchTargetEdges :: !Int
+  , searchMetricEdges :: !Int
+  , searchSeparatorEdges :: !Int
+  , searchLocalTransportEdges :: !Int
+  , searchGlobalEntryEdges :: !Int
+  , searchGlobalTeleportEdges :: !Int
+  , searchBankEdges :: !Int
+  }
+  deriving stock (Eq, Show)
 
 data QueryTimings = QueryTimings
   { sourceAttachmentMilliseconds :: Double
@@ -49,17 +83,17 @@ data QueryTimings = QueryTimings
   , abstractSearchMilliseconds :: Double
   , reconstructionMilliseconds :: Double
   , totalMilliseconds :: Double
+  , querySearchCounters :: SearchCounters
   }
   deriving stock (Eq, Show)
 
 instance RouteFinder Hierarchical where
   routeName _ = "hierarchical"
   findRoute hierarchical query =
-    finishSearch hierarchical query result
+    finishSearch hierarchical result
    where
-    sourceAttachments = sourceAttachmentList hierarchical query
-    targetDistances = targetDistanceMap hierarchical query
-    result = searchHierarchy hierarchical query sourceAttachments targetDistances
+    index = denseIndex hierarchical query
+    result = searchHierarchy hierarchical query index (sourceAttachmentList hierarchical query) (targetDistanceMap hierarchical query)
 
 findRouteProfiled :: Hierarchical -> Query -> IO (Route, QueryTimings)
 findRouteProfiled hierarchical query = do
@@ -70,14 +104,15 @@ findRouteProfiled hierarchical query = do
   (targetDistances, targetMs) <- timed
     (\distances -> evaluate (Map.foldlWithKey' (\total tile distance -> total + unTile tile + distance) 0 distances) >> pure distances)
     (targetDistanceMap hierarchical query)
-  (result, searchMs) <- timed evaluate $ searchHierarchy hierarchical query sourceAttachments targetDistances
+  let index = denseIndex hierarchical query
+  (result, searchMs) <- timed evaluate $ searchHierarchy hierarchical query index sourceAttachments targetDistances
   (route, reconstructionMs) <- timed
     (\value -> evaluate (routeCost value + routeExpandedNodes value + length (routeSteps value)) >> pure value)
-    (finishSearch hierarchical query result)
+    (finishSearch hierarchical result)
   finished <- getMonotonicTimeNSec
   pure
     ( route
-    , QueryTimings sourceMs targetMs searchMs reconstructionMs (milliseconds started finished)
+    , QueryTimings sourceMs targetMs searchMs reconstructionMs (milliseconds started finished) (resultCounters result)
     )
 
 timed :: (a -> IO b) -> a -> IO (b, Double)
@@ -93,54 +128,70 @@ milliseconds started finished = fromIntegral (finished - started) / 1000000
 searchHierarchy
   :: Hierarchical
   -> Query
+  -> DenseIndex
   -> [(Tile, Int)]
   -> Map.Map Tile Int
   -> SearchResult
-searchHierarchy (Hierarchical world hierarchy) query sourceAttachments targetDistances =
-    search (Set.singleton (0, start)) (Map.singleton start 0) Map.empty Set.empty 0
+searchHierarchy (Hierarchical world hierarchy) query index sourceAttachments targetDistances = runST $ do
+    distances <- Mutable.replicate stateCount maxBound
+    parents <- Mutable.replicate stateCount (-1)
+    previous <- BoxedMutable.replicate stateCount Nothing
+    Mutable.write distances start 0
+    let relax kind cost state (queue, counters) (next, edgeCost, edge) = do
+          let counted = edgeCounter kind counters
+          case addCost cost edgeCost of
+            Nothing -> pure (queue, counted)
+            Just newCost -> do
+              oldCost <- Mutable.read distances next
+              if newCost >= oldCost
+                then pure (queue, counted)
+                else do
+                  Mutable.write distances next newCost
+                  Mutable.write parents next state
+                  BoxedMutable.write previous next (Just edge)
+                  pure (PQueue.insert newCost next queue, successCounter counted)
+        relaxGroup cost state values (kind, edges) =
+          foldM (relax kind cost state) values edges
+        search queue expanded counters =
+          case PQueue.minViewWithKey queue of
+            Nothing -> pure (SearchFailed expanded counters)
+            Just ((cost, state), rest) -> do
+              known <- Mutable.read distances state
+              let popped = popCounter counters
+              if cost /= known
+                then search rest expanded (staleCounter popped)
+                else if nodeAt index (stateNode state) == QueryTarget
+                  then do
+                    frozenParents <- Vector.freeze parents
+                    frozenPrevious <- Boxed.freeze previous
+                    pure (SearchFound cost expanded frozenParents frozenPrevious state popped)
+                  else do
+                    (queue', counters') <- foldM (relaxGroup cost state) (rest, popped) (neighborGroups state)
+                    search queue' (expanded + 1) counters'
+    search (PQueue.singleton 0 start) 0 emptyCounters
    where
-    start = State QuerySource False
+    stateCount = Boxed.length (denseNodes index) * 2
+    start = stateId (denseQuerySource index) False
     target = queryTarget query
 
-    search queue best previous settled expanded =
-      case Set.minView queue of
-        Nothing -> SearchFailed expanded
-        Just ((cost, state), rest)
-          | Set.member state settled -> search rest best previous settled expanded
-          | State node _ <- state, node == QueryTarget ->
-              SearchFound cost expanded previous state
-          | otherwise ->
-              let settled' = Set.insert state settled
-                  (queue', best', previous') =
-                    foldl (relax cost state) (rest, best, previous) (neighbors state)
-               in search queue' best' previous' settled' (expanded + 1)
-
-    relax cost state (queue, best, previous) (next, edgeCost, edge) =
-      case addCost cost edgeCost of
-        Nothing -> (queue, best, previous)
-        Just newCost
-          | newCost < Map.findWithDefault maxBound next best ->
-              ( Set.insert (newCost, next) queue
-              , Map.insert next newCost best
-              , Map.insert next (Prev state edge) previous
-              )
-          | otherwise -> (queue, best, previous)
-
-    neighbors (State node banked) =
-      sourceEdges node
-        <> targetEdges node banked
-        <> metricEdges node banked
-        <> separatorEdges node banked
-        <> transportEdges node banked
-        <> globalEntryEdges node banked
-        <> globalEdges node banked
-        <> bankEdges node banked
-        <> targetZero node banked
+    neighborGroups state =
+      let node = nodeAt index (stateNode state)
+          banked = stateBanked state
+       in
+      [ (SourceEdge, sourceEdges node)
+      , (TargetEdge, targetEdges node banked <> targetZero node banked)
+      , (MetricEdge, metricEdges node banked)
+      , (SeparatorEdge, separatorEdges node banked)
+      , (LocalTransportEdge, transportEdges node banked)
+      , (GlobalEntryEdge, globalEntryEdges node banked)
+      , (GlobalTeleportEdge, globalEdges node banked)
+      , (BankEdge, bankEdges node banked)
+      ]
 
     sourceEdges QuerySource =
-      [ (State (nodeForTile tile) False, distance, sourceEdge tile distance)
+      [ (stateId node False, distance, sourceEdge tile distance)
       | (tile, distance) <- sourceAttachments
-      , Just _ <- [nodeForTileMaybe tile]
+      , Just node <- [nodeForTileMaybe tile]
       ]
     sourceEdges _ = []
 
@@ -150,68 +201,70 @@ searchHierarchy (Hierarchical world hierarchy) query sourceAttachments targetDis
         _ -> EdgeMetric distance (queryStart query) tile
 
     targetEdges (Terminal tile) banked =
-      [ (State QueryTarget banked, distance, EdgeMetric distance tile target)
+      [ (stateId (denseQueryTarget index) banked, distance, EdgeMetric distance tile target)
       | Just distance <- [targetDistance tile]
       ]
     targetEdges _ _ = []
 
     metricEdges (Terminal tile) banked =
-      [ (State (Terminal other) banked, distance, EdgeMetric distance tile other)
+      [ (stateId otherNode banked, distance, EdgeMetric distance tile other)
       | Just leaf <- [Map.lookup tile (terminalLeaf hierarchy)]
       , Just overlay <- [Map.lookup leaf (leafOverlays hierarchy)]
-      , other <- Map.keys (leafTerminals overlay)
-      , other /= tile
-      , Just distance <- [leafDistance overlay tile other]
+      , Just adjacent <- [Map.lookup tile (leafTerminalAdjacency overlay)]
+      , (other, distance) <- Map.toAscList adjacent
+      , Just otherNode <- [nodeForTileMaybe other]
       ]
     metricEdges _ _ = []
 
     separatorEdges (Separator tile) banked =
-      [ (State (nodeForTile next) banked, 1, EdgeWalk 1 next)
+      [ (stateId nextNode banked, 1, EdgeWalk 1 next)
       | next <- walkingNeighborsRaw world tile
-      , Just _ <- [nodeForTileMaybe next]
+      , Just nextNode <- [nodeForTileMaybe next]
       ]
     separatorEdges (Terminal tile) banked =
-      [ (State (Separator next) banked, 1, EdgeWalk 1 next)
+      [ (stateId nextNode banked, 1, EdgeWalk 1 next)
       | next <- walkingNeighborsRaw world tile
-      , Just (Separator _) <- [nodeForTileMaybe next]
+      , Just nextNode <- [nodeForTileMaybe next]
+      , Separator _ <- [nodeAt index nextNode]
       ]
     separatorEdges _ _ = []
 
     transportEdges node banked
       | not (allowTransports query) = []
       | otherwise =
-          [ (State (nodeForTile destination) banked, transportCost transport, EdgeTransport (transportCost transport) (label transport) destination)
+          [ (stateId destinationNode banked, transportCost transport, EdgeTransport (transportCost transport) (label transport) destination)
           | Just tile <- [tileForNode node]
           , transport <- Map.findWithDefault [] tile (worldTransports world)
           , transportType transport /= "VIRTUAL_WALL"
           , enabled transport
           , Just destination <- [destination transport]
-          , Just _ <- [nodeForTileMaybe destination]
+          , Just destinationNode <- [nodeForTileMaybe destination]
           ]
 
     globalEntryEdges node banked
       | not (allowTransports query) || node == GlobalTeleportHub || node == QueryTarget = []
-      | otherwise = [(State GlobalTeleportHub banked, 0, EdgeAttach (queryStart query))]
+      | otherwise = [(stateId (denseGlobalHub index) banked, 0, EdgeAttach (queryStart query))]
 
     globalEdges GlobalTeleportHub banked =
-      [ (State (nodeForTile destination) banked, transportCost transport, EdgeTransport (transportCost transport) (label transport) destination)
+      [ (stateId destinationNode banked, transportCost transport, EdgeTransport (transportCost transport) (label transport) destination)
       | transport <- worldGlobalTeleports world
       , enabled transport
       , Just destination <- [destination transport]
-      , Just _ <- [nodeForTileMaybe destination]
+      , Just destinationNode <- [nodeForTileMaybe destination]
       ]
     globalEdges _ _ = []
 
     bankEdges node False
       | bankPathEnabled query
       , Just tile <- tileForNode node
-      , Set.member tile (worldBanks world) = [(State node True, 0, EdgeWalk 0 tile)]
+      , Set.member tile (worldBanks world)
+      , Just nodeId <- nodeForTileMaybe tile = [(stateId nodeId True, 0, EdgeWalk 0 tile)]
     bankEdges _ _ = []
 
     targetZero (Separator tile) banked
-      | tile == target = [(State QueryTarget banked, 0, EdgeAttach tile)]
+      | tile == target = [(stateId (denseQueryTarget index) banked, 0, EdgeAttach tile)]
     targetZero (Terminal tile) banked
-      | tile == target = [(State QueryTarget banked, 0, EdgeAttach tile)]
+      | tile == target = [(stateId (denseQueryTarget index) banked, 0, EdgeAttach tile)]
     targetZero _ _ = []
 
     targetDistance tile = Map.lookup tile targetDistances
@@ -219,11 +272,7 @@ searchHierarchy (Hierarchical world hierarchy) query sourceAttachments targetDis
     classOf tile = IntMap.lookup (unTile tile) (tileClasses (hierarchyPartition hierarchy))
 
     nodeForTileMaybe tile =
-      case classOf tile of
-        Just (LeafTile _) -> Just (Terminal tile)
-        Just (SeparatorTile _ _) -> Just (Separator tile)
-        Nothing -> Nothing
-    nodeForTile tile = maybe (Terminal tile) id (nodeForTileMaybe tile)
+      IntMap.lookup (unTile tile) (denseTileNodes index)
 
     tileForNode (Terminal tile) = Just tile
     tileForNode (Separator tile) = Just tile
@@ -235,6 +284,47 @@ searchHierarchy (Hierarchical world hierarchy) query sourceAttachments targetDis
     penalty transport = Map.findWithDefault 0 (transportType transport) (transportPenalties query)
     transportCost transport = duration transport + penalty transport
     label transport = if null (displayInfo transport) then transportType transport else displayInfo transport
+
+denseIndex :: Hierarchical -> Query -> DenseIndex
+denseIndex (Hierarchical _ hierarchy) query =
+  DenseIndex nodes tileNodes hubId sourceId targetId
+ where
+  partition = hierarchyPartition hierarchy
+  classified = IntMap.unions
+    [ IntMap.fromList [(unTile tile, Terminal tile) | tile <- Map.keys (terminalLeaf hierarchy)]
+    , IntMap.fromList [(unTile tile, Separator tile) | tile <- Map.keys (hierarchySeparatorNodes hierarchy)]
+    , IntMap.fromList
+        [ (unTile tile, node)
+        | tile <- [queryStart query, queryTarget query]
+        , Just node <- [endpointNode partition tile]
+        ]
+    ]
+  spatialNodes = IntMap.toAscList classified
+  spatialCount = length spatialNodes
+  hubId = spatialCount
+  sourceId = spatialCount + 1
+  targetId = spatialCount + 2
+  nodes = Boxed.fromList (map snd spatialNodes <> [GlobalTeleportHub, QuerySource, QueryTarget])
+  tileNodes = IntMap.fromAscList (zipWith (\(packed, _) nodeId -> (packed, nodeId)) spatialNodes [0 ..])
+
+endpointNode :: Partition -> Tile -> Maybe Node
+endpointNode partition tile =
+  case IntMap.lookup (unTile tile) (tileClasses partition) of
+    Just (LeafTile _) -> Just (Terminal tile)
+    Just (SeparatorTile _ _) -> Just (Separator tile)
+    Nothing -> Nothing
+
+nodeAt :: DenseIndex -> Int -> Node
+nodeAt index nodeId = denseNodes index Boxed.! nodeId
+
+stateId :: Int -> Bool -> Int
+stateId nodeId banked = nodeId * 2 + if banked then 1 else 0
+
+stateNode :: Int -> Int
+stateNode state = state `div` 2
+
+stateBanked :: Int -> Bool
+stateBanked state = odd state
 
 
 sourceAttachmentList :: Hierarchical -> Query -> [(Tile, Int)]
@@ -266,23 +356,26 @@ targetDistanceMap (Hierarchical world hierarchy) query =
   classOf tile = IntMap.lookup (unTile tile) (tileClasses partition)
   leafTiles leaf = Map.findWithDefault IntSet.empty leaf (leafTileSets partition)
 
-finishSearch :: Hierarchical -> Query -> SearchResult -> Route
-finishSearch _ _ (SearchFailed expanded) = Route maxBound expanded []
-finishSearch (Hierarchical world hierarchy) _ (SearchFound cost expanded previous state) =
-  let (concreteCost, steps) = reconstruct state
+finishSearch :: Hierarchical -> SearchResult -> Route
+finishSearch _ (SearchFailed expanded _) = Route maxBound expanded []
+finishSearch (Hierarchical world hierarchy) (SearchFound cost expanded parents previous state _) =
+  let edges = collect state []
+      concrete = map expand edges
+      concreteCost = sum (map fst concrete)
+      steps = concatMap snd concrete
    in assert (concreteCost == cost) (Route cost expanded steps)
  where
   partition = hierarchyPartition hierarchy
   classOf tile = IntMap.lookup (unTile tile) (tileClasses partition)
   leafTiles leaf = Map.findWithDefault IntSet.empty leaf (leafTileSets partition)
 
-  reconstruct current =
-    case Map.lookup current previous of
-      Nothing -> (0, [])
-      Just (Prev parent edge) ->
-        let (parentCost, parentSteps) = reconstruct parent
-            (edgeCost, edgeSteps) = expand edge
-         in (parentCost + edgeCost, parentSteps <> edgeSteps)
+  collect current edges =
+    let parent = parents Vector.! current
+     in if parent < 0
+          then edges
+          else case previous Boxed.! current of
+            Nothing -> error "hierarchical predecessor has no edge"
+            Just edge -> collect parent (edge : edges)
 
   expand (EdgeWalk edgeCost tile) = (edgeCost, [Walk tile])
   expand (EdgeTransport edgeCost name tile) = (edgeCost, [UseTransport name tile])
@@ -291,10 +384,35 @@ finishSearch (Hierarchical world hierarchy) _ (SearchFound cost expanded previou
     case (classOf from, classOf to) of
       (Just (LeafTile leaf), Just (LeafTile same))
         | leaf == same ->
-            case reconstructLeafPathPure (walkingNeighborsRaw world) (leafTiles leaf) from to of
-              Just path -> assert (length path - 1 == edgeCost) (edgeCost, map Walk (drop 1 path))
-              Nothing -> assert False (0, [])
-      _ -> assert False (0, [])
+            case reconstructLeafPath (walkingNeighborsRaw world) (leafTiles leaf) from to of
+              Just tiles -> assert (length tiles - 1 == edgeCost) (edgeCost, map Walk (drop 1 tiles))
+              Nothing -> error "hierarchical metric edge cannot be reconstructed"
+      _ -> error "hierarchical metric edge crosses leaf boundary"
+
+resultCounters :: SearchResult -> SearchCounters
+resultCounters (SearchFailed _ counters) = counters
+resultCounters (SearchFound _ _ _ _ _ counters) = counters
+
+emptyCounters :: SearchCounters
+emptyCounters = SearchCounters 0 0 0 0 0 0 0 0 0 0 0 0
+
+popCounter, staleCounter, successCounter :: SearchCounters -> SearchCounters
+popCounter counters = counters {searchQueuePops = searchQueuePops counters + 1}
+staleCounter counters = counters {searchStalePops = searchStalePops counters + 1}
+successCounter counters = counters {searchSuccessfulRelaxations = searchSuccessfulRelaxations counters + 1}
+
+edgeCounter :: EdgeKind -> SearchCounters -> SearchCounters
+edgeCounter kind counters =
+  let counted = counters {searchEdgesConsidered = searchEdgesConsidered counters + 1}
+   in case kind of
+        SourceEdge -> counted {searchSourceEdges = searchSourceEdges counted + 1}
+        TargetEdge -> counted {searchTargetEdges = searchTargetEdges counted + 1}
+        MetricEdge -> counted {searchMetricEdges = searchMetricEdges counted + 1}
+        SeparatorEdge -> counted {searchSeparatorEdges = searchSeparatorEdges counted + 1}
+        LocalTransportEdge -> counted {searchLocalTransportEdges = searchLocalTransportEdges counted + 1}
+        GlobalEntryEdge -> counted {searchGlobalEntryEdges = searchGlobalEntryEdges counted + 1}
+        GlobalTeleportEdge -> counted {searchGlobalTeleportEdges = searchGlobalTeleportEdges counted + 1}
+        BankEdge -> counted {searchBankEdges = searchBankEdges counted + 1}
 
 addCost :: Int -> Int -> Maybe Int
 addCost a b
@@ -302,45 +420,40 @@ addCost a b
   | otherwise = Just (a + b)
 
 leafBfs :: (Tile -> [Tile]) -> IntSet.IntSet -> Tile -> [Tile] -> [(Tile, Int)]
-leafBfs neighbours tiles source targets = unsafePerformIO $ do
+leafBfs neighbours tiles source targets = runST $ do
   let indexed = IntMap.fromList (zip (IntSet.toList tiles) [0 ..])
       tileByIndex = Vector.fromList (IntSet.toList tiles)
       capacity = max 1 (IntSet.size tiles)
   queue <- Mutable.new capacity
   distances <- Mutable.replicate capacity (-1 :: Int)
+  let visit currentDistance writeIx next =
+        case IntMap.lookup (unTile next) indexed of
+          Nothing -> pure writeIx
+          Just index -> do
+            existing <- Mutable.read distances index
+            if existing >= 0
+              then pure writeIx
+              else do
+                Mutable.write distances index (currentDistance + 1)
+                Mutable.write queue writeIx index
+                pure (writeIx + 1)
+      flood writeIx readIx
+        | writeIx == readIx = pure ()
+        | otherwise = do
+            index <- Mutable.read queue readIx
+            currentDistance <- Mutable.read distances index
+            nextWrite <- foldM (visit currentDistance) writeIx (neighbours (Tile (tileByIndex Vector.! index)))
+            flood nextWrite (readIx + 1)
+      targetDistance tile =
+        case IntMap.lookup (unTile tile) indexed of
+          Nothing -> pure []
+          Just index -> do
+            value <- Mutable.read distances index
+            pure [(tile, value) | value >= 0]
   case IntMap.lookup (unTile source) indexed of
     Nothing -> pure []
     Just start -> do
       Mutable.write queue 0 start
       Mutable.write distances start 0
-      flood indexed tileByIndex queue distances 1 0
-      fmap concat (forM targets (distance indexed distances))
- where
-  flood indexed tileByIndex queue distances writeIx readIx
-    | writeIx == readIx = pure ()
-    | otherwise = do
-        index <- Mutable.read queue readIx
-        currentDistance <- Mutable.read distances index
-        nextWrite <- foldM (visit indexed queue distances currentDistance) writeIx (neighbours (Tile (tileByIndex Vector.! index)))
-        flood indexed tileByIndex queue distances nextWrite (readIx + 1)
-  visit indexed queue distances currentDistance writeIx next =
-    case IntMap.lookup (unTile next) indexed of
-      Nothing -> pure writeIx
-      Just index -> do
-        existing <- Mutable.read distances index
-        if existing >= 0
-          then pure writeIx
-          else do
-            Mutable.write distances index (currentDistance + 1)
-            Mutable.write queue writeIx index
-            pure (writeIx + 1)
-  distance indexed distances tile =
-    case IntMap.lookup (unTile tile) indexed of
-      Nothing -> pure []
-      Just index -> do
-        value <- Mutable.read distances index
-        pure [(tile, value) | value >= 0]
-
-reconstructLeafPathPure :: (Tile -> [Tile]) -> IntSet.IntSet -> Tile -> Tile -> Maybe [Tile]
-reconstructLeafPathPure neighbours tiles source target =
-  unsafePerformIO (reconstructLeafPath neighbours tiles source target)
+      flood 1 0
+      fmap concat (forM targets targetDistance)
