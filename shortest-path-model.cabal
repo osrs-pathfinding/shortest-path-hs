@@ -10,6 +10,11 @@ library
   import: warnings
   exposed-modules:
     ShortestPath.Exact.Dijkstra
+    ShortestPath.Exact.Hierarchical
+    ShortestPath.Exact.RawDijkstra
+    ShortestPath.Hierarchy.Partition
+    ShortestPath.Hierarchy.Preprocess
+    ShortestPath.Hierarchy.Types
     ShortestPath.Pathfinder
     ShortestPath.Requirements
     ShortestPath.Tile
@@ -27,6 +32,7 @@ library
     filepath,
     text,
     time,
+    vector,
     zip-archive
   default-language: GHC2024
 
@@ -62,6 +68,37 @@ executable graph-census
     vector
   default-language: GHC2024
 
+executable metis-partition
+  import: warnings
+  main-is: MetisPartition.hs
+  hs-source-dirs: app
+  build-depends:
+    aeson,
+    base,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    shortest-path-model,
+    vector,
+    process
+  default-language: GHC2024
+
+executable hierarchy-differential
+  import: warnings
+  main-is: HierarchyDifferential.hs
+  hs-source-dirs: app
+  build-depends:
+    aeson,
+    base,
+    binary,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    shortest-path-model
+  default-language: GHC2024
+
 test-suite smoke
   import: warnings
   type: exitcode-stdio-1.0
@@ -69,5 +106,19 @@ test-suite smoke
   hs-source-dirs: test
   build-depends:
     base,
+    containers,
+    shortest-path-model
+  default-language: GHC2024
+
+test-suite hierarchy-synthetic
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: HierarchySynthetic.hs
+  hs-source-dirs: test
+  build-depends:
+    base,
+    binary,
+    bytestring,
+    containers,
     shortest-path-model
   default-language: GHC2024

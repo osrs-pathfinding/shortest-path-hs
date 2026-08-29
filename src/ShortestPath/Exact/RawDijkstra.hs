@@ -1,5 +1,5 @@
-module ShortestPath.Exact.Dijkstra
-  ( Dijkstra(..)
+module ShortestPath.Exact.RawDijkstra
+  ( RawDijkstra(..)
   ) where
 
 import qualified Data.Map.Strict as Map
@@ -10,7 +10,7 @@ import ShortestPath.Tile
 import ShortestPath.Transport
 import ShortestPath.World
 
-newtype Dijkstra = Dijkstra World
+newtype RawDijkstra = RawDijkstra World
 
 data State = State Tile Bool
   deriving stock (Eq, Ord, Show)
@@ -18,9 +18,9 @@ data State = State Tile Bool
 data Prev = Prev State RouteStep
   deriving stock (Eq, Show)
 
-instance RouteFinder Dijkstra where
-  routeName _ = "dijkstra"
-  findRoute (Dijkstra world) q = search (Set.singleton (0, start)) (Map.singleton start 0) Map.empty Set.empty 0
+instance RouteFinder RawDijkstra where
+  routeName _ = "raw-dijkstra"
+  findRoute (RawDijkstra world) q = search (Set.singleton (0, start)) (Map.singleton start 0) Map.empty Set.empty 0
    where
     start = State (queryStart q) False
     targetTile = queryTarget q
@@ -45,14 +45,17 @@ instance RouteFinder Dijkstra where
     neighbors (State tile banked) =
       walk <> bank <> localTransports <> globalTransports
      where
-      walk = [(State t banked, 1, Walk t) | t <- walkingNeighbors world tile]
+      walk = [(State t banked, 1, Walk t) | t <- walkingNeighborsRaw world tile]
       bank =
         [ (State tile True, 0, Walk tile)
         | queryBankPathEnabled
         , not banked
         , Set.member tile (worldBanks world)
         ]
-      localTransports = if allowTransports q then transportEdges banked (Map.findWithDefault [] tile (worldTransports world)) else []
+      localTransports =
+        if allowTransports q
+          then transportEdges banked (filter ((/= "VIRTUAL_WALL") . transportType) (Map.findWithDefault [] tile (worldTransports world)))
+          else []
       globalTransports = if allowTransports q then transportEdges banked (worldGlobalTeleports world) else []
       queryBankPathEnabled = bankPathEnabled q
 

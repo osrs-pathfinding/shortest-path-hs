@@ -16,6 +16,7 @@ import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs)
 import System.FilePath ((</>))
 import System.IO (hFlush, stdout)
+import Text.Read (readMaybe)
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Text.Printf (printf)
 
@@ -70,8 +71,35 @@ main = do
   args <- getArgs
   case args of
     ["synthetic"] -> syntheticSmoke
+    "tile":coords -> inspectTiles coords
     [] -> osrsCensus
-    _ -> putStrLn "usage: graph-census [synthetic]"
+    _ -> putStrLn "usage: graph-census [synthetic|tile x y plane ...]"
+
+inspectTiles :: [String] -> IO ()
+inspectTiles args =
+  case parseTiles args of
+    Just tiles -> do
+      world <- timed "load world" (loadWorld defaultSourcePaths)
+      walkable <- timed "enumerate walkable tiles" (enumerateWalkable (worldCollision world))
+      (components, tileComp) <- timed "connected components" (componentsOf (map (unTile) . walkingNeighbors world . Tile) walkable)
+      mapM_ (printTile walkable tileComp components) tiles
+    Nothing -> putStrLn "usage: graph-census tile x y plane ..."
+ where
+  parseTiles [] = Just []
+  parseTiles (sx:sy:sp:rest) = do
+    x <- readMaybe sx
+    y <- readMaybe sy
+    p <- readMaybe sp
+    more <- parseTiles rest
+    pure ((x, y, p) : more)
+  parseTiles _ = Nothing
+  printTile walkable tileComp components (x, y, p) = do
+    let tile = packTile x y p
+        cid = IntMap.lookup (unTile tile) tileComp
+    putStrLn ("tile: " <> show x <> " " <> show y <> " " <> show p)
+    putStrLn ("  walkable: " <> show (IntSet.member (unTile tile) walkable))
+    putStrLn ("  component: " <> maybe "" show cid)
+    mapM_ (putStrLn . ("  component details: " <>) . show) [c | c <- components, Just (compId c) == cid]
 
 osrsCensus :: IO ()
 osrsCensus = do
@@ -81,13 +109,19 @@ osrsCensus = do
   putFlush ("walkable tiles: " <> show (IntSet.size walkable))
   (components, tileComp) <- timed "connected components" (componentsOf (map (unTile) . walkingNeighbors world . Tile) walkable)
   families <- timed "transport families" (transportFamilies defaultSourcePaths world)
+  let reachableIds = reachableFromLumbridge world tileComp
+      reachableComponents = filter (flip IntSet.member reachableIds . compId) components
+      reachableWalkable = IntSet.filter (\tile -> maybe False (`IntSet.member` reachableIds) (IntMap.lookup tile tileComp)) walkable
+  putFlush ("reachable-from-lumbridge components: " <> show (length reachableComponents))
+  putFlush ("reachable-from-lumbridge walkable tiles: " <> show (IntSet.size reachableWalkable))
   let counts = componentCounts world tileComp
-  timed "write components.csv" (writeFile "out/components.csv" (componentsCsv counts components))
+  timed "write components.csv" (writeFile "out/components.csv" (componentsCsv counts reachableComponents))
   timed "write transport-families.csv" (writeFile "out/transport-families.csv" (familiesCsv families))
-  timed "write component-graph.csv" (writeFile "out/component-graph.csv" (componentGraphCsv tileComp (allTransports world)))
-  timed "write component-shapes.json" (BL.writeFile "out/component-shapes.json" (encode (componentShapesJson walkable tileComp counts components)))
-  timed "write graph-census.json" (BL.writeFile "out/graph-census.json" (encode (jsonReport world walkable components tileComp counts families)))
-  timed "write graph-census.md" (writeFile "graph-census.md" (markdownReport world walkable components tileComp counts families))
+  timed "write component-graph.csv" (writeFile "out/component-graph.csv" (componentGraphCsv reachableIds tileComp (allTransports world)))
+  timed "write component-shapes.json" (BL.writeFile "out/component-shapes.json" (encode (componentShapesJson reachableWalkable tileComp counts reachableComponents)))
+  timed "write wall bitmaps" (writeWallBitmaps world walkable tileComp)
+  timed "write graph-census.json" (BL.writeFile "out/graph-census.json" (encode (jsonReport world reachableWalkable reachableComponents reachableIds tileComp counts families)))
+  timed "write graph-census.md" (writeFile "graph-census.md" (markdownReport world walkable reachableWalkable components reachableComponents tileComp counts families))
   putStrLn "wrote graph-census.md, out/graph-census.json, out/components.csv, out/component-shapes.json, out/transport-families.csv, out/component-graph.csv"
 
 syntheticSmoke :: IO ()
@@ -104,7 +138,7 @@ syntheticSmoke = do
         ]
       world = World (CollisionMap Map.empty) (Map.fromListWith (<>) [(o, [t]) | t <- ts, Just o <- [origin t]]) [] (Set.singleton (packTile 0 0 0))
   (components, tileComp) <- componentsOf (\n -> Map.findWithDefault [] n neighborMap) tiles
-  let graphEdges = lines (componentGraphCsv tileComp (allTransports world))
+  let graphEdges = lines (componentGraphCsv (IntSet.fromList (map compId components)) tileComp (allTransports world))
   if length components == 4 && sort (map compSize components) == [4,4,4,4] && length graphEdges == 4
     then putStrLn "synthetic smoke: pass (4 components, 3 crossing transports)"
     else fail ("synthetic smoke failed: " <> show (components, graphEdges))
@@ -120,7 +154,48 @@ enumerateWalkable cm = go 1 IntSet.empty (Map.toList (collisionRegions cm))
       then putFlush (printf "  regions %d/%d, walkable so far %d" i total (IntSet.size acc'))
       else pure ()
     go (i + 1) acc' rest
-  addTile acc tile = if isWalkable cm tile then IntSet.insert (unTile tile) acc else acc
+  addTile acc tile = if isWalkable cm tile && not (isVirtualWallTile tile) then IntSet.insert (unTile tile) acc else acc
+
+writeWallBitmaps :: World -> IntSet.IntSet -> IntMap.IntMap Int -> IO ()
+writeWallBitmaps world walkable tileComp = do
+  createDirectoryIfMissing True "out/virtual-walls"
+  mapM_ (\(n, wall) -> do
+    let (sx, sy, _) = unpackTile (wallStart wall)
+        (ex, ey, _) = unpackTile (wallEnd wall)
+        loX = min sx ex - 12
+        hiX = max sx ex + 12
+        loY = min sy ey - 12
+        hiY = max sy ey + 12
+        path = "out/virtual-walls/wall-" <> show n <> ".ppm"
+    writeFile path (ppm wall loX hiX loY hiY)) (zip [1 :: Int ..] virtualWalls)
+ where
+  endpoints = Set.fromList [t | tr <- allTransports world, t <- catMaybes [origin tr, destination tr], transportType tr == "VIRTUAL_WALL"]
+  ppm wall loX hiX loY hiY =
+    unlines
+      ( ["P3", show (hiX - loX + 1) <> " " <> show (hiY - loY + 1), "255"]
+          <> [pixel wall x y | y <- reverse [loY .. hiY], x <- [loX .. hiX]]
+      )
+  pixel wall x y =
+    let tile = packTile x y 0
+        rgb =
+          if isWallTile wall tile then (220, 40, 40)
+          else if Set.member tile endpoints then (255, 220, 40)
+          else if not (IntSet.member (unTile tile) walkable)
+            then (0, 0, 0)
+            else case IntMap.lookup (unTile tile) tileComp of
+              Nothing -> (90, 90, 90)
+              Just cid -> componentColor cid
+     in let (r, g, b) = rgb in unwords (map show [r, g, b])
+  isWallTile wall tile = tile `elem` wallTiles wall
+  wallTiles wall
+    | sx == ex = [packTile sx y 0 | y <- [min sy ey .. max sy ey]]
+    | sy == ey = [packTile x sy 0 | x <- [min sx ex .. max sx ex]]
+    | otherwise = [packTile x (sy - (x - sx)) 0 | x <- [min sx ex .. max sx ex]]
+   where
+    (sx, sy, _) = unpackTile (wallStart wall)
+    (ex, ey, _) = unpackTile (wallEnd wall)
+  componentColor cid =
+    (40 + (cid * 83 `mod` 190), 40 + (cid * 47 `mod` 190), 40 + (cid * 19 `mod` 190))
 
 componentsOf :: (Int -> [Int]) -> IntSet.IntSet -> IO ([Component], IntMap.IntMap Int)
 componentsOf neighborsFor tiles = do
@@ -246,6 +321,36 @@ componentCounts world tileComp =
     Nothing -> id
     Just cid -> IntMap.insertWith (+) cid 1
 
+reachableFromLumbridge :: World -> IntMap.IntMap Int -> IntSet.IntSet
+reachableFromLumbridge world tileComp =
+  case IntMap.lookup (unTile (packTile 3221 3218 0)) tileComp of
+    Nothing -> IntSet.empty
+    Just start -> go IntSet.empty [start]
+ where
+  localEdges =
+    IntMap.fromListWith
+      (<>)
+      [ (a, [b])
+      | t <- concat (Map.elems (worldTransports world))
+      , Just o <- [origin t]
+      , Just d <- [destination t]
+      , Just a <- [IntMap.lookup (unTile o) tileComp]
+      , Just b <- [IntMap.lookup (unTile d) tileComp]
+      ]
+  globalDestinations =
+    IntSet.fromList
+      [ cid
+      | t <- worldGlobalTeleports world
+      , Just d <- [destination t]
+      , Just cid <- [IntMap.lookup (unTile d) tileComp]
+      ]
+  go seen [] = seen
+  go seen (cid:rest)
+    | IntSet.member cid seen = go seen rest
+    | otherwise =
+        let next = IntMap.findWithDefault [] cid localEdges <> IntSet.toList globalDestinations
+         in go (IntSet.insert cid seen) (next <> rest)
+
 componentsCsv :: ComponentCounts -> [Component] -> String
 componentsCsv counts comps =
   unlines
@@ -276,8 +381,8 @@ familiesCsv families =
       , showMaybe (maxCost f), show (originsOnly f), show (destinationsOnly f), show (fixedRows f)
       ]
 
-componentGraphCsv :: IntMap.IntMap Int -> [Transport] -> String
-componentGraphCsv tileComp ts =
+componentGraphCsv :: IntSet.IntSet -> IntMap.IntMap Int -> [Transport] -> String
+componentGraphCsv allowed tileComp ts =
   unlines ("from_component,to_component,edges" : map row (Map.toList edges))
  where
   edges =
@@ -288,17 +393,23 @@ componentGraphCsv tileComp ts =
       , Just d <- [destination t]
       , Just a <- [IntMap.lookup (unTile o) tileComp]
       , Just b <- [IntMap.lookup (unTile d) tileComp]
+      , IntSet.member a allowed
+      , IntSet.member b allowed
       , a /= b
       ]
   row ((a, b), n) = csv [show a, show b, show n]
 
-markdownReport :: World -> IntSet.IntSet -> [Component] -> IntMap.IntMap Int -> ComponentCounts -> [Family] -> String
-markdownReport world walkable comps tileComp counts families =
+markdownReport :: World -> IntSet.IntSet -> IntSet.IntSet -> [Component] -> [Component] -> IntMap.IntMap Int -> ComponentCounts -> [Family] -> String
+markdownReport world rawWalkable walkable rawComps comps tileComp counts families =
   unlines
     [ "# OSRS Pathfinding Graph Census"
     , ""
     , "## Headline totals"
     , ""
+    , "- Scope: components reachable from Lumbridge (`3221 3218 0`) via directed transports, including broad/global teleports."
+    , "- Raw walkable tiles before reachability filter: " <> show (IntSet.size rawWalkable)
+    , "- Raw walking components before reachability filter: " <> show (length rawComps)
+    , "- Excluded disconnected components: " <> show (length rawComps - length comps)
     , "- Walkable tiles: " <> show (IntSet.size walkable)
     , "- Walking components: " <> show (length comps)
     , "- Singleton components: " <> show (length (filter ((== 1) . compSize) comps))
@@ -409,6 +520,8 @@ markdownReport world walkable comps tileComp counts families =
     , Just d <- [destination t]
     , Just a <- [IntMap.lookup (unTile o) tileComp]
     , Just b <- [IntMap.lookup (unTile d) tileComp]
+    , Set.member a allCompIds
+    , Set.member b allCompIds
     ]
   sameComponent = length [() | (a, b) <- localEdges, a == b]
   crossComponent = length [() | (a, b) <- localEdges, a /= b]
@@ -428,16 +541,18 @@ markdownReport world walkable comps tileComp counts families =
     , show (Set.size (Map.findWithDefault Set.empty (compId c) incomingDistinct))
     ]
 
-jsonReport :: World -> IntSet.IntSet -> [Component] -> IntMap.IntMap Int -> ComponentCounts -> [Family] -> Value
-jsonReport world walkable comps tileComp counts families =
+jsonReport :: World -> IntSet.IntSet -> [Component] -> IntSet.IntSet -> IntMap.IntMap Int -> ComponentCounts -> [Family] -> Value
+jsonReport world walkable comps reachableIds tileComp counts families =
   object
     [ "walkableTiles" .= IntSet.size walkable
     , "componentCount" .= length comps
+    , "scope" .= ("reachable-from-lumbridge" :: String)
+    , "lumbridgeTile" .= ("3221 3218 0" :: String)
     , "components" .= map (componentJson counts) comps
     , "transportFamilies" .= map familyJson families
     , "globalTeleportActions" .= length (worldGlobalTeleports world)
     , "globalTeleportDestinations" .= Set.size (Set.fromList (catMaybes (map destination (worldGlobalTeleports world))))
-    , "componentGraph" .= componentGraphJson tileComp (allTransports world)
+    , "componentGraph" .= componentGraphJson reachableIds tileComp (allTransports world)
     ]
 
 componentJson :: ComponentCounts -> Component -> Value
@@ -463,8 +578,8 @@ familyJson f =
     , "p95Cost" .= p95Cost f, "maxCost" .= maxCost f
     ]
 
-componentGraphJson :: IntMap.IntMap Int -> [Transport] -> [Value]
-componentGraphJson tileComp ts =
+componentGraphJson :: IntSet.IntSet -> IntMap.IntMap Int -> [Transport] -> [Value]
+componentGraphJson allowed tileComp ts =
   [ object ["from" .= a, "to" .= b, "edges" .= n]
   | ((a, b), n) <- Map.toList edges
   ]
@@ -475,6 +590,7 @@ componentGraphJson tileComp ts =
       | t <- ts
       , Just o <- [origin t], Just d <- [destination t]
       , Just a <- [IntMap.lookup (unTile o) tileComp], Just b <- [IntMap.lookup (unTile d) tileComp]
+      , IntSet.member a allowed, IntSet.member b allowed
       , a /= b
       ]
 

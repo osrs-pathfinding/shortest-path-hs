@@ -39,7 +39,8 @@ label {
 }
 
 select,
-button {
+button,
+input[type="number"] {
   border: 1px solid rgba(29, 27, 25, 0.2);
   border-radius: 6px;
   box-sizing: border-box;
@@ -48,11 +49,148 @@ button {
   width: 100%;
 }
 
+input[type="number"] {
+  min-width: 0;
+  width: 100%;
+}
+
 button {
   background: #1f2937;
   color: #fff;
   cursor: pointer;
   margin: 4px 0 16px;
+}
+
+.routes {
+  border-top: 1px solid rgba(29, 27, 25, 0.16);
+  margin-top: 16px;
+  padding-top: 14px;
+}
+
+h2 {
+  font-size: 15px;
+  margin: 0 0 14px;
+}
+
+.coordinate-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.coordinate-grid label {
+  font-size: 11px;
+  gap: 4px;
+  margin: 0;
+}
+
+.coordinate-grid input {
+  padding: 7px 5px;
+}
+
+.checkbox-label,
+.map-pick label {
+  align-items: center;
+  display: flex;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.checkbox-label {
+  display: flex;
+  margin-bottom: 10px;
+}
+
+.checkbox-label input,
+.map-pick input {
+  margin: 0;
+  width: auto;
+}
+
+.route-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.route-actions button {
+  margin: 0 0 10px;
+}
+
+.map-pick {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.map-pick span {
+  color: #5f5a52;
+  font-size: 12px;
+  margin-right: 2px;
+}
+
+#route-status {
+  color: #6b6258;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0 0 10px;
+}
+
+.route-start,
+.route-end {
+  fill: #fff;
+  color: #111827;
+  radius: 7;
+  weight: 3;
+}
+
+.route-transport {
+  color: #b91c1c;
+  fill-color: #f97316;
+  fill-opacity: 1;
+  radius: 7;
+  weight: 2;
+}
+
+.route-jump {
+  color: #b91c1c;
+  dash-array: "6 5";
+  weight: 4;
+}
+
+#status {
+  color: #6b6258;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0 0 14px;
+}
+
+.legend {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 16px;
+}
+
+.legend-item {
+  align-items: center;
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.legend-swatch {
+  border: 1px solid rgba(29, 27, 25, 0.35);
+  display: inline-block;
+  flex: 0 0 14px;
+  height: 14px;
+  width: 14px;
+}
+
+.legend-line {
+  height: 4px;
 }
 
 dl {
@@ -81,5 +219,9 @@ dd {
     border-bottom: 1px solid rgba(29, 27, 25, 0.16);
     border-right: 0;
     max-height: 42vh;
+  }
+
+  .coordinate-grid {
+    gap: 6px;
   }
 }

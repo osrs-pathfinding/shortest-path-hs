@@ -14,6 +14,7 @@ import ShortestPath.Tile
 data Query = Query
   { queryStart :: Tile
   , queryTarget :: Tile
+  , allowTransports :: Bool
   , enabledTransportTypes :: Set.Set String
   , transportPenalties :: Map.Map String Int
   , bankPathEnabled :: Bool
@@ -39,6 +40,7 @@ defaultQuery start target =
   Query
     { queryStart = start
     , queryTarget = target
+    , allowTransports = True
     , enabledTransportTypes = Set.empty
     , transportPenalties = Map.empty
     , bankPathEnabled = True

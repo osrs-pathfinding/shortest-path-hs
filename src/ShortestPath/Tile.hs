@@ -7,11 +7,12 @@ module ShortestPath.Tile
   ) where
 
 import Data.Bits ((.&.), (.|.), shiftL, shiftR)
+import Data.Binary (Binary)
 import Data.Int (Int32)
 
 newtype Tile = Tile { unTile :: Int }
   deriving stock (Show)
-  deriving newtype (Eq, Ord)
+  deriving newtype (Binary, Eq, Ord)
 
 packTile :: Int -> Int -> Int -> Tile
 packTile x y p = Tile ((x .&. 0x7fff) .|. ((y .&. 0x7fff) `shiftL` 15) .|. ((p .&. 0x3) `shiftL` 30))

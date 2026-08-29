@@ -1,0 +1,184 @@
+module Main (main) where
+
+import Data.Bits (setBit)
+import Data.Binary (decode, encode)
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+
+import ShortestPath.Exact.Hierarchical
+import ShortestPath.Exact.RawDijkstra
+import ShortestPath.Hierarchy.Partition
+import ShortestPath.Hierarchy.Preprocess
+import ShortestPath.Hierarchy.Types
+import ShortestPath.Pathfinder
+import ShortestPath.Tile
+import ShortestPath.Transport
+import ShortestPath.World
+
+main :: IO ()
+main = do
+  let (world, partition, roles, tiles) = synthetic
+  hierarchy <- preprocessHierarchyWith partition (walkingNeighborsRaw world) roles
+  assert (decode (encode hierarchy) == hierarchy)
+  checkPreprocess hierarchy world partition tiles
+  let hierarchical = Hierarchical world hierarchy
+      raw = RawDijkstra world
+  mapM_ (checkRoute raw hierarchical world) (cases tiles)
+
+synthetic :: (World, Partition, TerminalRoles, Tiles)
+synthetic =
+  ( World (CollisionMap (Map.singleton (1, 1) collisionBytes)) transports globals banks
+  , partition
+  , roles
+  , Tiles a0 a1 a3 a8 a25 b1 c0 d0 d1 s0 s1 s2
+  )
+ where
+  a0 = packTile 100 100 0
+  a1 = packTile 101 100 0
+  a3 = packTile 103 100 0
+  a8 = packTile 108 100 0
+  a25 = packTile 125 100 0
+  a = [packTile x 100 0 | x <- [100 .. 125]]
+  s0 = packTile 100 99 0
+  s1 = packTile 101 99 0
+  s2 = packTile 102 99 0
+  b0 = packTile 103 99 0
+  b1 = packTile 104 99 0
+  c0 = packTile 110 110 0
+  c1 = packTile 111 110 0
+  d0 = packTile 110 111 0
+  d1 = packTile 111 111 0
+  d2 = packTile 110 112 0
+  d3 = packTile 111 112 0
+  allEdges =
+    [(packTile x 100 0, 1) | x <- [100 .. 124]]
+      <> [(s0, 0), (s0, 1), (s1, 1), (s2, 1), (b0, 1)]
+      <> [(c0, 1), (c0, 0), (d0, 0), (d1, 0)]
+  collisionBytes = BL.pack [byteAt i | i <- [0 .. 8191]]
+  byteAt i = foldr setBitIf 0 [bitIndex | (bit, bitIndex) <- flags, bit `div` 8 == i]
+  setBitIf bitIndex byte = setBit byte (bitIndex `mod` 8)
+  flags = [(flagOffset tile flag, flagOffset tile flag `mod` 8) | (tile, flag) <- allEdges]
+  flagOffset tile flag =
+    let (x, y, p) = unpackTile tile
+     in ((p * 4096 + (y - 64) * 64 + (x - 64)) * 2 + flag)
+  assignments =
+    [PartitionAssignment 1 tile "a" "leaf" 1 | tile <- a]
+      <> [PartitionAssignment 1 s "separator" "separator" 0 | s <- [s0, s1, s2]]
+      <> [PartitionAssignment 1 tile "b" "leaf" 1 | tile <- [b0, b1]]
+      <> [PartitionAssignment 1 tile "c" "leaf" 1 | tile <- [c0, c1]]
+      <> [PartitionAssignment 1 tile "d" "leaf" 1 | tile <- [d0, d1, d2, d3]]
+  ownerTiles = a <> [s0, s1, s2, b0, b1, c0, c1, d0, d1, d2, d3]
+  owner = IntMap.fromList [(unTile tile, 1) | tile <- ownerTiles]
+  partition = either (error . ("synthetic partition: " <>)) id
+    (partitionFromAssignments owner (IntSet.singleton 1) assignments)
+  roles = TerminalRoles
+    { roleBanks = Set.singleton a0
+    , roleLocalOrigins = Set.fromList [a0, b1, c1]
+    , roleLocalDestinations = Set.fromList [a1, c0, a25]
+    , roleGlobalDestinations = Set.singleton d1
+    }
+  transports = Map.fromListWith (<>)
+    [ (a0, [local "SYNTHETIC_DIRECT" a0 a1 10])
+    , (b1, [local "SYNTHETIC_BOAT" b1 c0 2])
+    , (c1, [local "SYNTHETIC_RETURN" c1 a25 1])
+    ]
+  globals = [global "SYNTHETIC_GLOBAL" d1 4]
+  banks = Set.singleton a0
+
+data Tiles = Tiles
+  { tA0 :: Tile, tA1 :: Tile, tA3 :: Tile, tA8 :: Tile, tA25 :: Tile
+  , tB1 :: Tile, tC0 :: Tile, tD0 :: Tile, tD1 :: Tile
+  , tS0 :: Tile, tS1 :: Tile, tS2 :: Tile
+  }
+
+local :: String -> Tile -> Tile -> Int -> Transport
+local kind from to cost = Transport kind (Just from) (Just to) cost kind "" False Nothing [] Nothing [] [] [] "synthetic"
+
+global :: String -> Tile -> Int -> Transport
+global kind to cost = Transport kind Nothing (Just to) cost kind "" False Nothing [] Nothing [] [] [] "synthetic"
+
+checkPreprocess :: Hierarchy -> World -> Partition -> Tiles -> IO ()
+checkPreprocess hierarchy world partition tiles = do
+  let leafA = LeafId 1 "a"
+      overlay = must "leaf a" (Map.lookup leafA (leafOverlays hierarchy))
+      kinds = must "duplicate terminal roles" (Map.lookup (tA0 tiles) (leafTerminals overlay))
+      expected = Set.fromList [BankTerminal, LocalTransportOrigin, RegionGateway]
+  assert (Map.size (leafTileSets partition) == 4)
+  assert (kinds == expected)
+  assert (leafDistance overlay (tA0 tiles) (tA1 tiles) == Just 1)
+  assert (leafDistance overlay (tA1 tiles) (tA25 tiles) == Just 24)
+  assert (leafDistance overlay (tA0 tiles) (tB1 tiles) == Nothing)
+  assert (isWalkable (worldCollision world) (tD0 tiles))
+  assert (tS1 tiles `elem` walkingNeighborsRaw world (tS0 tiles))
+  assert (tS2 tiles `elem` walkingNeighborsRaw world (tS1 tiles))
+  assert (Map.member (tS0 tiles) (hierarchySeparatorNodes hierarchy))
+  assert (Map.member (tS2 tiles) (hierarchySeparatorNodes hierarchy))
+  assert (Map.member (LeafId 1 "b") (leafOverlays hierarchy))
+
+data Case = Case String Query Expect
+data Expect = Reachable | Unreachable
+
+cases :: Tiles -> [Case]
+cases t =
+  [ Case "same tile" (query (tA0 t) (tA0 t) Set.empty True) Reachable
+  , Case "same leaf direct" (query (tA3 t) (tA8 t) Set.empty False) Reachable
+  , Case "separator start target" (query (tS0 t) (tS2 t) Set.empty False) Reachable
+  , Case "cross-region walking" (query (tA0 t) (tB1 t) Set.empty False) Reachable
+  , Case "directed local transport" (query (tB1 t) (tC0 t) (Set.singleton "SYNTHETIC_BOAT") False) Reachable
+  , Case "global teleport" (query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_GLOBAL") False) Reachable
+  , Case "banking enabled" (query (tA0 t) (tA3 t) Set.empty True) Reachable
+  , Case "leaf re-entry" (query (tA0 t) (tA25 t) (Set.fromList ["SYNTHETIC_BOAT", "SYNTHETIC_RETURN"]) False) Reachable
+  , Case "unreachable by walking" (walkingQuery (tA0 t) (tD0 t)) Unreachable
+  ]
+
+query :: Tile -> Tile -> Set.Set String -> Bool -> Query
+query start target enabled bank = Query start target True enabled Map.empty bank
+
+walkingQuery :: Tile -> Tile -> Query
+walkingQuery start target = (query start target Set.empty False) { allowTransports = False }
+
+checkRoute :: RawDijkstra -> Hierarchical -> World -> Case -> IO ()
+checkRoute raw hierarchical world (Case name q expectation) = do
+  let flat = findRoute raw q
+      abstract = findRoute hierarchical q
+  case expectation of
+    Reachable -> do
+      assert (routeCost flat < maxBound)
+      assert (routeCost abstract == routeCost flat)
+      assert (concreteCost world q (routeSteps abstract) == routeCost abstract)
+    Unreachable -> do
+      assert (routeCost flat == maxBound)
+      assert (routeCost abstract == maxBound)
+      assert (null (routeSteps abstract))
+  putStrLn (name <> ": " <> show (routeCost flat) <> " / " <> show (routeCost abstract))
+
+concreteCost :: World -> Query -> [RouteStep] -> Int
+concreteCost world q = snd . foldl step (queryStart q, 0)
+ where
+  step (current, total) routeStep =
+    case routeStep of
+      Walk next
+        | next == current -> (next, total)
+        | next `elem` walkingNeighborsRaw world current -> (next, total + 1)
+        | otherwise -> error ("illegal reconstructed walk: " <> coordinateText current <> " -> " <> coordinateText next)
+      UseTransport name next ->
+        let costs = [duration t | t <- allTransports world, label t == name, destination t == Just next]
+         in (next, total + must "transport step" (listHead costs))
+  label transport = if null (displayInfo transport) then transportType transport else displayInfo transport
+
+allTransports :: World -> [Transport]
+allTransports world = concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
+
+listHead :: [a] -> Maybe a
+listHead [] = Nothing
+listHead (x:_) = Just x
+
+must :: String -> Maybe a -> a
+must name = maybe (error name) id
+
+assert :: Bool -> IO ()
+assert True = pure ()
+assert False = fail "synthetic hierarchy assertion failed"

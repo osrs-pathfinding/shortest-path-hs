@@ -34,10 +34,15 @@ main = do
       let q = defaultQuery (packTile (read sx) (read sy) (read sp)) (packTile (read tx) (read ty) (read tp))
           r = findRoute (Dijkstra world) q
       LBS.putStrLn (encode (routeJson r))
+    ["walk-route", sx, sy, sp, tx, ty, tp] -> do
+      world <- loadWorld defaultSourcePaths
+      let q = (defaultQuery (packTile (read sx) (read sy) (read sp)) (packTile (read tx) (read ty) (read tp))) {allowTransports = False}
+          r = findRoute (Dijkstra world) q
+      LBS.putStrLn (encode (routeJson r))
     ["dashboard-json"] -> do
       items <- loadDashboardItems defaultSourcePaths
       LBS.putStrLn (encode (map dashboardItemJson items))
-    _ -> putStrLn "usage: shortest-path-model load-summary | route sx sy sp tx ty tp | dashboard-json"
+    _ -> putStrLn "usage: shortest-path-model load-summary | route sx sy sp tx ty tp | walk-route sx sy sp tx ty tp | dashboard-json"
 
 routeJson :: Route -> Value
 routeJson r =
