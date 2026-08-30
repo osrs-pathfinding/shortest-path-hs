@@ -48,7 +48,7 @@ instance RouteFinder RawDijkstra where
       walk =
         [ (State t banked, 1, Walk t)
         | t <- walkingNeighborsRaw world tile
-        , isWalkable (worldCollision world) t || usableOrigin t
+        , isWalkable (worldCollision world) t || usableOrigin banked t
         ]
       bank =
         [ (State tile True, 0, Walk tile)
@@ -81,12 +81,11 @@ instance RouteFinder RawDijkstra where
     transportEdges banked transports =
       [ (State dst banked, duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q), UseTransport (label t) dst)
       | t <- transports
-      , enabled t
+      , transportAvailable q banked t
       , Just dst <- [destination t]
       ]
 
-    enabled t = Set.null (enabledTransportTypes q) || Set.member (transportType t) (enabledTransportTypes q)
-    usableOrigin tile = allowTransports q && any enabled (Map.findWithDefault [] tile (worldTransports world))
+    usableOrigin banked tile = allowTransports q && any (transportAvailable q banked) (Map.findWithDefault [] tile (worldTransports world))
 
     label t = if null (displayInfo t) then transportType t else displayInfo t
 

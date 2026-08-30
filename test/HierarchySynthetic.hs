@@ -15,6 +15,7 @@ import ShortestPath.Hierarchy.Preprocess
 import ShortestPath.Hierarchy.Types
 import ShortestPath.Heuristic.Region
 import ShortestPath.Pathfinder
+import ShortestPath.Requirements
 import ShortestPath.Tile
 import ShortestPath.Transport
 import ShortestPath.World
@@ -119,7 +120,10 @@ synthetic =
     , (c1, [local "SYNTHETIC_RETURN" c1 a25 1])
     , (e0, [local "SYNTHETIC_RING" e0 c0 2])
     ]
-  globals = [global "SYNTHETIC_GLOBAL" d1 4]
+  globals =
+    [ global "SYNTHETIC_GLOBAL" d1 4 (Just (ItemOne (ItemTerm "13393" 1)))
+    , global "SYNTHETIC_BANK_GLOBAL" d1 3 (Just (ItemOne (ItemTerm "999" 1)))
+    ]
   banks = Set.singleton a0
 
 data Tiles = Tiles
@@ -131,8 +135,8 @@ data Tiles = Tiles
 local :: String -> Tile -> Tile -> Int -> Transport
 local kind from to cost = Transport kind (Just from) (Just to) cost kind "" False Nothing [] Nothing [] [] [] "synthetic"
 
-global :: String -> Tile -> Int -> Transport
-global kind to cost = Transport kind Nothing (Just to) cost kind "" False Nothing [] Nothing [] [] [] "synthetic"
+global :: String -> Tile -> Int -> Maybe ItemExpr -> Transport
+global kind to cost itemReq = Transport kind Nothing (Just to) cost kind "" False Nothing [] itemReq [] [] [] "synthetic"
 
 checkPreprocess :: Hierarchy -> World -> Partition -> Tiles -> IO ()
 checkPreprocess hierarchy world partition tiles = do
@@ -170,6 +174,9 @@ cases t =
   , Case "cross-region walking" (query (tA0 t) (tB1 t) Set.empty False) Reachable
   , Case "directed local transport" (query (tB1 t) (tC0 t) (Set.singleton "SYNTHETIC_BOAT") False) Reachable
   , Case "global teleport" (query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_GLOBAL") False) Reachable
+  , Case "missing inventory blocks global teleport" ((query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_GLOBAL") False) {inventoryItems = Map.empty}) Unreachable
+  , Case "default bank supplies missing global item" ((query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_BANK_GLOBAL") True) {inventoryItems = Map.empty}) Reachable
+  , Case "custom bank blocks missing global item" ((query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_BANK_GLOBAL") True) {inventoryItems = Map.empty, bankItems = BankItems Map.empty}) Unreachable
   , Case "blocked transport origin attachment" (query (tC0 t) (tE0 t) (Set.singleton "SYNTHETIC_RING") False) Reachable
   , Case "blocked transport destination exit" (walkingQuery (tE0 t) (tC0 t)) Reachable
   , Case "banking enabled" (query (tA0 t) (tA3 t) Set.empty True) Reachable
@@ -178,7 +185,11 @@ cases t =
   ]
 
 query :: Tile -> Tile -> Set.Set String -> Bool -> Query
-query start target enabled bank = Query start target True enabled Map.empty bank
+query start target enabled bank =
+  (defaultQuery start target)
+    { enabledTransportTypes = enabled
+    , bankPathEnabled = bank
+    }
 
 walkingQuery :: Tile -> Tile -> Query
 walkingQuery start target = (query start target Set.empty False) { allowTransports = False }

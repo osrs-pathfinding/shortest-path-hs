@@ -320,14 +320,14 @@ searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hi
       [ (stateId nextNode banked, 1, EdgeWalk 1 next)
       | next <- walkingNeighborsRaw world tile
       , Just nextNode <- [nodeForTileMaybe next]
-      , not (external next) || usableOrigin next
+      , not (external next) || usableOrigin banked next
       ]
     separatorEdges (Terminal tile) banked =
       [ (stateId nextNode banked, 1, EdgeWalk 1 next)
       | next <- walkingNeighborsRaw world tile
       , Just nextNode <- [nodeForTileMaybe next]
       , external tile || external next || isSeparatorNode (nodeAt index nextNode)
-      , external tile || not (external next) || usableOrigin next
+      , external tile || not (external next) || usableOrigin banked next
       ]
     separatorEdges _ _ = []
 
@@ -338,7 +338,7 @@ searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hi
           | Just tile <- [tileForNode node]
           , transport <- Map.findWithDefault [] tile (worldTransports world)
           , transportType transport /= "VIRTUAL_WALL"
-          , enabled transport
+          , transportAvailable query banked transport
           , Just destination <- [destination transport]
           , Just destinationNode <- [nodeForTileMaybe destination]
           ]
@@ -351,7 +351,7 @@ searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hi
     globalEdges GlobalTeleportHub banked =
       [ (stateId destinationNode banked, transportCost transport, EdgeTransport (transportCost transport) (label transport) destination)
       | transport <- worldGlobalTeleports world
-      , enabled transport
+      , transportAvailable query banked transport
       , Just destination <- [destination transport]
       , Just destinationNode <- [nodeForTileMaybe destination]
       ]
@@ -393,10 +393,7 @@ searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hi
     nodeTile (Separator tile) = Just tile
     nodeTile _ = Nothing
 
-    enabled transport =
-      Set.null (enabledTransportTypes query)
-        || Set.member (transportType transport) (enabledTransportTypes query)
-    usableOrigin tile = allowTransports query && any enabled (Map.findWithDefault [] tile (worldTransports world))
+    usableOrigin banked tile = allowTransports query && any (transportAvailable query banked) (Map.findWithDefault [] tile (worldTransports world))
     penalty transport = Map.findWithDefault 0 (transportType transport) (transportPenalties query)
     transportCost transport = duration transport + penalty transport
     label transport = if null (displayInfo transport) then transportType transport else displayInfo transport

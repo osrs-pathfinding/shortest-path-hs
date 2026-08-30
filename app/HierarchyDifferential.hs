@@ -153,7 +153,7 @@ selectCases mode partition =
   let named = map namedTest namedCases
       generated = generatedCases partition
    in case mode of
-        Smoke -> take 13 named <> take 24 generated
+        Smoke -> named <> take 24 generated
         All -> named <> generated
 
 namedTest :: NamedCase -> TestCase
@@ -178,7 +178,7 @@ namedCases =
   , named "Great Conch -> McGrubor's Wood" (t 3180 2419) (t 2652 3485) ["FAIRY_RING", "AGILITY_SHORTCUT"]
   , named "Varrock centre -> Cowbell amulet destination" (t 3213 3424) (t 3259 3277) ["TELEPORTATION_ITEM"]
   , named "Lovakengj reverse minecart" (t 1415 3577) (t 1670 3833) ["MINECART"]
-  , named "Varrock teleport" (t 3223 3424) (t 3213 3424) ["TELEPORTATION_SPELL"]
+  , named "Varrock tablet" (t 3223 3424) (t 3213 3424) ["TELEPORTATION_ITEM"]
   , named "Castle Wars -> Grand Exchange" (t 2442 3096) (t 3162 3489) ["FAIRY_RING"]
   , named "Al Kharid mine -> AKQ" (t 3298 3290) (t 2319 3619) ["FAIRY_RING"]
   , named "Banked Dramen staff -> McGrubor's Wood" (t 3134 3503) (t 2652 3485) ["FAIRY_RING"]
