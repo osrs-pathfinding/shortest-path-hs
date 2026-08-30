@@ -23,7 +23,10 @@ import System.FilePath ((</>))
 import System.IO (hFlush, isEOF, stdout)
 import Text.Printf (printf)
 
-import ShortestPath.Exact.Hierarchical (Hierarchical(..), QueryTimings(..), SearchCounters(..), findRouteProfiled)
+import ShortestPath.Exact.Hierarchical
+  ( Hierarchical, QueryTimings(..), SearchCounters(..), buildHierarchical, findRouteProfiledWithOptions
+  , hierarchicalRegionGraphSize
+  )
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess (preprocessHierarchy)
@@ -62,11 +65,19 @@ data ServeRequest = ServeRequest
   , requestStart :: Point
   , requestTarget :: Point
   , requestAllowTransports :: Bool
+  , requestIncludeExpandedTiles :: Bool
+  , requestUseHeuristic :: Bool
   }
 
 instance FromJSON ServeRequest where
   parseJSON = withObject "route request" $ \value ->
-    ServeRequest <$> value .: "id" <*> value .: "start" <*> value .: "target" <*> value .: "allowTransports"
+    ServeRequest
+      <$> value .: "id"
+      <*> value .: "start"
+      <*> value .: "target"
+      <*> value .: "allowTransports"
+      <*> value .: "includeExpandedTiles"
+      <*> value .: "useHeuristic"
 
 data HierarchyCache = HierarchyCache Word64 Hierarchy
   deriving stock (Generic)
@@ -77,13 +88,18 @@ main = do
   command <- parseCommand =<< getArgs
   world <- timedPhase "load world" (loadWorld defaultSourcePaths)
   hierarchy <- loadOrBuildHierarchy world
+  hierarchical <- timedPhase "build relaxed region graph" $ do
+    let value = buildHierarchical world hierarchy
+        (nodes, edges) = hierarchicalRegionGraphSize value
+    _ <- evaluate (nodes + edges)
+    printf "relaxed region graph: %d nodes, %d edges\n" nodes edges
+    pure value
   let partition = hierarchyPartition hierarchy
   case command of
-    Serve -> serveLoop (Hierarchical world hierarchy)
+    Serve -> serveLoop hierarchical
     Run mode writeRoutes -> do
       let cases = selectCases mode partition
           raw = RawDijkstra world
-          hierarchical = Hierarchical world hierarchy
       printf "hierarchy differential: running %d cases (%s)\n" (length cases) (show mode)
       results <- forM (zip [1 :: Int ..] cases) $ \(number, testCase) -> do
         printf "route %d/%d: %s\n" number (length cases) (testLabel testCase)
@@ -116,7 +132,7 @@ selectCases mode partition =
   let named = map namedTest namedCases
       generated = generatedCases partition
    in case mode of
-        Smoke -> take 12 named <> take 24 generated
+        Smoke -> take 13 named <> take 24 generated
         All -> named <> generated
 
 namedTest :: NamedCase -> TestCase
@@ -251,13 +267,19 @@ serveRequest hierarchical line =
       | otherwise -> do
           let query = (defaultQuery (pointTile (requestStart request)) (pointTile (requestTarget request)))
                 { allowTransports = requestAllowTransports request }
-          (route, timings) <- findRouteProfiled hierarchical query
+          (route, timings, expandedTiles, heuristicRegions) <- findRouteProfiledWithOptions
+            (requestIncludeExpandedTiles request)
+            (requestUseHeuristic request)
+            hierarchical
+            query
           pure (object
             [ "id" .= requestId request
             , "ok" .= True
             , "cost" .= routeCost route
             , "expandedNodes" .= routeExpandedNodes route
             , "path" .= routeStepsJson (routeSteps route)
+            , "expandedTiles" .= map coordinateText expandedTiles
+            , "heuristicRegions" .= map heuristicRegionJson heuristicRegions
             , "timings" .= timingsJson timings
             ])
  where
@@ -267,6 +289,11 @@ serveRequest hierarchical line =
   validPoint point = pointX point >= 0 && pointX point <= 32767
     && pointY point >= 0 && pointY point <= 32767
     && pointPlane point >= 0 && pointPlane point <= 3
+  heuristicRegionJson (LeafId component region, value) = object
+    [ "component" .= component
+    , "region" .= region
+    , "value" .= value
+    ]
 
 timingsJson :: QueryTimings -> Value
 timingsJson timings = object
@@ -275,6 +302,7 @@ timingsJson timings = object
   , "abstractSearchMs" .= abstractSearchMilliseconds timings
   , "reconstructionMs" .= reconstructionMilliseconds timings
   , "totalMs" .= totalMilliseconds timings
+  , "heuristicMs" .= heuristicMilliseconds timings
   , "search" .= searchCountersJson (querySearchCounters timings)
   ]
 
@@ -292,6 +320,7 @@ searchCountersJson counters = object
   , "globalEntryEdges" .= searchGlobalEntryEdges counters
   , "globalTeleportEdges" .= searchGlobalTeleportEdges counters
   , "bankEdges" .= searchBankEdges counters
+  , "heuristicLookups" .= searchHeuristicLookups counters
   ]
 
 timedPhase :: String -> IO a -> IO a

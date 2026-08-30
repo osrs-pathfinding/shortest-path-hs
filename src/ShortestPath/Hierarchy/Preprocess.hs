@@ -29,7 +29,7 @@ import ShortestPath.World
 
 preprocessHierarchy :: Partition -> World -> IO Hierarchy
 preprocessHierarchy partition world =
-  preprocessHierarchyWith partition (walkingNeighborsRaw world) roles
+  preprocessHierarchyWith partition (walkingNeighborsRaw world) attachedRoles
  where
   locals =
     [ transport
@@ -44,6 +44,17 @@ preprocessHierarchy partition world =
       , roleLocalDestinations = Set.fromList [tile | transport <- locals, Just tile <- [destination transport]]
       , roleGlobalDestinations = Set.fromList [tile | transport <- worldGlobalTeleports world, Just tile <- [destination transport]]
       }
+  attachedRoles = roles
+    { roleLocalOrigins = attach (roleLocalOrigins roles)
+    , roleLocalDestinations = attach (roleLocalDestinations roles)
+    , roleGlobalDestinations = attach (roleGlobalDestinations roles)
+    }
+  attach locations = locations `Set.union` Set.fromList
+    [ adjacent
+    | endpoint <- Set.toList locations
+    , not (isWalkable (worldCollision world) endpoint)
+    , adjacent <- walkingNeighborsRaw world endpoint
+    ]
 
 preprocessHierarchyWith
   :: Partition

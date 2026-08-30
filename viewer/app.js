@@ -21,6 +21,7 @@ let currentPlane = 0;
 let shapeLayer;
 let bboxLayer;
 let routeLayer;
+let expandedLayer;
 let regionLayer;
 let cutLayer;
 let separatorLayer;
@@ -78,6 +79,8 @@ function normaliseRoute(value, name = "") {
   }));
   return {
     name: value.name || name, cost: value.cost ?? value.hierarchicalCost ?? value.rawCost, expandedNodes: value.expandedNodes,
+    expandedTiles: (value.expandedTiles || []).map(coordinate), timings: value.timings,
+    heuristicRegions: value.heuristicRegions || [],
     path, start: coordinate(value.start || value.source || path[0]?.coordinate),
     target: coordinate(value.target || path[path.length - 1]?.coordinate)
   };
@@ -200,7 +203,7 @@ function selectedTiles(rows, component) {
 }
 
 function removeLayers() {
-  [shapeLayer, bboxLayer, routeLayer, regionLayer, cutLayer, separatorLayer, ...routeMarkers].forEach(layer => {
+  [shapeLayer, bboxLayer, routeLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, ...routeMarkers].forEach(layer => {
     if (layer) map.removeLayer(layer);
   });
   routeMarkers = [];
@@ -233,13 +236,48 @@ function render() {
     const source = mode === "metis" ? partitions : kahipPartitions.filter(point => point.kind === "leaf");
     drawRegions(selectedTiles(source, component), fillOpacity);
   }
+  if (mode === "heuristic") drawHeuristic(component, fillOpacity);
   if (mode === "difference") {
     drawCuts(component);
     drawSeparators(selectedTiles(kahipPartitions.filter(point => point.kind === "separator"), component));
   }
+  drawExpandedTiles();
   drawRoute();
   renderLegend(mode);
   renderStats(component, bins.length, mode);
+}
+
+function drawHeuristic(component, fillOpacity) {
+  if (!route?.heuristicRegions?.length) return;
+  const values = new Map(route.heuristicRegions.map(row => [`${row.component}:${row.region}`, Number(row.value)]));
+  const points = selectedTiles(kahipPartitions.filter(point => point.kind === "leaf"), component);
+  const visibleValues = points.map(point => values.get(`${point.component}:${point.region}`)).filter(Number.isFinite);
+  const maximum = Math.max(1, ...visibleValues);
+  const bins = new Map();
+  for (const point of points) {
+    const value = values.get(`${point.component}:${point.region}`);
+    if (!Number.isFinite(value)) continue;
+    const x = Math.floor(point.x / 16) * 16;
+    const y = Math.floor(point.y / 16) * 16;
+    bins.set(`${point.region}:${x}:${y}`, { x, y, region: point.region, value });
+  }
+  regionLayer = L.layerGroup([...bins.values()].map(bin => {
+    const hue = 120 * (1 - Math.min(1, bin.value / maximum));
+    return L.rectangle([[bin.y, bin.x], [bin.y + 16, bin.x + 16]], {
+      color: `hsl(${hue} 78% 40%)`, fillColor: `hsl(${hue} 78% 45%)`,
+      fillOpacity: Math.min(fillOpacity, 0.68), weight: 1, opacity: 0.9
+    }).bindTooltip(`${bin.region}: h=${bin.value}`);
+  })).addTo(map);
+}
+
+function drawExpandedTiles() {
+  if (!route?.expandedTiles?.length) return;
+  expandedLayer = L.layerGroup(route.expandedTiles.filter(point => point.plane === currentPlane).map(point =>
+    L.circleMarker([point.y + 0.5, point.x + 0.5], {
+      renderer, stroke: false, fillColor: "#fde047", fillOpacity: 0.72,
+      radius: 3, interactive: false
+    })
+  )).addTo(map);
 }
 
 function drawRoute() {
@@ -278,18 +316,37 @@ function drawRoute() {
 
 function renderRouteStats() {
   if (!route) { routeStats.replaceChildren(); return; }
-  const rows = [["route", route.name || "interactive"], ["cost", route.cost ?? "n/a"], ["expanded", route.expandedNodes ?? "n/a"], ["steps", route.path.length]];
+  const rows = [["route", route.name || "interactive"], ["cost", route.cost ?? "n/a"], ["expanded states", route.expandedNodes ?? "n/a"], ["expanded tiles", route.expandedTiles?.length ?? 0], ["steps", route.path.length]];
+  const timings = route.timings;
+  if (timings) {
+    const milliseconds = value => `${Number(value).toFixed(1)} ms`;
+    rows.push(
+      ["source attach", milliseconds(timings.sourceAttachmentMs)],
+      ["target attach", milliseconds(timings.targetAttachmentMs)],
+      ["heuristic", milliseconds(timings.heuristicMs || 0)],
+      ["abstract search", milliseconds(timings.abstractSearchMs)],
+      ["reconstruction", milliseconds(timings.reconstructionMs)],
+      ["total", milliseconds(timings.totalMs)]
+    );
+    if (timings.httpWorkerRoundTripMs !== undefined) rows.push(["HTTP round trip", milliseconds(timings.httpWorkerRoundTripMs)]);
+    if (timings.search) rows.push(["metric edges", Number(timings.search.metricEdges).toLocaleString()]);
+  }
   routeStats.replaceChildren(...rows.flatMap(([name, value]) => { const dt = document.createElement("dt"); const dd = document.createElement("dd"); dt.textContent = name; dd.textContent = value; return [dt, dd]; }));
 }
 
 async function runRoute() {
   try {
-    const body = { start: readRouteInputs("start"), target: readRouteInputs("end"), allowTransports: document.getElementById("allow-transports").checked };
+    const body = {
+      start: readRouteInputs("start"), target: readRouteInputs("end"),
+      allowTransports: document.getElementById("allow-transports").checked,
+      includeExpandedTiles: document.getElementById("include-expanded").checked,
+      useHeuristic: document.getElementById("route-algorithm").value === "astar"
+    };
     routeStatus.textContent = "Requesting route...";
     const response = await fetch("/api/route", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
-    route = { ...normaliseRoute(result, "interactive route"), start: body.start, target: body.target };
+    route = { ...normaliseRoute(result, body.useHeuristic ? "region A*" : "Dijkstra"), start: body.start, target: body.target };
     routeStatus.textContent = "Route loaded from Haskell.";
     render();
   } catch (error) { routeStatus.textContent = `Route error: ${error.message}`; }
@@ -348,9 +405,11 @@ function renderLegend(mode) {
   const items = mode === "difference" ? [
     ["#00e5ff", "METIS cut edges", "legend-line"],
     ["#ff1493", "KaHIP separator tiles", ""]
-  ] : mode === "metis" ? [["#38bdf8", "METIS leaf regions", ""]] :
+  ] : mode === "heuristic" ? [["#16a34a", "Low heuristic", ""], ["#dc2626", "High heuristic", ""]] :
+    mode === "metis" ? [["#38bdf8", "METIS leaf regions", ""]] :
     mode === "kahip" ? [["#fb923c", "KaHIP leaf regions", ""]] :
     [["#2563eb", "Manual walking components", ""]];
+  if (route?.expandedTiles?.length) items.push(["#fde047", "Expanded abstract tiles", ""]);
   legend.replaceChildren(...items.map(([color, label, className]) => {
     const item = document.createElement("div"); item.className = "legend-item";
     const swatch = document.createElement("span"); swatch.className = `legend-swatch ${className}`;
@@ -367,12 +426,18 @@ function renderStats(component, visibleBins, mode) {
     point[1] >= component.minY && point[1] <= component.maxY));
   const selectedSeparators = selectedTiles(kahipPartitions.filter(point => point.kind === "separator"), component);
   const rows = [
-    ["mode", { manual: "Manual", metis: "METIS", kahip: "KaHIP", difference: "Difference" }[mode]],
+    ["mode", { manual: "Manual", metis: "METIS", kahip: "KaHIP", heuristic: "A* heuristic", difference: "Difference" }[mode]],
     ["tiles", component.tiles.toLocaleString()], ["bbox", `${component.minX},${component.minY}..${component.maxX},${component.maxY}`],
     ["plane", component.plane], ["visible bins", visibleBins.toLocaleString()]
   ];
   if (mode === "manual") rows.push(["banks", component.banks.toLocaleString()], ["interesting", component.interestingTiles.toLocaleString()]);
   if (mode === "metis" || mode === "kahip") rows.push(["assigned tiles", source.length.toLocaleString()], ["leaf regions", regions.size.toLocaleString()]);
+  if (mode === "heuristic") {
+    const selected = (route?.heuristicRegions || []).filter(row => Number(row.component) === component.id);
+    const values = selected.map(row => Number(row.value));
+    rows.push(["heuristic regions", selected.length.toLocaleString()]);
+    if (values.length) rows.push(["heuristic range", `${Math.min(...values)}..${Math.max(...values)}`]);
+  }
   if (mode === "difference") rows.push(["METIS cut edges", selectedCuts.length.toLocaleString()], ["KaHIP separators", selectedSeparators.length.toLocaleString()]);
   stats.replaceChildren(...rows.flatMap(([name, value]) => {
     const dt = document.createElement("dt"); const dd = document.createElement("dd");

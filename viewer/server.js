@@ -36,14 +36,18 @@ function parseRouteRequest(body) {
   }
   if (!value || typeof value !== "object" || Array.isArray(value) ||
       !validCoordinate(value.start) || !validCoordinate(value.target) ||
-      (value.allowTransports !== undefined && typeof value.allowTransports !== "boolean")) {
-    return { error: "expected start and target coordinates and an optional boolean allowTransports" };
+      (value.allowTransports !== undefined && typeof value.allowTransports !== "boolean") ||
+      (value.includeExpandedTiles !== undefined && typeof value.includeExpandedTiles !== "boolean") ||
+      (value.useHeuristic !== undefined && typeof value.useHeuristic !== "boolean")) {
+    return { error: "expected start and target coordinates and optional boolean route settings" };
   }
   return {
     value: {
       start: value.start,
       target: value.target,
-      allowTransports: value.allowTransports === undefined ? true : value.allowTransports
+      allowTransports: value.allowTransports === undefined ? true : value.allowTransports,
+      includeExpandedTiles: value.includeExpandedTiles === true,
+      useHeuristic: value.useHeuristic !== false
     }
   };
 }

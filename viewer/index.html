@@ -34,6 +34,7 @@
             <option value="manual">Manual components</option>
             <option value="metis">METIS regions</option>
             <option value="kahip">KaHIP regions</option>
+            <option value="heuristic">A* heuristic</option>
             <option value="difference">Difference</option>
           </select>
         </label>
@@ -58,6 +59,14 @@
             <label>End P<input id="end-plane" type="number" min="0" max="3" step="1"></label>
           </div>
           <label class="checkbox-label"><input id="allow-transports" type="checkbox" checked> Allow transports</label>
+          <label class="checkbox-label"><input id="include-expanded" type="checkbox"> Trace expanded tiles</label>
+          <label>
+            Search
+            <select id="route-algorithm">
+              <option value="astar">Region A*</option>
+              <option value="dijkstra">Dijkstra</option>
+            </select>
+          </label>
           <div class="route-actions">
             <button id="run-route" type="button">Run route</button>
             <button id="fit-route" type="button">Fit route</button>

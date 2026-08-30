@@ -109,7 +109,7 @@ loadType paths tt = do
  where
   isDirect tr = case (origin tr, destination tr) of
     (Just a, Just b) -> a /= b
-    (Nothing, Just _) -> True
+    (Nothing, Just _) -> ttIsTeleport tt || ttName tt == "SEASONAL_TRANSPORTS"
     _ -> False
   isOriginOnly tr = origin tr /= Nothing && destination tr == Nothing
   isDestinationOnly tr = origin tr == Nothing && destination tr /= Nothing

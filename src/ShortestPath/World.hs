@@ -76,7 +76,7 @@ walkingNeighborsRaw = walkingNeighborsMode False
 walkingNeighborsMode :: Bool -> World -> Tile -> [Tile]
 walkingNeighborsMode useWalls world tile =
   let (x, y, p) = unpackTile tile
-      candidates =
+      ordinary =
         [ (-1, 0, w x y p)
         , (1, 0, e x y p)
         , (0, -1, s x y p)
@@ -86,9 +86,30 @@ walkingNeighborsMode useWalls world tile =
         , (-1, 1, nw x y p)
         , (1, 1, ne x y p)
         ]
-   in [next | (dx, dy, ok) <- candidates, ok, let next = packTile (x + dx) (y + dy) p, not useWalls || (not (isVirtualWallTile next) && not (blocked tile next))]
+      adjacent = [(dx, dy, packTile (x + dx) (y + dy) p) | (dx, dy) <- directions]
+      regular = [next | (dx, dy, ok) <- ordinary, ok, let next = packTile (x + dx) (y + dy) p, allowed next]
+      blockedOrigins =
+        [ next
+        | (dx, dy, next) <- adjacent
+        , abs dx + abs dy == 1
+        , not (isWalkable cm next)
+        , Map.member next (worldTransports world)
+        , allowed next
+        ]
+      blockedExits =
+        [ next
+        | (dx, dy, next) <- adjacent
+        , isWalkable cm next
+        , abs dx + abs dy == 1 || cardinalOpen x y p dx dy
+        , allowed next
+        ]
+   in if isWalkable cm tile then regular <> blockedOrigins else blockedExits
  where
   cm = worldCollision world
+  directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)]
+  cardinalOpen x y p dx dy =
+    isWalkable cm (packTile (x + dx) y p) && isWalkable cm (packTile x (y + dy) p)
+  allowed next = not useWalls || (not (isVirtualWallTile next) && not (blocked tile next))
   n x y p = collisionFlag cm x y p 0
   s x y p = n x (y - 1) p
   e x y p = collisionFlag cm x y p 1

@@ -43,9 +43,13 @@ instance RouteFinder RawDijkstra where
             else (queue, best, prev)
 
     neighbors (State tile banked) =
-      walk <> bank <> localTransports <> globalTransports
+      walk <> bank <> localTransports <> initialGlobalTransports <> bankGlobalTransports
      where
-      walk = [(State t banked, 1, Walk t) | t <- walkingNeighborsRaw world tile]
+      walk =
+        [ (State t banked, 1, Walk t)
+        | t <- walkingNeighborsRaw world tile
+        , isWalkable (worldCollision world) t || usableOrigin t
+        ]
       bank =
         [ (State tile True, 0, Walk tile)
         | queryBankPathEnabled
@@ -56,7 +60,22 @@ instance RouteFinder RawDijkstra where
         if allowTransports q
           then transportEdges banked (filter ((/= "VIRTUAL_WALL") . transportType) (Map.findWithDefault [] tile (worldTransports world)))
           else []
-      globalTransports = if allowTransports q then transportEdges banked (worldGlobalTeleports world) else []
+      -- Walking before a broad-origin teleport is dominated by using it immediately.
+      initialGlobalTransports =
+        [ edge
+        | allowTransports q
+        , not banked
+        , tile == queryStart q
+        , edge <- transportEdges False (worldGlobalTeleports world)
+        ]
+      bankGlobalTransports =
+        [ (State dst True, stepCost, step)
+        | allowTransports q
+        , queryBankPathEnabled
+        , not banked
+        , Set.member tile (worldBanks world)
+        , (State dst _, stepCost, step) <- transportEdges True (worldGlobalTeleports world)
+        ]
       queryBankPathEnabled = bankPathEnabled q
 
     transportEdges banked transports =
@@ -67,6 +86,7 @@ instance RouteFinder RawDijkstra where
       ]
 
     enabled t = Set.null (enabledTransportTypes q) || Set.member (transportType t) (enabledTransportTypes q)
+    usableOrigin tile = allowTransports q && any enabled (Map.findWithDefault [] tile (worldTransports world))
 
     label t = if null (displayInfo t) then transportType t else displayInfo t
 

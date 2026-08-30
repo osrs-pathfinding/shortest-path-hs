@@ -203,16 +203,21 @@ reachableComponents world owner =
     , transportType transport /= "VIRTUAL_WALL"
     , Just originTile <- [origin transport]
     , Just destinationTile <- [destination transport]
-    , Just a <- [IntMap.lookup (unTile originTile) owner]
-    , Just b <- [IntMap.lookup (unTile destinationTile) owner]
+    , a <- componentsAt originTile
+    , b <- componentsAt destinationTile
     ]
   globalDestinations =
     IntSet.fromList
       [ component
       | transport <- worldGlobalTeleports world
       , Just destinationTile <- [destination transport]
-      , Just component <- [IntMap.lookup (unTile destinationTile) owner]
+      , component <- componentsAt destinationTile
       ]
+  componentsAt tile = IntSet.toList (IntSet.fromList
+    [ component
+    | candidate <- tile : walkingNeighborsRaw world tile
+    , Just component <- [IntMap.lookup (unTile candidate) owner]
+    ])
   close seen [] = seen
   close seen (component:rest) =
     let next = [b | (a, b) <- localEdges, a == component] <> IntSet.toList globalDestinations

@@ -21,19 +21,37 @@ import ShortestPath.World
 main :: IO ()
 main = do
   let (world, partition, roles, tiles) = synthetic
+      defaults = defaultQuery (tA0 tiles) (tA1 tiles)
+  assert (not (Set.member "SEASONAL_TRANSPORTS" (enabledTransportTypes defaults)))
+  assert (Set.member "TELEPORTATION_ITEM" (enabledTransportTypes defaults))
   hierarchy <- preprocessHierarchyWith partition (walkingNeighborsRaw world) roles
   assert (decode (encode hierarchy) == hierarchy)
   checkPreprocess hierarchy world partition tiles
-  let hierarchical = Hierarchical world hierarchy
+  let hierarchical = buildHierarchical world hierarchy
       raw = RawDijkstra world
   mapM_ (checkRoute raw hierarchical world) (cases tiles)
+  let profiledQuery = walkingQuery (tA3 tiles) (tA8 tiles)
+  (tracedRoute, _, expandedTiles, heuristicRegions) <- findRouteProfiledWithOptions True True hierarchical profiledQuery
+  (dijkstraRoute, _, _, noHeuristicRegions) <- findRouteProfiledWithOptions False False hierarchical profiledQuery
+  assert (routeCost tracedRoute == routeCost dijkstraRoute)
+  assert (routeCost tracedRoute == 5)
+  assert (not (null expandedTiles))
+  assert (not (null heuristicRegions))
+  assert (null noHeuristicRegions)
+  let globalQuery = query (tA3 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
+      rawGlobalRoute = findRoute raw globalQuery
+  (globalRoute, globalTimings) <- findRouteProfiled hierarchical globalQuery
+  assert (routeSteps rawGlobalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
+  assert (routeCost globalRoute == 4)
+  assert (routeSteps globalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
+  assert (searchGlobalEntryEdges (querySearchCounters globalTimings) == 1)
 
 synthetic :: (World, Partition, TerminalRoles, Tiles)
 synthetic =
   ( World (CollisionMap (Map.singleton (1, 1) collisionBytes)) transports globals banks
   , partition
   , roles
-  , Tiles a0 a1 a3 a8 a25 b1 c0 d0 d1 s0 s1 s2
+  , Tiles a0 a1 a3 a8 a25 b1 c0 d0 d1 e0 s0 s1 s2
   )
  where
   a0 = packTile 100 100 0
@@ -53,6 +71,7 @@ synthetic =
   d1 = packTile 111 111 0
   d2 = packTile 110 112 0
   d3 = packTile 111 112 0
+  e0 = packTile 109 110 0
   allEdges =
     [(packTile x 100 0, 1) | x <- [100 .. 124]]
       <> [(s0, 0), (s0, 1), (s1, 1), (s2, 1), (b0, 1)]
@@ -76,7 +95,7 @@ synthetic =
     (partitionFromAssignments owner (IntSet.singleton 1) assignments)
   roles = TerminalRoles
     { roleBanks = Set.singleton a0
-    , roleLocalOrigins = Set.fromList [a0, b1, c1]
+    , roleLocalOrigins = Set.fromList [a0, b1, c1, e0]
     , roleLocalDestinations = Set.fromList [a1, c0, a25]
     , roleGlobalDestinations = Set.singleton d1
     }
@@ -84,13 +103,14 @@ synthetic =
     [ (a0, [local "SYNTHETIC_DIRECT" a0 a1 10])
     , (b1, [local "SYNTHETIC_BOAT" b1 c0 2])
     , (c1, [local "SYNTHETIC_RETURN" c1 a25 1])
+    , (e0, [local "SYNTHETIC_RING" e0 c0 2])
     ]
   globals = [global "SYNTHETIC_GLOBAL" d1 4]
   banks = Set.singleton a0
 
 data Tiles = Tiles
   { tA0 :: Tile, tA1 :: Tile, tA3 :: Tile, tA8 :: Tile, tA25 :: Tile
-  , tB1 :: Tile, tC0 :: Tile, tD0 :: Tile, tD1 :: Tile
+  , tB1 :: Tile, tC0 :: Tile, tD0 :: Tile, tD1 :: Tile, tE0 :: Tile
   , tS0 :: Tile, tS1 :: Tile, tS2 :: Tile
   }
 
@@ -136,6 +156,8 @@ cases t =
   , Case "cross-region walking" (query (tA0 t) (tB1 t) Set.empty False) Reachable
   , Case "directed local transport" (query (tB1 t) (tC0 t) (Set.singleton "SYNTHETIC_BOAT") False) Reachable
   , Case "global teleport" (query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_GLOBAL") False) Reachable
+  , Case "blocked transport origin attachment" (query (tC0 t) (tE0 t) (Set.singleton "SYNTHETIC_RING") False) Reachable
+  , Case "blocked transport destination exit" (walkingQuery (tE0 t) (tC0 t)) Reachable
   , Case "banking enabled" (query (tA0 t) (tA3 t) Set.empty True) Reachable
   , Case "leaf re-entry" (query (tA0 t) (tA25 t) (Set.fromList ["SYNTHETIC_BOAT", "SYNTHETIC_RETURN"]) False) Reachable
   , Case "unreachable by walking" (walkingQuery (tA0 t) (tD0 t)) Unreachable

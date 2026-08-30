@@ -10,6 +10,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import ShortestPath.Tile
+import ShortestPath.Transport (TransportType(..), transportTypes)
 
 data Query = Query
   { queryStart :: Tile
@@ -41,7 +42,11 @@ defaultQuery start target =
     { queryStart = start
     , queryTarget = target
     , allowTransports = True
-    , enabledTransportTypes = Set.empty
+    , enabledTransportTypes = Set.fromList
+        [ ttName transportType
+        | transportType <- transportTypes
+        , ttName transportType /= "SEASONAL_TRANSPORTS"
+        ]
     , transportPenalties = Map.empty
     , bankPathEnabled = True
     }

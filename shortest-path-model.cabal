@@ -15,6 +15,7 @@ library
     ShortestPath.Hierarchy.Partition
     ShortestPath.Hierarchy.Preprocess
     ShortestPath.Hierarchy.Types
+    ShortestPath.Heuristic.Region
     ShortestPath.Pathfinder
     ShortestPath.Requirements
     ShortestPath.Tile
