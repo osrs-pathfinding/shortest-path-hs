@@ -25,6 +25,7 @@ let expandedLayer;
 let regionLayer;
 let cutLayer;
 let separatorLayer;
+let heuristicBounds;
 let route = null;
 let fixtureRoutes = [];
 let routeMarkers = [];
@@ -217,26 +218,29 @@ function render() {
   const mode = modeSelect.value;
   const fillOpacity = Number(opacityInput.value);
   const bins = data.bins.filter(bin => bin.component === component.id && bin.plane === plane);
+  fitButton.textContent = mode === "heuristic" ? "Fit Heuristic" : "Fit Component";
+  componentSelect.disabled = mode === "heuristic";
 
-  shapeLayer = L.layerGroup(bins.map(bin => {
-    const density = bin.tiles / (data.binSize * data.binSize);
-    return L.rectangle([[bin.y, bin.x], [bin.y + data.binSize, bin.x + data.binSize]], {
-      renderer, stroke: false,
-      fillColor: density > 0.75 ? "#ef4444" : density > 0.35 ? "#f59e0b" : "#2563eb",
-      fillOpacity: mode === "manual" ? fillOpacity : Math.min(fillOpacity * 0.35, 0.2)
-    });
-  })).addTo(map);
-
-  if (component.plane === plane) {
-    bboxLayer = L.rectangle([[component.minY, component.minX], [component.maxY + 1, component.maxX + 1]], {
-      color: "#111827", fill: false, interactive: false, weight: 2
-    }).addTo(map);
+  if (mode !== "heuristic") {
+    shapeLayer = L.layerGroup(bins.map(bin => {
+      const density = bin.tiles / (data.binSize * data.binSize);
+      return L.rectangle([[bin.y, bin.x], [bin.y + data.binSize, bin.x + data.binSize]], {
+        renderer, stroke: false,
+        fillColor: density > 0.75 ? "#ef4444" : density > 0.35 ? "#f59e0b" : "#2563eb",
+        fillOpacity: mode === "manual" ? fillOpacity : Math.min(fillOpacity * 0.35, 0.2)
+      });
+    })).addTo(map);
+    if (component.plane === plane) {
+      bboxLayer = L.rectangle([[component.minY, component.minX], [component.maxY + 1, component.maxX + 1]], {
+        color: "#111827", fill: false, interactive: false, weight: 2
+      }).addTo(map);
+    }
   }
   if (mode === "metis" || mode === "kahip") {
     const source = mode === "metis" ? partitions : kahipPartitions.filter(point => point.kind === "leaf");
     drawRegions(selectedTiles(source, component), fillOpacity);
   }
-  if (mode === "heuristic") drawHeuristic(component, fillOpacity);
+  const heuristicSummary = mode === "heuristic" ? drawHeuristic(fillOpacity) : null;
   if (mode === "difference") {
     drawCuts(component);
     drawSeparators(selectedTiles(kahipPartitions.filter(point => point.kind === "separator"), component));
@@ -244,30 +248,52 @@ function render() {
   drawExpandedTiles();
   drawRoute();
   renderLegend(mode);
-  renderStats(component, bins.length, mode);
+  renderStats(component, bins.length, mode, heuristicSummary);
 }
 
-function drawHeuristic(component, fillOpacity) {
-  if (!route?.heuristicRegions?.length) return;
+function drawHeuristic(fillOpacity) {
+  heuristicBounds = null;
+  if (!route?.heuristicRegions?.length) return null;
   const values = new Map(route.heuristicRegions.map(row => [`${row.component}:${row.region}`, Number(row.value)]));
-  const points = selectedTiles(kahipPartitions.filter(point => point.kind === "leaf"), component);
-  const visibleValues = points.map(point => values.get(`${point.component}:${point.region}`)).filter(Number.isFinite);
-  const maximum = Math.max(1, ...visibleValues);
+  const points = kahipPartitions.filter(point => point.kind === "leaf" && point.plane === currentPlane);
+  const partitionedComponents = new Set(points.map(point => point.component));
   const bins = new Map();
+  const regions = new Set();
   for (const point of points) {
-    const value = values.get(`${point.component}:${point.region}`);
+    const key = `${point.component}:${point.region}`;
+    const value = values.get(key);
     if (!Number.isFinite(value)) continue;
-    const x = Math.floor(point.x / 16) * 16;
-    const y = Math.floor(point.y / 16) * 16;
-    bins.set(`${point.region}:${x}:${y}`, { x, y, region: point.region, value });
+    const x = Math.floor(point.x / data.binSize) * data.binSize;
+    const y = Math.floor(point.y / data.binSize) * data.binSize;
+    bins.set(`${key}:${x}:${y}`, { component: point.component, x, y, region: point.region, value });
+    regions.add(key);
   }
+  for (const bin of data.bins) {
+    if (bin.plane !== currentPlane || partitionedComponents.has(bin.component)) continue;
+    const region = `raw-${bin.component}`;
+    const value = values.get(`${bin.component}:${region}`);
+    if (!Number.isFinite(value)) continue;
+    bins.set(`${bin.component}:${region}:${bin.x}:${bin.y}`, { component: bin.component, x: bin.x, y: bin.y, region, value });
+    regions.add(`${bin.component}:${region}`);
+  }
+  const visibleValues = [...bins.values()].map(bin => bin.value);
+  if (!visibleValues.length) return { bins: 0, regions: 0, minimum: 0, maximum: 0 };
+  const minimum = Math.min(...visibleValues);
+  const maximum = Math.max(1, ...visibleValues);
+  const range = Math.max(1, maximum - minimum);
   regionLayer = L.layerGroup([...bins.values()].map(bin => {
-    const hue = 120 * (1 - Math.min(1, bin.value / maximum));
-    return L.rectangle([[bin.y, bin.x], [bin.y + 16, bin.x + 16]], {
+    const hue = 120 * (1 - Math.min(1, (bin.value - minimum) / range));
+    return L.rectangle([[bin.y, bin.x], [bin.y + data.binSize, bin.x + data.binSize]], {
       color: `hsl(${hue} 78% 40%)`, fillColor: `hsl(${hue} 78% 45%)`,
       fillOpacity: Math.min(fillOpacity, 0.68), weight: 1, opacity: 0.9
-    }).bindTooltip(`${bin.region}: h=${bin.value}`);
+    }).bindTooltip(`#${bin.component}/${bin.region}: h=${bin.value}`);
   })).addTo(map);
+  if (bins.size) {
+    const all = [...bins.values()];
+    heuristicBounds = [[Math.min(...all.map(bin => bin.y)), Math.min(...all.map(bin => bin.x))],
+      [Math.max(...all.map(bin => bin.y)) + data.binSize, Math.max(...all.map(bin => bin.x)) + data.binSize]];
+  }
+  return { bins: bins.size, regions: regions.size, minimum, maximum };
 }
 
 function drawExpandedTiles() {
@@ -417,7 +443,7 @@ function renderLegend(mode) {
   }));
 }
 
-function renderStats(component, visibleBins, mode) {
+function renderStats(component, visibleBins, mode, heuristicSummary) {
   const source = mode === "metis" ? selectedTiles(partitions, component) :
     mode === "kahip" ? selectedTiles(kahipPartitions.filter(point => point.kind === "leaf"), component) : [];
   const regions = new Set(source.map(point => point.region));
@@ -425,7 +451,11 @@ function renderStats(component, visibleBins, mode) {
     point[2] === currentPlane && point[0] >= component.minX && point[0] <= component.maxX &&
     point[1] >= component.minY && point[1] <= component.maxY));
   const selectedSeparators = selectedTiles(kahipPartitions.filter(point => point.kind === "separator"), component);
-  const rows = [
+  const rows = mode === "heuristic" ? [
+    ["mode", "A* heuristic"], ["plane", currentPlane],
+    ["heuristic regions", heuristicSummary?.regions.toLocaleString() || "0"],
+    ["rendered bins", heuristicSummary?.bins.toLocaleString() || "0"]
+  ] : [
     ["mode", { manual: "Manual", metis: "METIS", kahip: "KaHIP", heuristic: "A* heuristic", difference: "Difference" }[mode]],
     ["tiles", component.tiles.toLocaleString()], ["bbox", `${component.minX},${component.minY}..${component.maxX},${component.maxY}`],
     ["plane", component.plane], ["visible bins", visibleBins.toLocaleString()]
@@ -433,10 +463,7 @@ function renderStats(component, visibleBins, mode) {
   if (mode === "manual") rows.push(["banks", component.banks.toLocaleString()], ["interesting", component.interestingTiles.toLocaleString()]);
   if (mode === "metis" || mode === "kahip") rows.push(["assigned tiles", source.length.toLocaleString()], ["leaf regions", regions.size.toLocaleString()]);
   if (mode === "heuristic") {
-    const selected = (route?.heuristicRegions || []).filter(row => Number(row.component) === component.id);
-    const values = selected.map(row => Number(row.value));
-    rows.push(["heuristic regions", selected.length.toLocaleString()]);
-    if (values.length) rows.push(["heuristic range", `${Math.min(...values)}..${Math.max(...values)}`]);
+    if (heuristicSummary) rows.push(["heuristic range", `${heuristicSummary.minimum}..${heuristicSummary.maximum}`]);
   }
   if (mode === "difference") rows.push(["METIS cut edges", selectedCuts.length.toLocaleString()], ["KaHIP separators", selectedSeparators.length.toLocaleString()]);
   stats.replaceChildren(...rows.flatMap(([name, value]) => {
@@ -454,6 +481,10 @@ function renderStats(component, visibleBins, mode) {
 }
 
 function fitComponent() {
+  if (modeSelect.value === "heuristic" && heuristicBounds) {
+    map.fitBounds(heuristicBounds, { padding: [30, 30], maxZoom: 2 });
+    return;
+  }
   const component = selectedComponent();
   map.fitBounds([[component.minY, component.minX], [component.maxY + 1, component.maxX + 1]], { padding: [30, 30], maxZoom: 2 });
 }
