@@ -10,7 +10,7 @@ import qualified Data.IntSet as IntSet
 import Data.List (intercalate, sort, sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (getArgs)
 import System.IO (IOMode(WriteMode), hPutStrLn, withFile)
 import System.Process (callProcess)
@@ -24,19 +24,42 @@ import ShortestPath.World
 targetSize :: Int
 targetSize = 50000
 
+refinedTargetSize, refinedMinimumSize, refinedMaximumCheapSeparator :: Int
+refinedTargetSize = 50000
+refinedMinimumSize = 1000
+refinedMaximumCheapSeparator = 10
+
+refinedImbalances :: [Int]
+refinedImbalances = [20, 40, 60, 80, 90, 95]
+
 data Assignment = Assignment Int Int String
 data KAssignment = KAssignment Int Int String String Int
 data Split = Split Int String Int Int Int Int Int Int Int Int
 data KSplit = KSplit Int String Int Int Int Int Int Int [Int]
 data Result = Result Int [Int] [Assignment] [Split] [KAssignment] [KSplit]
+data KCandidate = KCandidate Int [Int] [Int] [Int]
+data KRefinement = KRefinement Int String Int Int (Maybe KCandidate) [KCandidate]
 
 main :: IO ()
 main = do
   args <- getArgs
   case args of
     ["integrate"] -> integrate
+    ["refine-kahip"] -> refineKahip refinedTargetSize refinedMinimumSize refinedMaximumCheapSeparator
+    ["refine-kahip", targetText, minimumText]
+      | Just target <- readMaybe targetText
+      , Just minimumSize <- readMaybe minimumText
+      , target > minimumSize
+      , minimumSize > 0 -> refineKahip target minimumSize (-1)
+    ["refine-kahip", targetText, minimumText, cheapSeparatorText]
+      | Just target <- readMaybe targetText
+      , Just minimumSize <- readMaybe minimumText
+      , Just cheapSeparator <- readMaybe cheapSeparatorText
+      , target > minimumSize
+      , minimumSize > 0
+      , cheapSeparator >= 0 -> refineKahip target minimumSize cheapSeparator
     [] -> partition
-    _ -> putStrLn "usage: metis-partition [integrate]"
+    _ -> putStrLn "usage: metis-partition [integrate | refine-kahip [maximum-size minimum-child [maximum-cheap-separator]]]"
 
 partition :: IO ()
 partition = do
@@ -93,6 +116,137 @@ integrate = do
   timed "write partition-census.json" (BL.writeFile "out/metis/partition-census.json" (encode summary))
   timed "write automatic-partition-census.md" (writeFile "automatic-partition-census.md" (censusMarkdown world raw metisRows metisLinks kahipRows kahipLinks manualRows metis kahip))
   putStrLn "wrote automatic partition census outputs"
+
+refineKahip :: Int -> Int -> Int -> IO ()
+refineKahip maximumSize minimumSize maximumCheapSeparator = do
+  createDirectoryIfMissing True "out/metis"
+  world <- timed "load world" (loadWorld defaultSourcePaths)
+  walkable <- timed "enumerate walkable tiles" (enumerateWalkable (worldCollision world))
+  (components, owner) <- timed "raw walking components" (componentsOf world walkable)
+  let reachable = reachableComponents world owner
+      selected = [(cid, ns) | (cid, ns) <- components, IntSet.member cid reachable, length ns > targetSize]
+  current <- fmap concat (forM selected $ \(cid, ns) -> reuseKahip cid "1" 0 ns)
+  let existingSeparators = [assignment | assignment@(KAssignment _ _ _ "separator" _) <- current]
+      currentLeaves = Map.fromListWith (<>)
+        [ ((cid, region, level), [n])
+        | KAssignment cid n region "leaf" level <- current
+        ]
+  let outputStem = "kahip-refine-max" <> show maximumSize <> "-min" <> show minimumSize <> "-cheap" <> show maximumCheapSeparator
+  putFlush ("refining " <> show (Map.size currentLeaves) <> " existing KaHIP leaves with maximum=" <> show maximumSize <> " minimum=" <> show minimumSize <> " cheap-separator=" <> show maximumCheapSeparator)
+  refined <- forM (Map.toAscList currentLeaves) $ \((cid, region, level), ns) -> do
+    putFlush ("refining component " <> show cid <> " region " <> region <> " (" <> show (length ns) <> " tiles)")
+    refineKahipLeaf world maximumSize minimumSize maximumCheapSeparator cid region level ns
+  let assignments = existingSeparators <> concat [xs | (xs, _) <- refined]
+      refinements = concat [xs | (_, xs) <- refined]
+  validateKahipOnly owner selected assignments
+  timed "write refinement partitions" (writeFile ("out/metis/" <> outputStem <> "-partitions.csv") (kahipAssignmentsCsv assignments))
+  timed "write refinement candidates" (writeFile ("out/metis/" <> outputStem <> "-candidates.csv") (refinementCsv minimumSize refinements))
+  timed "write refinement report" (writeFile (outputStem <> "-report.md") (refinementReport maximumSize minimumSize maximumCheapSeparator current assignments refinements))
+  putStrLn ("wrote isolated KaHIP refinement outputs with prefix " <> outputStem <> "; current hierarchy assignments are unchanged")
+
+refineKahipLeaf :: World -> Int -> Int -> Int -> Int -> String -> Int -> [Int] -> IO ([KAssignment], [KRefinement])
+refineKahipLeaf world maximumSize minimumSize maximumCheapSeparator cid label level ns
+  | length ns < 2 * minimumSize = pure ([KAssignment cid n label "leaf" level | n <- ns], [])
+  | otherwise = do
+      let graph = "out/metis/kahip-refine-" <> show cid <> "-" <> label <> ".graph"
+      graphExists <- doesFileExist graph
+      if graphExists then pure () else timed ("write " <> graph) (writeGraph world ns graph)
+      candidates <- forM refinedImbalances (runCandidate graph)
+      let feasible = filter candidateFeasible candidates
+          acceptable (KCandidate _ _ _ separator) = length ns > maximumSize || length separator <= maximumCheapSeparator
+          chosen = case sortOn candidateScore (filter acceptable feasible) of
+            [] -> Nothing
+            first : _ -> Just first
+          refinement = KRefinement cid label level (length ns) chosen candidates
+      case chosen of
+        Nothing -> do
+          putFlush ("  no acceptable split: children must be >= " <> show minimumSize <> " and regions <= " <> show maximumSize <> " require separator <= " <> show maximumCheapSeparator)
+          pure ([KAssignment cid n label "leaf" level | n <- ns], [refinement])
+        Just (KCandidate imbalance a b s) -> do
+          putFlush ("  chose imbalance=" <> show imbalance <> " sides=" <> show (length a) <> "/" <> show (length b) <> " separator=" <> show (length s))
+          let childPrefix = label <> "i" <> show imbalance
+          (aa, ar) <- refineKahipLeaf world maximumSize minimumSize maximumCheapSeparator cid (childPrefix <> "a") (level + 1) a
+          (bb, br) <- refineKahipLeaf world maximumSize minimumSize maximumCheapSeparator cid (childPrefix <> "b") (level + 1) b
+          let separators = [KAssignment cid n label "separator" level | n <- s]
+          pure (separators <> aa <> bb, refinement : ar <> br)
+ where
+  runCandidate graph imbalance = do
+    let output = graph <> ".i" <> show imbalance <> ".s42.separator"
+    exists <- doesFileExist output
+    if exists
+      then putFlush ("  reuse imbalance=" <> show imbalance)
+      else timed ("KaHIP imbalance=" <> show imbalance) $ callProcess "node_separator"
+        [graph, "--output_filename=" <> output, "--seed=42", "--imbalance=" <> show imbalance, "--preconfiguration=strong"]
+    parts <- readParts output (length ns) [0, 1, 2]
+    pure (KCandidate imbalance [n | (n, 0) <- zip ns parts] [n | (n, 1) <- zip ns parts] [n | (n, 2) <- zip ns parts])
+  candidateFeasible (KCandidate _ a b _) = length a >= minimumSize && length b >= minimumSize
+  candidateScore (KCandidate imbalance a b s) = (length s, max (length a) (length b), abs (length a - length b), imbalance)
+
+validateKahipOnly :: IntMap.IntMap Int -> [(Int, [Int])] -> [KAssignment] -> IO ()
+validateKahipOnly owner selected assignments = do
+  let expected = IntMap.fromList [(n, cid) | (cid, ns) <- selected, n <- ns]
+      actualRows = [(n, cid) | KAssignment cid n _ _ _ <- assignments, IntMap.lookup n owner == Just cid]
+      actual = IntMap.fromList actualRows
+      unique = length actualRows == IntMap.size actual
+      kinds = Set.fromList [kind | KAssignment _ _ _ kind _ <- assignments]
+      valid = length assignments == IntMap.size expected && unique && actual == expected && kinds == Set.fromList ["leaf", "separator"]
+  if valid
+    then putFlush "refined KaHIP assignment invariants: pass"
+    else fail ("refined KaHIP assignment invariant failed: expected=" <> show (IntMap.size expected) <> " assignments=" <> show (length assignments) <> " unique=" <> show unique <> " coverage=" <> show (actual == expected) <> " kinds=" <> show kinds)
+
+refinementCsv :: Int -> [KRefinement] -> String
+refinementCsv minimumSize refinements = unlines
+  ("component,region,level,parent_tiles,imbalance,side_a,side_b,separator,valid,chosen" : concatMap rows refinements)
+ where
+  rows (KRefinement cid region level parent chosen candidates) =
+    [ intercalate ","
+        [ show cid, region, show level, show parent, show imbalance, show (length a), show (length b), show (length s)
+        , show (length a >= minimumSize && length b >= minimumSize)
+        , show (maybe False (sameCandidate candidate) chosen)
+        ]
+    | candidate@(KCandidate imbalance a b s) <- candidates
+    ]
+  sameCandidate (KCandidate a _ _ _) (KCandidate b _ _ _) = a == b
+
+refinementReport :: Int -> Int -> Int -> [KAssignment] -> [KAssignment] -> [KRefinement] -> String
+refinementReport maximumSize minimumSize maximumCheapSeparator before after refinements = unlines
+  [ "# KaHIP Opportunistic Refinement"
+  , ""
+  , "Existing 50k KaHIP leaves were preserved and subdivided independently. Each split tried imbalance " <> intercalate "/" (map show refinedImbalances) <> " with strong quality and seed 42. Regions above the maximum accept the best feasible split; smaller regions split only when the separator is cheap enough. Selection minimises separator size before considering balance."
+  , ""
+  , "- Maximum leaf size: " <> show maximumSize
+  , "- Minimum accepted child size: " <> show minimumSize
+  , "- Maximum opportunistic separator size: " <> show maximumCheapSeparator
+  , "- Leaves before/after: " <> show (length beforeSizes) <> "/" <> show (length afterSizes)
+  , "- Leaf size min/median/p95/max: " <> sizeStats afterSizes
+  , "- Leaves above maximum: " <> show (length (filter (> maximumSize) afterSizes))
+  , "- Separator tiles before/after: " <> show beforeSeparators <> "/" <> show afterSeparators
+  , "- Added separator tiles: " <> show (afterSeparators - beforeSeparators)
+  , ""
+  , "| component | split | parent | chosen imbalance | side A | side B | separator | candidates (imbalance:a/b/s) |"
+  , "|---:|---|---:|---:|---:|---:|---:|---|"
+  , unlines (map splitRow refinements)
+  , "## Leaves per component"
+  , ""
+  , "| component | leaves | min | median | max |"
+  , "|---:|---:|---:|---:|---:|"
+  , unlines ["| " <> intercalate " | " [show cid, show (length sizes), show (minimum sizes), show (percentile 0.5 sizes), show (maximum sizes)] <> " |" | (cid, sizes) <- Map.toAscList perComponent]
+  ]
+ where
+  beforeSizes = leafSizes before
+  afterSizes = leafSizes after
+  leafSizes assignments = Map.elems (Map.fromListWith (+) [((cid, region), 1 :: Int) | KAssignment cid _ region "leaf" _ <- assignments])
+  beforeSeparators = length [() | KAssignment _ _ _ "separator" _ <- before]
+  afterSeparators = length [() | KAssignment _ _ _ "separator" _ <- after]
+  sizeStats [] = "0/0/0/0"
+  sizeStats sizes = intercalate "/" (map show [minimum sizes, percentile 0.5 sizes, percentile 0.95 sizes, maximum sizes])
+  splitRow (KRefinement cid region _ parent chosen candidates) =
+    let chosenColumns = case chosen of
+          Nothing -> ["-", "-", "-", "-"]
+          Just (KCandidate imbalance a b s) -> map show [imbalance, length a, length b, length s]
+        candidateText = intercalate "; " [show imbalance <> ":" <> show (length a) <> "/" <> show (length b) <> "/" <> show (length s) | KCandidate imbalance a b s <- candidates]
+     in "| " <> intercalate " | " ([show cid, region, show parent] <> chosenColumns <> [candidateText]) <> " |"
+  perComponent = Map.fromListWith (<>) [(cid, [size]) | ((cid, _), size) <- Map.toList (Map.fromListWith (+) [((c, r), 1 :: Int) | KAssignment c _ r "leaf" _ <- after])]
 
 partitionComponent :: World -> Int -> [Int] -> IO Result
 partitionComponent world cid tiles = do

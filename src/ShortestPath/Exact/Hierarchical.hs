@@ -3,6 +3,7 @@
 module ShortestPath.Exact.Hierarchical
   ( Hierarchical(..)
   , buildHierarchical
+  , buildHierarchicalWithRegionTable
   , hierarchicalRegionGraphSize
   , QueryTimings(..)
   , SearchCounters(..)
@@ -35,14 +36,23 @@ import ShortestPath.Tile
 import ShortestPath.Transport
 import ShortestPath.World
 
-data Hierarchical = Hierarchical World Hierarchy RegionGraph
+data Hierarchical = Hierarchical World Hierarchy (Maybe RegionGraph) (Maybe RegionTable)
+
+data QueryHeuristic
+  = DetailedHeuristic RegionValues
+  | TableHeuristic RegionTable [LeafId]
 
 buildHierarchical :: World -> Hierarchy -> Hierarchical
-buildHierarchical world hierarchy = Hierarchical world hierarchy (buildRegionGraph world hierarchy)
+buildHierarchical world hierarchy = Hierarchical world hierarchy (Just (buildRegionGraph world hierarchy)) Nothing
+
+buildHierarchicalWithRegionTable :: World -> Hierarchy -> RegionTable -> Hierarchical
+buildHierarchicalWithRegionTable world hierarchy table = Hierarchical world hierarchy Nothing (Just table)
 
 hierarchicalRegionGraphSize :: Hierarchical -> (Int, Int)
-hierarchicalRegionGraphSize (Hierarchical _ _ regionGraph) =
+hierarchicalRegionGraphSize (Hierarchical _ _ (Just regionGraph) _) =
   (regionGraphNodeCount regionGraph, regionGraphEdgeCount regionGraph)
+hierarchicalRegionGraphSize (Hierarchical _ _ _ (Just table)) = regionTableSize table
+hierarchicalRegionGraphSize _ = (0, 0)
 
 data Edge
   = EdgeWalk Int Tile
@@ -108,17 +118,17 @@ instance RouteFinder Hierarchical where
    where
     index = denseIndex hierarchical query
     targetDistances = targetDistanceMap hierarchical query
-    heuristic = Just (queryRegionValues hierarchical query targetDistances)
+    heuristic = queryHeuristic hierarchical query targetDistances
     result = searchHierarchy False heuristic hierarchical query index (sourceAttachmentList hierarchical query) targetDistances
 
 findRouteProfiled :: Hierarchical -> Query -> IO (Route, QueryTimings)
 findRouteProfiled hierarchical query = do
-  (route, timings, _, _) <- findRouteProfiledWithOptions False True hierarchical query
+  (route, timings, _, _, _) <- findRouteProfiledWithOptions False True hierarchical query
   pure (route, timings)
 
 findRouteProfiledWithTrace :: Bool -> Hierarchical -> Query -> IO (Route, QueryTimings, [Tile])
 findRouteProfiledWithTrace includeTrace hierarchical query = do
-  (route, timings, tiles, _) <- findRouteProfiledWithOptions includeTrace True hierarchical query
+  (route, timings, tiles, _, _) <- findRouteProfiledWithOptions includeTrace True hierarchical query
   pure (route, timings, tiles)
 
 findRouteProfiledWithOptions
@@ -126,7 +136,7 @@ findRouteProfiledWithOptions
   -> Bool
   -> Hierarchical
   -> Query
-  -> IO (Route, QueryTimings, [Tile], [(LeafId, Int)])
+  -> IO (Route, QueryTimings, [Tile], [(LeafId, Int)], [(Tile, Int)])
 findRouteProfiledWithOptions includeTrace useHeuristic hierarchical query = do
   started <- getMonotonicTimeNSec
   (sourceAttachments, sourceMs) <- timed
@@ -136,13 +146,13 @@ findRouteProfiledWithOptions includeTrace useHeuristic hierarchical query = do
     (\distances -> evaluate (Map.foldlWithKey' (\total tile distance -> total + unTile tile + distance) 0 distances) >> pure distances)
     (targetDistanceMap hierarchical query)
   (heuristic, heuristicMs) <-
-    if useHeuristic
-      then do
+    case (useHeuristic, queryHeuristic hierarchical query targetDistances) of
+      (True, Just queryValues) -> do
         (values, elapsed) <- timed
-          (\value -> evaluate (sum (map snd (leafLowerBounds value)) + globalLowerBound value) >> pure value)
-          (queryRegionValues hierarchical query targetDistances)
+          (\value -> evaluate (sum (map snd (heuristicLeafLowerBounds value)) + heuristicGlobalLowerBound value False) >> pure value)
+          queryValues
         pure (Just values, elapsed)
-      else pure (Nothing, 0)
+      _ -> pure (Nothing, 0)
   let index = denseIndex hierarchical query
   (result, searchMs) <- timed evaluate $ searchHierarchy includeTrace heuristic hierarchical query index sourceAttachments targetDistances
   (route, reconstructionMs) <- timed
@@ -153,7 +163,8 @@ findRouteProfiledWithOptions includeTrace useHeuristic hierarchical query = do
     ( route
     , QueryTimings sourceMs targetMs searchMs reconstructionMs (milliseconds started finished) heuristicMs (resultCounters result)
     , resultExpandedTiles result
-    , maybe [] leafLowerBounds heuristic
+    , maybe [] heuristicLeafLowerBounds heuristic
+    , maybe [] (\values -> (queryTarget query, 0) : heuristicTileLowerBounds hierarchical values) heuristic
     )
 
 timed :: (a -> IO b) -> a -> IO (b, Double)
@@ -168,14 +179,14 @@ milliseconds started finished = fromIntegral (finished - started) / 1000000
 
 searchHierarchy
   :: Bool
-  -> Maybe RegionValues
+  -> Maybe QueryHeuristic
   -> Hierarchical
   -> Query
   -> DenseIndex
   -> [(Tile, Int)]
   -> Map.Map Tile Int
   -> SearchResult
-searchHierarchy includeTrace regionHeuristic (Hierarchical world hierarchy _) query index sourceAttachments targetDistances = runST $ do
+searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hierarchy _ _) query index sourceAttachments targetDistances = runST $ do
     distances <- Mutable.replicate stateCount maxBound
     parents <- Mutable.replicate stateCount (-1)
     previous <- BoxedMutable.replicate stateCount Nothing
@@ -236,31 +247,31 @@ searchHierarchy includeTrace regionHeuristic (Hierarchical world hierarchy _) qu
     stateCount = nodeCount * 2
     start = stateId (denseQuerySource index) False
     target = queryTarget query
-    heuristicByNode = Vector.generate nodeCount nodeLowerBound
+    heuristicByState = Vector.generate stateCount stateLowerBound
     countHeuristic = case regionHeuristic of
       Nothing -> id
       Just _ -> heuristicCounter
 
     addHeuristic cost state =
-      case addCost cost (heuristicByNode Vector.! stateNode state) of
+      case addCost cost (heuristicByState Vector.! state) of
         Just priority -> priority
         Nothing -> maxBound
 
-    nodeLowerBound nodeId =
+    stateLowerBound state =
       case regionHeuristic of
         Nothing -> 0
         Just values ->
-          case nodeAt index nodeId of
-            Terminal tile -> tileLowerBound values tile
-            Separator tile -> tileLowerBound values tile
-            GlobalTeleportHub -> globalLowerBound values
+          case nodeAt index (stateNode state) of
+            Terminal tile -> heuristicTileLowerBound hierarchical values (stateBanked state) tile
+            Separator tile -> heuristicTileLowerBound hierarchical values (stateBanked state) tile
+            GlobalTeleportHub -> heuristicGlobalLowerBound values (stateBanked state)
             QuerySource -> sourceLowerBound values
             QueryTarget -> 0
 
     sourceLowerBound values = minimumDefault 0
-      ([globalLowerBound values | allowTransports query] <>
+      ([heuristicGlobalLowerBound values False | allowTransports query] <>
        [distance | Just distance <- [Map.lookup (queryStart query) targetDistances]] <>
-       [distance + tileLowerBound values tile | (tile, distance) <- sourceAttachments])
+       [distance + heuristicTileLowerBound hierarchical values False tile | (tile, distance) <- sourceAttachments])
 
     neighborGroups state =
       let node = nodeAt index (stateNode state)
@@ -391,7 +402,7 @@ searchHierarchy includeTrace regionHeuristic (Hierarchical world hierarchy _) qu
     label transport = if null (displayInfo transport) then transportType transport else displayInfo transport
 
 denseIndex :: Hierarchical -> Query -> DenseIndex
-denseIndex (Hierarchical world hierarchy _) query =
+denseIndex (Hierarchical world hierarchy _ _) query =
   DenseIndex nodes tileNodes hubId sourceId targetId
  where
   partition = hierarchyPartition hierarchy
@@ -444,7 +455,7 @@ stateBanked state = odd state
 
 
 sourceAttachmentList :: Hierarchical -> Query -> [(Tile, Int)]
-sourceAttachmentList (Hierarchical world hierarchy _) query =
+sourceAttachmentList (Hierarchical world hierarchy _ _) query =
   case classOf source of
     Just (LeafTile leaf) ->
       let terminals = maybe [] (Map.keys . leafTerminals) (Map.lookup leaf (leafOverlays hierarchy))
@@ -466,7 +477,7 @@ sourceAttachmentList (Hierarchical world hierarchy _) query =
     ]
 
 targetDistanceMap :: Hierarchical -> Query -> Map.Map Tile Int
-targetDistanceMap (Hierarchical world hierarchy _) query =
+targetDistanceMap (Hierarchical world hierarchy _ _) query =
   case classOf target of
     Just (LeafTile leaf) ->
       let terminals = maybe [] (Map.keys . leafTerminals) (Map.lookup leaf (leafOverlays hierarchy))
@@ -482,7 +493,7 @@ targetDistanceMap (Hierarchical world hierarchy _) query =
 
 finishSearch :: Hierarchical -> SearchResult -> Route
 finishSearch _ (SearchFailed expanded _ _) = Route maxBound expanded []
-finishSearch (Hierarchical world hierarchy _) (SearchFound cost expanded parents previous state _ _) =
+finishSearch (Hierarchical world hierarchy _ _) (SearchFound cost expanded parents previous state _ _) =
   let edges = collect state []
       concrete = map expand edges
       concreteCost = sum (map fst concrete)
@@ -548,9 +559,50 @@ addCost a b
   | b < 0 || a > maxBound - b = Nothing
   | otherwise = Just (a + b)
 
-queryRegionValues :: Hierarchical -> Query -> Map.Map Tile Int -> RegionValues
-queryRegionValues (Hierarchical _ _ regionGraph) query =
-  regionValues regionGraph (allowTransports query) (enabledTransportTypes query) (queryTarget query)
+queryHeuristic :: Hierarchical -> Query -> Map.Map Tile Int -> Maybe QueryHeuristic
+queryHeuristic (Hierarchical _ _ (Just regionGraph) _) query targetDistances =
+  Just (DetailedHeuristic (regionValues regionGraph (allowTransports query) (enabledTransportTypes query) (queryTarget query) targetDistances))
+queryHeuristic hierarchical@(Hierarchical _ _ _ (Just table)) query _ =
+  Just (TableHeuristic table (tileLeaves hierarchical (queryTarget query)))
+queryHeuristic _ _ _ = Nothing
+
+heuristicTileLowerBound :: Hierarchical -> QueryHeuristic -> Bool -> Tile -> Int
+heuristicTileLowerBound _ (DetailedHeuristic values) _ tile = tileLowerBound values tile
+heuristicTileLowerBound hierarchical (TableHeuristic table targets) banked tile =
+  tableLowerBound table banked (tileLeaves hierarchical tile) targets
+
+heuristicGlobalLowerBound :: QueryHeuristic -> Bool -> Int
+heuristicGlobalLowerBound (DetailedHeuristic values) _ = globalLowerBound values
+heuristicGlobalLowerBound (TableHeuristic table targets) banked = tableGlobalLowerBound table banked targets
+
+heuristicLeafLowerBounds :: QueryHeuristic -> [(LeafId, Int)]
+heuristicLeafLowerBounds (DetailedHeuristic values) = leafLowerBounds values
+heuristicLeafLowerBounds (TableHeuristic table targets) = tableLeafLowerBounds table False targets
+
+heuristicTileLowerBounds :: Hierarchical -> QueryHeuristic -> [(Tile, Int)]
+heuristicTileLowerBounds _ (DetailedHeuristic values) = tileLowerBounds values
+heuristicTileLowerBounds hierarchical@(Hierarchical world hierarchy _ _) values@(TableHeuristic _ _) =
+  [ (tile, heuristicTileLowerBound hierarchical values False tile)
+  | tile <- Set.toList (Set.unions
+      [ Map.keysSet (terminalLeaf hierarchy)
+      , Map.keysSet (hierarchySeparatorNodes hierarchy)
+      , transportEndpoints world
+      ])
+  ]
+ where
+  transportEndpoints value = Set.fromList
+    [ tile
+    | transport <- concat (Map.elems (worldTransports value)) <> worldGlobalTeleports value
+    , maybeTile <- [origin transport, destination transport]
+    , Just tile <- [maybeTile]
+    ]
+
+tileLeaves :: Hierarchical -> Tile -> [LeafId]
+tileLeaves (Hierarchical world hierarchy _ _) tile = Set.toList (Set.fromList
+  [ leaf
+  | candidate <- tile : walkingNeighborsRaw world tile
+  , Just (LeafTile leaf) <- [IntMap.lookup (unTile candidate) (tileClasses (hierarchyPartition hierarchy))]
+  ])
 
 minimumDefault :: Ord a => a -> [a] -> a
 minimumDefault fallback [] = fallback

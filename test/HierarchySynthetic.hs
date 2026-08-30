@@ -13,6 +13,7 @@ import ShortestPath.Exact.RawDijkstra
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess
 import ShortestPath.Hierarchy.Types
+import ShortestPath.Heuristic.Region
 import ShortestPath.Pathfinder
 import ShortestPath.Tile
 import ShortestPath.Transport
@@ -29,15 +30,28 @@ main = do
   checkPreprocess hierarchy world partition tiles
   let hierarchical = buildHierarchical world hierarchy
       raw = RawDijkstra world
+      exactValues = regionValues
+        (buildRegionGraph world hierarchy)
+        False
+        Set.empty
+        (tA25 tiles)
+        (Map.singleton (tA25 tiles) 0)
+  assert (tileLowerBound exactValues (tA0 tiles) == 25)
   mapM_ (checkRoute raw hierarchical world) (cases tiles)
+  regionTable <- buildRegionTable (buildRegionGraph world hierarchy)
+  let precomputed = buildHierarchicalWithRegionTable world hierarchy regionTable
+  mapM_ (checkRoute raw precomputed world) (cases tiles)
   let profiledQuery = walkingQuery (tA3 tiles) (tA8 tiles)
-  (tracedRoute, _, expandedTiles, heuristicRegions) <- findRouteProfiledWithOptions True True hierarchical profiledQuery
-  (dijkstraRoute, _, _, noHeuristicRegions) <- findRouteProfiledWithOptions False False hierarchical profiledQuery
+  (tracedRoute, _, expandedTiles, heuristicRegions, heuristicTiles) <- findRouteProfiledWithOptions True True hierarchical profiledQuery
+  (dijkstraRoute, _, _, noHeuristicRegions, noHeuristicTiles) <- findRouteProfiledWithOptions False False hierarchical profiledQuery
   assert (routeCost tracedRoute == routeCost dijkstraRoute)
   assert (routeCost tracedRoute == 5)
   assert (not (null expandedTiles))
   assert (not (null heuristicRegions))
+  assert (not (null heuristicTiles))
+  assert (lookup (tA8 tiles) heuristicTiles == Just 0)
   assert (null noHeuristicRegions)
+  assert (null noHeuristicTiles)
   let globalQuery = query (tA3 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
       rawGlobalRoute = findRoute raw globalQuery
   (globalRoute, globalTimings) <- findRouteProfiled hierarchical globalQuery

@@ -24,9 +24,10 @@ import System.IO (hFlush, isEOF, stdout)
 import Text.Printf (printf)
 
 import ShortestPath.Exact.Hierarchical
-  ( Hierarchical, QueryTimings(..), SearchCounters(..), buildHierarchical, findRouteProfiledWithOptions
+  ( Hierarchical, QueryTimings(..), SearchCounters(..), buildHierarchical, buildHierarchicalWithRegionTable, findRouteProfiledWithOptions
   , hierarchicalRegionGraphSize
   )
+import ShortestPath.Heuristic.Region (RegionTable, buildRegionGraph, buildRegionTable)
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess (preprocessHierarchy)
@@ -83,17 +84,35 @@ data HierarchyCache = HierarchyCache Word64 Hierarchy
   deriving stock (Generic)
   deriving anyclass (Binary)
 
+data RegionTableCache = RegionTableCache Word64 RegionTable
+  deriving stock (Generic)
+  deriving anyclass (Binary)
+
 main :: IO ()
 main = do
   command <- parseCommand =<< getArgs
   world <- timedPhase "load world" (loadWorld defaultSourcePaths)
   hierarchy <- loadOrBuildHierarchy world
-  hierarchical <- timedPhase "build relaxed region graph" $ do
-    let value = buildHierarchical world hierarchy
-        (nodes, edges) = hierarchicalRegionGraphSize value
-    _ <- evaluate (nodes + edges)
-    printf "relaxed region graph: %d nodes, %d edges\n" nodes edges
-    pure value
+  case command of
+    GenerateRegionTable -> do
+      regionGraph <- timedPhase "build detailed optimistic terminal graph" $ do
+        let value = buildRegionGraph world hierarchy
+        _ <- evaluate value
+        pure value
+      table <- timedPhase "generate region lower-bound table" (buildRegionTable regionGraph)
+      timedPhase "write region lower-bound table" (encodeFile regionTablePath (RegionTableCache regionTableVersion table))
+    _ -> do
+      table <- loadFreshRegionTable
+      hierarchical <- timedPhase "load routing heuristic" $ do
+        let value = maybe (buildHierarchical world hierarchy) (buildHierarchicalWithRegionTable world hierarchy) table
+            (nodes, edges) = hierarchicalRegionGraphSize value
+        _ <- evaluate (nodes + edges)
+        printf "routing heuristic: %d regions/nodes, %d edges/table entries\n" nodes edges
+        pure value
+      runCommand command world hierarchy hierarchical
+
+runCommand :: Command -> World -> Hierarchy -> Hierarchical -> IO ()
+runCommand command world hierarchy hierarchical = do
   let partition = hierarchyPartition hierarchy
   case command of
     Serve -> serveLoop hierarchical
@@ -108,11 +127,12 @@ main = do
         pure (testCase, flat, abstract)
       when writeRoutes (writeCorpus results)
       putStrLn "hierarchy differential: pass"
+    GenerateRegionTable -> pure ()
 
 data Mode = Smoke | All
   deriving (Eq, Show)
 
-data Command = Run Mode Bool | Serve
+data Command = Run Mode Bool | Serve | GenerateRegionTable
   deriving (Eq, Show)
 
 parseCommand :: [String] -> IO Command
@@ -123,8 +143,9 @@ parseCommand [mode, "--write-routes"]
   | mode == "smoke" = pure (Run Smoke True)
   | mode == "all" = pure (Run All True)
 parseCommand ["serve"] = pure Serve
+parseCommand ["generate-region-table"] = pure GenerateRegionTable
 parseCommand _ = do
-  putStrLn "usage: runghc app/HierarchyDifferential.hs [smoke|all [--write-routes]|serve]"
+  putStrLn "usage: runghc app/HierarchyDifferential.hs [smoke|all [--write-routes]|serve|generate-region-table]"
   exitFailure
 
 selectCases :: Mode -> Partition -> [TestCase]
@@ -267,7 +288,7 @@ serveRequest hierarchical line =
       | otherwise -> do
           let query = (defaultQuery (pointTile (requestStart request)) (pointTile (requestTarget request)))
                 { allowTransports = requestAllowTransports request }
-          (route, timings, expandedTiles, heuristicRegions) <- findRouteProfiledWithOptions
+          (route, timings, expandedTiles, heuristicRegions, heuristicTiles) <- findRouteProfiledWithOptions
             (requestIncludeExpandedTiles request)
             (requestUseHeuristic request)
             hierarchical
@@ -280,6 +301,7 @@ serveRequest hierarchical line =
             , "path" .= routeStepsJson (routeSteps route)
             , "expandedTiles" .= map coordinateText expandedTiles
             , "heuristicRegions" .= map heuristicRegionJson heuristicRegions
+            , "heuristicTiles" .= map heuristicTileJson heuristicTiles
             , "timings" .= timingsJson timings
             ])
  where
@@ -294,6 +316,9 @@ serveRequest hierarchical line =
     , "region" .= region
     , "value" .= value
     ]
+  heuristicTileJson (tile, value) =
+    let (x, y, plane) = unpackTile tile
+     in object ["x" .= x, "y" .= y, "plane" .= plane, "value" .= value]
 
 timingsJson :: QueryTimings -> Value
 timingsJson timings = object
@@ -383,6 +408,30 @@ cacheIsFresh = do
       cacheTime <- getModificationTime cachePath
       and <$> mapM (fmap (<= cacheTime) . getModificationTime) inputs
 
+loadFreshRegionTable :: IO (Maybe RegionTable)
+loadFreshRegionTable = do
+  fresh <- regionTableIsFresh
+  if not fresh
+    then putStrLn "region lower-bound table missing or stale; using per-query detailed heuristic" >> pure Nothing
+    else do
+      decoded <- decodeFileOrFail regionTablePath
+      case decoded of
+        Right (RegionTableCache version table) | version == regionTableVersion -> do
+          putStrLn ("loaded region lower-bound table: " <> regionTablePath)
+          pure (Just table)
+        Right _ -> putStrLn "region lower-bound table version mismatch; using detailed heuristic" >> pure Nothing
+        Left (_, message) -> putStrLn ("region lower-bound table decode failed: " <> message) >> pure Nothing
+
+regionTableIsFresh :: IO Bool
+regionTableIsFresh = do
+  exists <- doesFileExist regionTablePath
+  if not exists
+    then pure False
+    else do
+      tableTime <- getModificationTime regionTablePath
+      inputs <- mapM getModificationTime [cachePath, "src/ShortestPath/Heuristic/Region.hs"]
+      pure (all (<= tableTime) inputs)
+
 filesBelow :: FilePath -> IO [FilePath]
 filesBelow path = do
   directory <- doesDirectoryExist path
@@ -398,9 +447,13 @@ filesBelow path = do
 cacheVersion :: Word64
 cacheVersion = 2
 
-cachePath, partitionPath :: FilePath
+regionTableVersion :: Word64
+regionTableVersion = 1
+
+cachePath, partitionPath, regionTablePath :: FilePath
 cachePath = "out/hierarchy-cache.bin"
 partitionPath = "out/metis/kahip-partitions.csv"
+regionTablePath = "out/region-lower-bounds.bin"
 
 cacheInputRoots :: [FilePath]
 cacheInputRoots =
