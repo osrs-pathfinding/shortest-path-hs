@@ -37,9 +37,10 @@ main = do
         Set.empty
         (tA25 tiles)
         (Map.singleton (tA25 tiles) 0)
-  assert (tileLowerBound exactValues (tA0 tiles) == 25)
+  assert (tileLowerBound exactValues False (tA0 tiles) == 25)
   mapM_ (checkRoute raw hierarchical world) (cases tiles)
   regionTable <- buildRegionTable (buildRegionGraph world hierarchy)
+  assert (tableLowerBound regionTable False [LeafId 1 "a"] [LeafId 1 "d"] < tableLowerBound regionTable True [LeafId 1 "a"] [LeafId 1 "d"])
   let precomputed = buildHierarchicalWithRegionTable world hierarchy regionTable
   mapM_ (checkRoute raw precomputed world) (cases tiles)
   let profiledQuery = walkingQuery (tA3 tiles) (tA8 tiles)
@@ -115,7 +116,7 @@ synthetic =
     , roleGlobalDestinations = Set.singleton d1
     }
   transports = Map.fromListWith (<>)
-    [ (a0, [local "SYNTHETIC_DIRECT" a0 a1 10])
+    [ (a0, [local "SYNTHETIC_DIRECT" a0 a1 10, local "SYNTHETIC_LONG" a0 d1 20])
     , (b1, [local "SYNTHETIC_BOAT" b1 c0 2])
     , (c1, [local "SYNTHETIC_RETURN" c1 a25 1])
     , (e0, [local "SYNTHETIC_RING" e0 c0 2])

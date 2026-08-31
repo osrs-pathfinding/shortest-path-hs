@@ -14,7 +14,7 @@ module ShortestPath.Exact.Hierarchical
 
 import Control.Exception (assert, evaluate)
 import Control.Monad (foldM, forM)
-import Control.Monad.ST (runST)
+import Control.Monad.ST (ST, runST)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
@@ -97,6 +97,10 @@ data SearchCounters = SearchCounters
   , searchGlobalTeleportEdges :: !Int
   , searchBankEdges :: !Int
   , searchHeuristicLookups :: !Int
+  , searchNeedBankExpansions :: !Int
+  , searchGlobalFinishedExpansions :: !Int
+  , searchRefinedHeuristicEvaluations :: !Int
+  , searchRefinedHeuristicCandidates :: !Int
   }
   deriving stock (Eq, Show)
 
@@ -190,6 +194,7 @@ searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hi
     distances <- Mutable.replicate stateCount maxBound
     parents <- Mutable.replicate stateCount (-1)
     previous <- BoxedMutable.replicate stateCount Nothing
+    heuristicCache <- Mutable.replicate stateCount (-1)
     trace <- if includeTrace then Just <$> Mutable.replicate nodeCount False else pure Nothing
     Mutable.write distances start 0
     let expandedTiles =
@@ -219,8 +224,8 @@ searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hi
                   Mutable.write distances next newCost
                   Mutable.write parents next state
                   BoxedMutable.write previous next (Just edge)
-                  let priority = addHeuristic newCost next
-                  pure (PQueue.insert priority (next, newCost) queue, countHeuristic (successCounter counted))
+                  (priority, counted') <- addHeuristic heuristicCache (successCounter counted) newCost next
+                  pure (PQueue.insert priority (next, newCost) queue, counted')
         relaxGroup cost state values (kind, edges) =
           foldM (relax kind cost state) values edges
         search queue expanded counters =
@@ -239,34 +244,94 @@ searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hi
                     pure (SearchFound cost expanded frozenParents frozenPrevious state popped tiles)
                   else do
                     markExpanded state
-                    (queue', counters') <- foldM (relaxGroup cost state) (rest, popped) (neighborGroups state)
+                    (queue', counters') <- foldM (relaxGroup cost state) (rest, lifecycleCounter state popped) (neighborGroups state)
                     search queue' (expanded + 1) counters'
-    search (PQueue.singleton (addHeuristic 0 start) (start, 0)) 0 (countHeuristic emptyCounters)
+    (startPriority, startCounters) <- addHeuristic heuristicCache emptyCounters 0 start
+    search (PQueue.singleton startPriority (start, 0)) 0 startCounters
    where
     nodeCount = Boxed.length (denseNodes index)
     stateCount = nodeCount * 2
     start = stateId (denseQuerySource index) False
     target = queryTarget query
-    heuristicByState = Vector.generate stateCount stateLowerBound
-    countHeuristic = case regionHeuristic of
-      Nothing -> id
-      Just _ -> heuristicCounter
+    addHeuristic :: Mutable.MVector s Int -> SearchCounters -> Int -> Int -> ST s (Int, SearchCounters)
+    addHeuristic heuristicCache counters cost state =
+      case regionHeuristic of
+        Nothing -> pure (priority 0, counters)
+        Just _ -> do
+          cached <- Mutable.read heuristicCache state
+          (lowerBound, refined, candidates) <-
+            if cached >= 0
+              then pure (cached, 0, 0)
+              else do
+                let computed@(value, _, _) = stateLowerBound state
+                Mutable.write heuristicCache state value
+                pure computed
+          pure (priority lowerBound, refinedCounter refined candidates (heuristicCounter counters))
+     where
+      priority lowerBound =
+        case addCost cost lowerBound of
+          Just value -> value
+          Nothing -> maxBound
 
-    addHeuristic cost state =
-      case addCost cost (heuristicByState Vector.! state) of
-        Just priority -> priority
-        Nothing -> maxBound
+    refinedCounter refined candidates counters =
+      counters
+        { searchRefinedHeuristicEvaluations = searchRefinedHeuristicEvaluations counters + refined
+        , searchRefinedHeuristicCandidates = searchRefinedHeuristicCandidates counters + candidates
+        }
 
     stateLowerBound state =
       case regionHeuristic of
-        Nothing -> 0
+        Nothing -> (0, 0, 0)
         Just values ->
           case nodeAt index (stateNode state) of
-            Terminal tile -> heuristicTileLowerBound hierarchical values (stateBanked state) tile
-            Separator tile -> heuristicTileLowerBound hierarchical values (stateBanked state) tile
-            GlobalTeleportHub -> heuristicGlobalLowerBound values (stateBanked state)
-            QuerySource -> sourceLowerBound values
-            QueryTarget -> 0
+            Terminal tile -> terminalLowerBound values (stateBanked state) tile
+            node -> (coarseLowerBound values (stateBanked state) node, 0, 0)
+
+    coarseLowerBound values banked node =
+      case node of
+        Terminal tile -> heuristicTileLowerBound hierarchical values banked tile
+        Separator tile -> heuristicTileLowerBound hierarchical values banked tile
+        GlobalTeleportHub -> heuristicGlobalLowerBound values banked
+        QuerySource -> sourceLowerBound values
+        QueryTarget -> 0
+
+    terminalLowerBound values banked tile =
+      case Map.lookup tile (terminalLeaf hierarchy) of
+        Nothing -> (coarse, 0, 0)
+        Just leaf ->
+          let exits = Map.findWithDefault [] (leaf, banked) usefulExits
+           in if length exits > terminalRefinementExitLimit
+                then (coarse, 0, 0)
+                else
+                  let adjacent = maybe Map.empty (Map.findWithDefault Map.empty tile . leafTerminalAdjacency) (Map.lookup leaf (leafOverlays hierarchy))
+                      candidates = direct <> exitCandidates values tile adjacent exits
+                      refined = minimumDefault 0 candidates
+                   in if null candidates then (coarse, 1, 0) else (max coarse refined, 1, length candidates)
+     where
+      coarse = heuristicTileLowerBound hierarchical values banked tile
+      direct = [distance | Just distance <- [targetDistance tile]]
+
+    exitCandidates values current adjacent exits =
+      [ total
+      | (tile, edges) <- exits
+      , Just walkCost <- [if tile == current then Just 0 else Map.lookup tile adjacent]
+      , (next, edgeCost, _) <- edges
+      , Just prefix <- [addCost walkCost edgeCost]
+      , Just total <- [addCost prefix (coarseLowerBound values (stateBanked next) (nodeAt index (stateNode next)))]
+      ]
+
+    usefulExits = Map.fromListWith (<>)
+      [ ((leaf, banked), [(tile, exits)])
+      | (tile, leaf) <- Map.toAscList (terminalLeaf hierarchy)
+      , Just nodeId <- [nodeForTileMaybe tile]
+      , banked <- [False, True]
+      , let node = nodeAt index nodeId
+            exits = separatorEdges (Terminal tile) banked <> transportEdges node banked <> bankEdges node banked
+      , not (null exits)
+      ]
+
+    -- ponytail: bounded terminal lookahead; replace with per-leaf multi-source propagation if large leaves need refinement.
+    terminalRefinementExitLimit = 64
 
     sourceLowerBound values = minimumDefault 0
       ([heuristicGlobalLowerBound values False | allowTransports query] <>
@@ -530,13 +595,37 @@ resultExpandedTiles (SearchFailed _ _ tiles) = tiles
 resultExpandedTiles (SearchFound _ _ _ _ _ _ tiles) = tiles
 
 emptyCounters :: SearchCounters
-emptyCounters = SearchCounters 0 0 0 0 0 0 0 0 0 0 0 0 0
+emptyCounters =
+  SearchCounters
+    { searchQueuePops = 0
+    , searchStalePops = 0
+    , searchEdgesConsidered = 0
+    , searchSuccessfulRelaxations = 0
+    , searchSourceEdges = 0
+    , searchTargetEdges = 0
+    , searchMetricEdges = 0
+    , searchSeparatorEdges = 0
+    , searchLocalTransportEdges = 0
+    , searchGlobalEntryEdges = 0
+    , searchGlobalTeleportEdges = 0
+    , searchBankEdges = 0
+    , searchHeuristicLookups = 0
+    , searchNeedBankExpansions = 0
+    , searchGlobalFinishedExpansions = 0
+    , searchRefinedHeuristicEvaluations = 0
+    , searchRefinedHeuristicCandidates = 0
+    }
 
 popCounter, staleCounter, successCounter, heuristicCounter :: SearchCounters -> SearchCounters
 popCounter counters = counters {searchQueuePops = searchQueuePops counters + 1}
 staleCounter counters = counters {searchStalePops = searchStalePops counters + 1}
 successCounter counters = counters {searchSuccessfulRelaxations = searchSuccessfulRelaxations counters + 1}
 heuristicCounter counters = counters {searchHeuristicLookups = searchHeuristicLookups counters + 1}
+
+lifecycleCounter :: Int -> SearchCounters -> SearchCounters
+lifecycleCounter state counters
+  | stateBanked state = counters {searchGlobalFinishedExpansions = searchGlobalFinishedExpansions counters + 1}
+  | otherwise = counters {searchNeedBankExpansions = searchNeedBankExpansions counters + 1}
 
 edgeCounter :: EdgeKind -> SearchCounters -> SearchCounters
 edgeCounter kind counters =
@@ -564,12 +653,12 @@ queryHeuristic hierarchical@(Hierarchical _ _ _ (Just table)) query _ =
 queryHeuristic _ _ _ = Nothing
 
 heuristicTileLowerBound :: Hierarchical -> QueryHeuristic -> Bool -> Tile -> Int
-heuristicTileLowerBound _ (DetailedHeuristic values) _ tile = tileLowerBound values tile
+heuristicTileLowerBound _ (DetailedHeuristic values) banked tile = tileLowerBound values banked tile
 heuristicTileLowerBound hierarchical (TableHeuristic table targets) banked tile =
   tableLowerBound table banked (tileLeaves hierarchical tile) targets
 
 heuristicGlobalLowerBound :: QueryHeuristic -> Bool -> Int
-heuristicGlobalLowerBound (DetailedHeuristic values) _ = globalLowerBound values
+heuristicGlobalLowerBound (DetailedHeuristic values) banked = globalLowerBoundFor values banked
 heuristicGlobalLowerBound (TableHeuristic table targets) banked = tableGlobalLowerBound table banked targets
 
 heuristicLeafLowerBounds :: QueryHeuristic -> [(LeafId, Int)]

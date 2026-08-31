@@ -1,9 +1,11 @@
 const tileBaseUrl = "https://maps.runescape.wiki/osrs/versions/2026-03-04_a/tiles/rendered";
 const mapId = -1;
 const modeSelect = document.getElementById("mode-select");
+const shapeSourceSelect = document.getElementById("shape-source-select");
 const componentSelect = document.getElementById("component-select");
 const planeSelect = document.getElementById("plane-select");
 const opacityInput = document.getElementById("opacity");
+const showDoorsInput = document.getElementById("show-doors");
 const fitButton = document.getElementById("fit");
 const status = document.getElementById("status");
 const legend = document.getElementById("legend");
@@ -17,6 +19,7 @@ const routeInputs = {
 };
 
 let data = null;
+const shapeSources = {};
 let currentPlane = 0;
 let shapeLayer;
 let bboxLayer;
@@ -25,6 +28,7 @@ let expandedLayer;
 let regionLayer;
 let cutLayer;
 let separatorLayer;
+let doorLayer;
 let heuristicBounds;
 let route = null;
 let fixtureRoutes = [];
@@ -32,7 +36,8 @@ let routeMarkers = [];
 let partitions = [];
 let kahipPartitions = [];
 let cutEdges = [];
-const loadState = { metis: "loading", kahip: "loading", cuts: "loading" };
+let doorTransports = [];
+const loadState = { metis: "loading", kahip: "loading", cuts: "loading", doors: "loading" };
 
 const WikiTileLayer = L.TileLayer.extend({
   getTileUrl(coords) {
@@ -65,6 +70,7 @@ function fetchJson(path, onSuccess, onError) {
 }
 
 function coordinate(value) {
+  if (Array.isArray(value)) return { x: Number(value[0]), y: Number(value[1]), plane: Number(value[2] ?? 0) };
   if (typeof value === "string") {
     const [x, y, plane] = value.split("/").map(Number);
     return { x, y, plane };
@@ -78,13 +84,25 @@ function normaliseRoute(value, name = "") {
   const path = (value.path || []).map(step => ({
     kind: step.kind || "walk", label: step.label || "", coordinate: coordinate(step.coordinate || step.tile || step)
   }));
+  const config = {
+    group: value.fixtureGroup,
+    source: value.source,
+    category: value.category,
+    allowTransports: value.allowTransports,
+    search: value.search,
+    includeExpandedTiles: value.includeExpandedTiles,
+    startRegion: value.startRegion,
+    targetRegion: value.targetRegion,
+    enabledTransportTypes: value.enabledTransportTypes || value.enabledTypes || value.transportTypes
+  };
   return {
     name: value.name || name, cost: value.cost ?? value.hierarchicalCost ?? value.rawCost, expandedNodes: value.expandedNodes,
     expandedTiles: (value.expandedTiles || []).map(coordinate), timings: value.timings,
     heuristicRegions: value.heuristicRegions || [],
     heuristicTiles: (value.heuristicTiles || []).map(point => ({ ...coordinate(point), value: Number(point.value) })),
     path, start: coordinate(value.start || value.source || path[0]?.coordinate),
-    target: coordinate(value.target || path[path.length - 1]?.coordinate)
+    target: coordinate(value.target || path[path.length - 1]?.coordinate),
+    config
   };
 }
 
@@ -97,6 +115,13 @@ function readRouteInputs(which) {
   const values = routeInputs[which].map(id => Number(document.getElementById(id).value));
   if (values.some(value => !Number.isInteger(value))) throw new Error(`Enter integer ${which} coordinates`);
   return { x: values[0], y: values[1], plane: values[2] };
+}
+
+function addFixtureRoutes(group, json) {
+  const routes = Array.isArray(json) ? json : (json.routes || []);
+  fixtureRoutes = fixtureRoutes.concat(routes.map(route => ({ ...route, fixtureGroup: group })));
+  routeCaseSelect.replaceChildren(new Option("Select a test case", ""), ...fixtureRoutes.map((item, index) =>
+    new Option(`${item.fixtureGroup}: ${item.name || `Case ${index + 1}`}`, String(index))));
 }
 
 function fetchCsv(path, key, onSuccess) {
@@ -124,6 +149,16 @@ function parseCsv(text) {
   });
 }
 
+function parseDelimited(text, delimiter) {
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  if (!lines.length) return [];
+  const headers = lines.shift().replace(/^#\s*/, "").split(delimiter);
+  return lines.map(line => {
+    const values = line.split(delimiter);
+    return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
+  });
+}
+
 const number = value => Number(value);
 const field = (row, ...names) => names.map(name => row[name]).find(value => value !== undefined);
 function tile(row) {
@@ -135,17 +170,42 @@ function tile(row) {
   };
 }
 
+function tsvCoordinate(value) {
+  const [x, y, plane] = String(value || "").trim().split(/\s+/).map(Number);
+  if (![x, y, plane].every(Number.isFinite)) return null;
+  return { x, y, plane };
+}
+
+function setShapeSource(name, json) {
+  shapeSources[name] = json;
+  if (!data || shapeSourceSelect.value === name) {
+    data = json;
+    shapeSourceSelect.value = name;
+    fillComponentSelect();
+    render();
+  }
+}
+
 fetchJson("../out/component-shapes.json", json => {
-  data = json;
+  setShapeSource("raw", json);
+}).catch(() => {});
+fetchJson("../out/component-shapes-doors.json", json => {
+  shapeSourceSelect.querySelector('option[value="doors"]').disabled = false;
+  setShapeSource("doors", json);
+}, message => {
+  shapeSourceSelect.querySelector('option[value="doors"]').disabled = true;
+  status.textContent = message;
+});
+
+shapeSourceSelect.addEventListener("change", () => {
+  data = shapeSources[shapeSourceSelect.value];
+  if (!data) return;
   fillComponentSelect();
   render();
-}).catch(() => {});
+});
 fetchJson("../out/leak-route.json", json => { route = normaliseRoute(json, "leak route"); render(); }, message => { routeStatus.textContent = message; });
-fetchJson("../out/hierarchy-test-routes.json", json => {
-  fixtureRoutes = Array.isArray(json) ? json : (json.routes || []);
-  routeCaseSelect.replaceChildren(new Option("Select a test case", ""), ...fixtureRoutes.map((item, index) =>
-    new Option(item.name || `Case ${index + 1}`, String(index))));
-}, message => { routeStatus.textContent = message; });
+fetchJson("../out/hierarchy-test-routes.json", json => addFixtureRoutes("Fixture", json), message => { routeStatus.textContent = message; });
+fetchJson("../benchmarks/routes.json", json => addFixtureRoutes("Clue", json), message => { routeStatus.textContent = message; });
 fetchCsv("../out/metis/partitions.csv", "metis", rows => { partitions = rows.map(tile); });
 fetchCsv("../out/metis/kahip-partitions.csv", "kahip", rows => { kahipPartitions = rows.map(tile); });
 fetchCsv("../out/metis/cut-edges.csv", "cuts", rows => {
@@ -155,9 +215,26 @@ fetchCsv("../out/metis/cut-edges.csv", "cuts", rows => {
     b: [number(row.bx), number(row.by), number(row.bp)]
   }));
 });
+fetch("/door_transports.tsv").then(response => {
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.text();
+}).then(text => {
+  loadState.doors = "ready";
+  doorTransports = parseDelimited(text, "\t").map(row => ({
+    origin: tsvCoordinate(row.Origin),
+    destination: tsvCoordinate(row.Destination),
+    label: row["Display info"] || row["menuOption menuTarget objectID"] || "Door"
+  })).filter(door => door.origin && door.destination);
+  render();
+}).catch(error => {
+  loadState.doors = "missing";
+  status.textContent = `Optional data unavailable: /door_transports.tsv (${error.message})`;
+  render();
+});
 
 componentSelect.addEventListener("change", render);
 modeSelect.addEventListener("change", render);
+showDoorsInput.addEventListener("change", render);
 planeSelect.addEventListener("change", () => {
   currentPlane = Number(planeSelect.value);
   map.eachLayer(layer => layer.redraw?.());
@@ -170,6 +247,7 @@ routeCaseSelect.addEventListener("change", () => {
   if (!selected) return;
   route = normaliseRoute(selected, selected.name);
   setRouteInputs("start", route.start); setRouteInputs("end", route.target);
+  if (typeof route.config.allowTransports === "boolean") document.getElementById("allow-transports").checked = route.config.allowTransports;
   routeStatus.textContent = `Fixture loaded: ${route.name}`;
   render();
 });
@@ -204,8 +282,13 @@ function selectedTiles(rows, component) {
   return rows.filter(point => inBounds(point, component));
 }
 
+function componentColor(id) {
+  const colors = ["#ef4444", "#f59e0b", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#84cc16", "#14b8a6", "#f97316", "#6366f1", "#64748b"];
+  return colors[Math.abs(Number(id)) % colors.length];
+}
+
 function removeLayers() {
-  [shapeLayer, bboxLayer, routeLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, ...routeMarkers].forEach(layer => {
+  [shapeLayer, bboxLayer, routeLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, ...routeMarkers].forEach(layer => {
     if (layer) map.removeLayer(layer);
   });
   routeMarkers = [];
@@ -218,20 +301,21 @@ function render() {
   const plane = Number(planeSelect.value);
   const mode = modeSelect.value;
   const fillOpacity = Number(opacityInput.value);
-  const bins = data.bins.filter(bin => bin.component === component.id && bin.plane === plane);
-  fitButton.textContent = mode === "heuristic" ? "Fit Heuristic" : "Fit Component";
-  componentSelect.disabled = mode === "heuristic";
+  const globalMode = mode === "all-components";
+  const bins = data.bins.filter(bin => bin.plane === plane && (globalMode || bin.component === component.id));
+  fitButton.textContent = mode === "heuristic" ? "Fit Heuristic" : globalMode ? "Fit Components" : "Fit Component";
+  componentSelect.disabled = mode === "heuristic" || globalMode;
 
   if (mode !== "heuristic") {
     shapeLayer = L.layerGroup(bins.map(bin => {
       const density = bin.tiles / (data.binSize * data.binSize);
       return L.rectangle([[bin.y, bin.x], [bin.y + data.binSize, bin.x + data.binSize]], {
         renderer, stroke: false,
-        fillColor: density > 0.75 ? "#ef4444" : density > 0.35 ? "#f59e0b" : "#2563eb",
-        fillOpacity: mode === "manual" ? fillOpacity : Math.min(fillOpacity * 0.35, 0.2)
+        fillColor: globalMode ? componentColor(bin.component) : density > 0.75 ? "#ef4444" : density > 0.35 ? "#f59e0b" : "#2563eb",
+        fillOpacity: globalMode || mode === "manual" ? fillOpacity : Math.min(fillOpacity * 0.35, 0.2)
       });
     })).addTo(map);
-    if (component.plane === plane) {
+    if (!globalMode && component.plane === plane) {
       bboxLayer = L.rectangle([[component.minY, component.minX], [component.maxY + 1, component.maxX + 1]], {
         color: "#111827", fill: false, interactive: false, weight: 2
       }).addTo(map);
@@ -246,6 +330,7 @@ function render() {
     drawCuts(component);
     drawSeparators(selectedTiles(kahipPartitions.filter(point => point.kind === "separator"), component));
   }
+  drawDoors();
   drawExpandedTiles();
   drawRoute();
   renderLegend(mode);
@@ -355,6 +440,15 @@ function drawRoute() {
 function renderRouteStats() {
   if (!route) { routeStats.replaceChildren(); return; }
   const rows = [["route", route.name || "interactive"], ["cost", route.cost ?? "n/a"], ["expanded states", route.expandedNodes ?? "n/a"], ["expanded tiles", route.expandedTiles?.length ?? 0], ["steps", route.path.length]];
+  const config = route.config || {};
+  if (config.group) rows.push(["suite", config.group]);
+  if (config.source) rows.push(["source", config.source]);
+  if (config.category) rows.push(["category", config.category]);
+  if (typeof config.allowTransports === "boolean") rows.push(["allow transports", config.allowTransports ? "yes" : "no"]);
+  if (config.search) rows.push(["search", config.search]);
+  if (typeof config.includeExpandedTiles === "boolean") rows.push(["trace expanded", config.includeExpandedTiles ? "yes" : "no"]);
+  if (config.enabledTransportTypes) rows.push(["transport types", config.enabledTransportTypes.join?.(", ") || String(config.enabledTransportTypes)]);
+  if (config.startRegion || config.targetRegion) rows.push(["regions", `${config.startRegion || "?"} -> ${config.targetRegion || "?"}`]);
   const timings = route.timings;
   if (timings) {
     const milliseconds = value => `${Number(value).toFixed(1)} ms`;
@@ -374,6 +468,7 @@ function renderRouteStats() {
 
 async function runRoute() {
   try {
+    const previous = route;
     const body = {
       start: readRouteInputs("start"), target: readRouteInputs("end"),
       allowTransports: document.getElementById("allow-transports").checked,
@@ -384,7 +479,7 @@ async function runRoute() {
     const response = await fetch("/api/route", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
-    route = { ...normaliseRoute(result, body.useHeuristic ? "region A*" : "Dijkstra"), start: body.start, target: body.target };
+    route = { ...normaliseRoute(result, previous?.name || (body.useHeuristic ? "region A*" : "Dijkstra")), start: body.start, target: body.target, config: { ...(previous?.config || {}), allowTransports: body.allowTransports, includeExpandedTiles: body.includeExpandedTiles, search: body.useHeuristic ? "Region A*" : "Dijkstra" } };
     routeStatus.textContent = "Route loaded from Haskell.";
     render();
   } catch (error) { routeStatus.textContent = `Route error: ${error.message}`; }
@@ -439,15 +534,41 @@ function drawSeparators(points) {
   ))).addTo(map);
 }
 
+function drawDoors(component) {
+  if (!showDoorsInput.checked || loadState.doors !== "ready") return;
+  const visible = doorTransports.filter(door =>
+    door.origin.plane === currentPlane || door.destination.plane === currentPlane);
+  doorLayer = L.layerGroup(visible.flatMap(door => {
+    const endpoints = [door.origin, door.destination].filter(point => point.plane === currentPlane);
+    const layers = endpoints.map(point => L.circleMarker([point.y + 0.5, point.x + 0.5], {
+      renderer, color: "#065f46", fillColor: "#10b981", fillOpacity: 0.95,
+      radius: 3, weight: 1, opacity: 0.9
+    }).bindTooltip(`${door.label}<br>${pointKey(point)}`));
+    if (endpoints.length === 2) {
+      layers.push(L.polyline(endpoints.map(point => [point.y + 0.5, point.x + 0.5]), {
+        color: "#065f46", weight: 1, opacity: 0.35, interactive: false
+      }));
+    }
+    return layers;
+  })).addTo(map);
+}
+
+function visibleDoorCount() {
+  if (loadState.doors !== "ready") return 0;
+  return doorTransports.filter(door => door.origin.plane === currentPlane || door.destination.plane === currentPlane).length;
+}
+
 function renderLegend(mode) {
   const items = mode === "difference" ? [
     ["#00e5ff", "METIS cut edges", "legend-line"],
     ["#ff1493", "KaHIP separator tiles", ""]
   ] : mode === "heuristic" ? [["#16a34a", "Low heuristic", ""], ["#dc2626", "High heuristic", ""]] :
+    mode === "all-components" ? [["#3b82f6", "Contiguous components", ""]] :
     mode === "metis" ? [["#38bdf8", "METIS leaf regions", ""]] :
     mode === "kahip" ? [["#fb923c", "KaHIP leaf regions", ""]] :
     [["#2563eb", "Manual walking components", ""]];
   if (route?.expandedTiles?.length) items.push(["#fde047", "Expanded abstract tiles", ""]);
+  if (showDoorsInput.checked) items.push(["#10b981", "Door transports", ""]);
   legend.replaceChildren(...items.map(([color, label, className]) => {
     const item = document.createElement("div"); item.className = "legend-item";
     const swatch = document.createElement("span"); swatch.className = `legend-swatch ${className}`;
@@ -469,16 +590,18 @@ function renderStats(component, visibleBins, mode, heuristicSummary) {
     ["terminal samples", heuristicSummary?.samples.toLocaleString() || "0"],
     ["rendered bins", heuristicSummary?.bins.toLocaleString() || "0"]
   ] : [
-    ["mode", { manual: "Manual", metis: "METIS", kahip: "KaHIP", heuristic: "A* heuristic", difference: "Difference" }[mode]],
-    ["tiles", component.tiles.toLocaleString()], ["bbox", `${component.minX},${component.minY}..${component.maxX},${component.maxY}`],
-    ["plane", component.plane], ["visible bins", visibleBins.toLocaleString()]
+    ["mode", { "all-components": "All components", manual: "Manual", metis: "METIS", kahip: "KaHIP", heuristic: "A* heuristic", difference: "Difference" }[mode]],
+    ["tiles", mode === "all-components" ? data.components.reduce((total, item) => total + item.tiles, 0).toLocaleString() : component.tiles.toLocaleString()], ["bbox", mode === "all-components" ? "all visible components" : `${component.minX},${component.minY}..${component.maxX},${component.maxY}`],
+    ["plane", currentPlane], ["visible bins", visibleBins.toLocaleString()]
   ];
+  if (mode === "all-components") rows.push(["components shown", new Set(data.bins.filter(bin => bin.plane === currentPlane).map(bin => bin.component)).size.toLocaleString()]);
   if (mode === "manual") rows.push(["banks", component.banks.toLocaleString()], ["interesting", component.interestingTiles.toLocaleString()]);
   if (mode === "metis" || mode === "kahip") rows.push(["assigned tiles", source.length.toLocaleString()], ["leaf regions", regions.size.toLocaleString()]);
   if (mode === "heuristic") {
     if (heuristicSummary) rows.push(["heuristic range", `${heuristicSummary.minimum}..${heuristicSummary.maximum}`]);
   }
   if (mode === "difference") rows.push(["METIS cut edges", selectedCuts.length.toLocaleString()], ["KaHIP separators", selectedSeparators.length.toLocaleString()]);
+  if (showDoorsInput.checked) rows.push(["visible doors", visibleDoorCount().toLocaleString()]);
   stats.replaceChildren(...rows.flatMap(([name, value]) => {
     const dt = document.createElement("dt"); const dd = document.createElement("dd");
     dt.textContent = name; dd.textContent = value; return [dt, dd];
@@ -496,6 +619,16 @@ function renderStats(component, visibleBins, mode, heuristicSummary) {
 function fitComponent() {
   if (modeSelect.value === "heuristic" && heuristicBounds) {
     map.fitBounds(heuristicBounds, { padding: [30, 30], maxZoom: 2 });
+    return;
+  }
+  if (modeSelect.value === "all-components") {
+    const bins = data.bins.filter(bin => bin.plane === currentPlane);
+    if (bins.length) {
+      map.fitBounds([
+        [Math.min(...bins.map(bin => bin.y)), Math.min(...bins.map(bin => bin.x))],
+        [Math.max(...bins.map(bin => bin.y + data.binSize)), Math.max(...bins.map(bin => bin.x + data.binSize))]
+      ], { padding: [30, 30], maxZoom: 2 });
+    }
     return;
   }
   const component = selectedComponent();

@@ -12,6 +12,13 @@
       <aside class="panel">
         <h1>Components</h1>
         <label>
+          Component data
+          <select id="shape-source-select">
+            <option value="raw">Raw current</option>
+            <option value="doors">Door-filtered</option>
+          </select>
+        </label>
+        <label>
           Component
           <select id="component-select"></select>
         </label>
@@ -31,6 +38,7 @@
         <label>
           View
           <select id="mode-select">
+            <option value="all-components">All components</option>
             <option value="manual">Manual components</option>
             <option value="metis">METIS regions</option>
             <option value="kahip">KaHIP regions</option>
@@ -38,6 +46,7 @@
             <option value="difference">Difference</option>
           </select>
         </label>
+        <label class="checkbox-label"><input id="show-doors" type="checkbox"> Door layer</label>
         <button id="fit">Fit Component</button>
         <p id="status" role="status"></p>
         <div id="legend" class="legend"></div>

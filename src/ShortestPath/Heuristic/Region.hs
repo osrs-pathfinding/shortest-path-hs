@@ -13,6 +13,7 @@ module ShortestPath.Heuristic.Region
   , tileLowerBounds
   , leafLowerBounds
   , globalLowerBound
+  , globalLowerBoundFor
   , tableLowerBound
   , tableGlobalLowerBound
   , tableLeafLowerBounds
@@ -174,9 +175,8 @@ buildRegionGraph world hierarchy =
     [ (stateId from False, stateId to True, cost, kind)
     | (from, to, cost, kind, _) <- bankEdges
     ] <>
-    [ (stateId from banked, stateId to banked, cost, kind)
+    [ (stateId from True, stateId to True, cost, kind)
     | (from, to, cost, kind, _) <- globalExitEdges
-    , banked <- [False, True]
     ]
   stateReverseMap = IntMap.fromListWith (<>) [(to, [(from, cost, kind)]) | (from, to, cost, kind) <- stateEdges]
   stateReversed = Boxed.generate (nodeCount * 2) (\node -> IntMap.findWithDefault [] node stateReverseMap)
@@ -280,13 +280,14 @@ decodeDistance value
 
 regionValues :: RegionGraph -> Bool -> Set.Set String -> Tile -> Map.Map Tile Int -> RegionValues
 regionValues regionGraph allow enabledTypes target targetDistances =
-  RegionValues regionGraph (reverseDijkstra (reverseEdges regionGraph) allow enabledTypes seeds)
+  RegionValues regionGraph (reverseDijkstra (reverseStateEdges regionGraph) allow enabledTypes seeds)
  where
   candidates = (target, 0) : Map.toList targetDistances
   seeds = IntMap.toList (IntMap.fromListWith min
-    [ (node, distance)
+    [ (node * 2 + state, distance)
     | (tile, distance) <- candidates
     , Just node <- [IntMap.lookup (unTile tile) (tileNodes regionGraph)]
+    , state <- [0, 1]
     ])
 
 reverseDijkstra :: Boxed.Vector [(Int, Int, Maybe String)] -> Bool -> Set.Set String -> [(Int, Int)] -> Vector.Vector Int
@@ -331,16 +332,18 @@ relax allow enabledTypes result cost queue (next, edgeCost, kind) =
   edgeEnabled Nothing = True
   edgeEnabled (Just edgeType) = allow && (Set.null enabledTypes || Set.member edgeType enabledTypes)
 
-tileLowerBound :: RegionValues -> Tile -> Int
-tileLowerBound values tile =
-  maybe 0 (finite . (distances values Vector.!))
+tileLowerBound :: RegionValues -> Bool -> Tile -> Int
+tileLowerBound values banked tile =
+  maybe 0 (finite . (distances values Vector.!) . stateId)
     (IntMap.lookup (unTile tile) (tileNodes (graph values)))
+ where
+  stateId node = node * 2 + if banked then 1 else 0
 
 tileLowerBounds :: RegionValues -> [(Tile, Int)]
 tileLowerBounds values =
   [ (Tile packed, distance)
   | (packed, node) <- IntMap.toList (tileNodes (graph values))
-  , let distance = distances values Vector.! node
+  , let distance = distances values Vector.! (node * 2)
   , distance /= maxBound
   ]
 
@@ -348,12 +351,17 @@ leafLowerBounds :: RegionValues -> [(LeafId, Int)]
 leafLowerBounds values =
   [ (leaf, minimum reachable)
   | (leaf, nodes) <- Map.toList (leafNodes (graph values))
-  , let reachable = [distance | node <- nodes, let distance = distances values Vector.! node, distance /= maxBound]
+  , let reachable = [distance | node <- nodes, let distance = distances values Vector.! (node * 2), distance /= maxBound]
   , not (null reachable)
   ]
 
 globalLowerBound :: RegionValues -> Int
-globalLowerBound values = finite (distances values Vector.! globalNode (graph values))
+globalLowerBound values = globalLowerBoundFor values False
+
+globalLowerBoundFor :: RegionValues -> Bool -> Int
+globalLowerBoundFor values banked = finite (distances values Vector.! (globalNode (graph values) * 2 + state))
+ where
+  state = if banked then 1 else 0
 
 finite :: Int -> Int
 finite value

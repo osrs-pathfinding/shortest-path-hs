@@ -12,8 +12,10 @@ const types = {
   ".html": "text/html",
   ".js": "application/javascript",
   ".css": "text/css",
-  ".json": "application/json"
+  ".json": "application/json",
+  ".tsv": "text/tab-separated-values"
 };
+const doorTransportFile = process.env.DOOR_TRANSPORTS_TSV || "/home/matt/shortest-path-tooling/door_transports.tsv";
 
 function json(res, status, value) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -225,8 +227,21 @@ function handleRoute(req, res) {
 }
 
 http.createServer((req, res) => {
-  if (new URL(req.url, "http://127.0.0.1").pathname === "/api/route") {
+  const requestPath = new URL(req.url, "http://127.0.0.1").pathname;
+  if (requestPath === "/api/route") {
     handleRoute(req, res);
+    return;
+  }
+  if (requestPath === "/door_transports.tsv") {
+    fs.readFile(doorTransportFile, (error, body) => {
+      if (error) {
+        res.writeHead(404);
+        res.end("not found");
+        return;
+      }
+      res.writeHead(200, { "content-type": types[".tsv"] });
+      res.end(body);
+    });
     return;
   }
   const url = new URL(req.url, `http://127.0.0.1:${port}`);

@@ -346,6 +346,10 @@ searchCountersJson counters = object
   , "globalTeleportEdges" .= searchGlobalTeleportEdges counters
   , "bankEdges" .= searchBankEdges counters
   , "heuristicLookups" .= searchHeuristicLookups counters
+  , "needBankExpansions" .= searchNeedBankExpansions counters
+  , "globalFinishedExpansions" .= searchGlobalFinishedExpansions counters
+  , "refinedHeuristicEvaluations" .= searchRefinedHeuristicEvaluations counters
+  , "refinedHeuristicCandidates" .= searchRefinedHeuristicCandidates counters
   ]
 
 timedPhase :: String -> IO a -> IO a
@@ -448,7 +452,7 @@ cacheVersion :: Word64
 cacheVersion = 2
 
 regionTableVersion :: Word64
-regionTableVersion = 1
+regionTableVersion = 2
 
 cachePath, partitionPath, regionTablePath :: FilePath
 cachePath = "out/hierarchy-cache.bin"
