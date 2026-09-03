@@ -4,10 +4,14 @@ module ShortestPath.Exact.TileAStar
   ( TileAStar(..)
   , Box(..)
   , NaturalComponents(..)
+  , TileStatic(..)
   , TileAStarCounters(..)
   , TileReverseCounters(..)
   , TileAStarTimings(..)
+  , SparseWalkingNetwork(..)
   , buildTileAStar
+  , buildSparseWalkingNetwork
+  , sparseWalkingDistance
   , chebyshevTransform
   , chebyshevTransformC
   , chebyshevTransformSlow
@@ -16,6 +20,7 @@ module ShortestPath.Exact.TileAStar
   , findRouteProfiledTileAStar
   , forceTileAStar
   , renderHeuristicTiles
+  , tileStaticStats
   , HeuristicRender(..)
   , HeuristicLayer(..)
   , HeuristicTile(..)
@@ -26,14 +31,15 @@ import Control.Monad (foldM, forM_, when)
 import Control.Monad.ST (ST, runST)
 import Data.Bits ((.&.), (.|.), shiftL, shiftR)
 import Data.Binary (Binary(..))
+import Data.List (sortBy)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
-import qualified Data.PQueue.Prio.Min as PQueue
 import qualified Data.Set as Set
 import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef)
+import Data.Ord (comparing)
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Mutable as BoxedMutable
 import qualified Data.Vector.Generic as Generic
@@ -61,7 +67,7 @@ foreign import ccall unsafe "spm_chebyshev_transform"
 foreign import ccall unsafe "spm_rgba_tile"
   c_rgbaTile :: Int -> Ptr Int -> Ptr Int -> Ptr Int -> Int -> Int -> Int -> Int -> Int -> Ptr Word8 -> IO ()
 
-data TileAStar = TileAStar World NaturalComponents
+data TileAStar = TileAStar World NaturalComponents TileStatic
 
 data NaturalComponents = NaturalComponents
   { componentOwnerTiles :: Vector.Vector Int
@@ -82,6 +88,53 @@ instance Binary NaturalComponents where
       <*> (Vector.fromList <$> get)
       <*> (Vector.fromList <$> get)
       <*> get
+
+data TileStatic = TileStatic
+  { staticTiles :: Vector.Vector Int
+  , staticComponents :: Vector.Vector Int
+  , staticWalkingNetwork :: SparseWalkingNetwork
+  }
+
+instance Binary TileStatic where
+  put value = do
+    put (Vector.toList (staticTiles value))
+    put (Vector.toList (staticComponents value))
+    put (staticWalkingNetwork value)
+  get =
+    TileStatic
+      <$> (Vector.fromList <$> get)
+      <*> (Vector.fromList <$> get)
+      <*> get
+
+data SparseWalkingNetwork = SparseWalkingNetwork
+  { sparseOriginalCount :: !Int
+  , sparseVertexCount :: !Int
+  , sparseSteinerCount :: !Int
+  , sparseWalkingEdgeCount :: !Int
+  , sparseOffsets :: Vector.Vector Int
+  , sparseDestinations :: Vector.Vector Int
+  , sparseWeights :: Vector.Vector Int
+  }
+  deriving stock (Eq, Show)
+
+instance Binary SparseWalkingNetwork where
+  put value = do
+    put (sparseOriginalCount value)
+    put (sparseVertexCount value)
+    put (sparseSteinerCount value)
+    put (sparseWalkingEdgeCount value)
+    put (Vector.toList (sparseOffsets value))
+    put (Vector.toList (sparseDestinations value))
+    put (Vector.toList (sparseWeights value))
+  get =
+    SparseWalkingNetwork
+      <$> get
+      <*> get
+      <*> get
+      <*> get
+      <*> (Vector.fromList <$> get)
+      <*> (Vector.fromList <$> get)
+      <*> (Vector.fromList <$> get)
 
 data Box = Box
   { boxMinX :: !Int
@@ -137,6 +190,16 @@ data HeuristicTile = HeuristicTile
   }
   deriving stock (Eq, Show)
 
+tileStaticStats :: TileAStar -> (Int, Int, Int, Int)
+tileStaticStats (TileAStar _ _ static) =
+  ( Vector.length (staticTiles static)
+  , sparseSteinerCount network
+  , sparseVertexCount network
+  , sparseWalkingEdgeCount network
+  )
+ where
+  network = staticWalkingNetwork static
+
 data TileAStarCounters = TileAStarCounters
   { tileStatesPopped :: !Int
   , tileStalePqEntries :: !Int
@@ -181,7 +244,10 @@ data Heuristic = Heuristic
 
 data SiteGraph = SiteGraph
   { siteTiles :: Vector.Vector Int
+  , siteTileIndex :: IntMap.IntMap Int
   , siteComponents :: Vector.Vector Int
+  , siteStaticCount :: !Int
+  , siteSparseNetwork :: SparseWalkingNetwork
   , siteComponentSiteIds :: Boxed.Vector (Vector.Vector Int)
   , siteReverseEdges :: Boxed.Vector (Vector.Vector (Int, Int))
   }
@@ -191,20 +257,26 @@ instance RouteFinder TileAStar where
   findRoute astar q = unsafePerformIO (fst <$> findRouteProfiledTileAStar astar q)
 
 buildTileAStar :: World -> IO TileAStar
-buildTileAStar world = TileAStar world <$> naturalComponents world
+buildTileAStar world = do
+  components <- naturalComponents world
+  let static = buildTileStatic world components
+  pure (TileAStar world components static)
 
 forceTileAStar :: TileAStar -> IO TileAStar
-forceTileAStar astar@(TileAStar _ components) = do
+forceTileAStar astar@(TileAStar _ components static) = do
   _ <- evaluate
     ( Vector.length (componentOwnerTiles components)
         + Vector.length (componentOwnerIds components)
         + Vector.length (componentIds components)
         + maxComponentId components
+        + Vector.length (staticTiles static)
+        + sparseVertexCount (staticWalkingNetwork static)
+        + sparseWalkingEdgeCount (staticWalkingNetwork static)
     )
   pure astar
 
 findRouteProfiledTileAStar :: TileAStar -> Query -> IO (Route, TileAStarTimings)
-findRouteProfiledTileAStar astar@(TileAStar _ _) query =
+findRouteProfiledTileAStar astar@(TileAStar _ _ _) query =
   do
     (heuristic, setupMs) <- timedIO forceHeuristic (buildHeuristic astar query)
     ((route, counters), searchMs) <- timedIO forceSearch (pure (search astar query heuristic))
@@ -222,7 +294,7 @@ findRouteProfiledTileAStar astar@(TileAStar _ _) query =
       )
 
 search :: TileAStar -> Query -> Heuristic -> (Route, TileAStarCounters)
-search astar@(TileAStar world components) q heuristic = runST $ do
+search astar@(TileAStar world components _) q heuristic = runST $ do
   best <- Mutable.replicate stateCount maxBound
   prevState <- Mutable.replicate stateCount maxBound
   prevStep <- BoxedMutable.replicate stateCount Nothing
@@ -378,7 +450,7 @@ emptyReverseCounters :: TileReverseCounters
 emptyReverseCounters = TileReverseCounters 0 0 0 0 0 0 0 0 0
 
 searchSpace :: TileAStar -> Query -> SearchSpace
-searchSpace (TileAStar world components) q =
+searchSpace (TileAStar world components _) q =
   SearchSpace base extras (Vector.length base + Vector.length extras)
  where
   base = componentOwnerTiles components
@@ -500,18 +572,29 @@ writeQueueEntry queue ix (priority, state, cost) = do
   Mutable.write (queueCosts queue) ix cost
 
 buildHeuristic :: TileAStar -> Query -> IO Heuristic
-buildHeuristic astar@(TileAStar _ components) q =
+buildHeuristic astar@(TileAStar _ components _) q =
   transportAware
  where
   target = queryTarget q
   transportAware = do
     let graph = siteGraph astar q
-    ((distances, counters), reverseMs) <- timedIO forceReverseResult (pure (reverseDijkstra graph (targetSeeds graph target)))
+    countReverse <- (== Just "1") <$> lookupEnv "SPM_TILE_REVERSE_COUNTERS"
+    useManhattan <- (== Just "manhattan") <$> lookupEnv "SPM_TILE_REVERSE_IMPL"
+    compareReverse <- (== Just "1") <$> lookupEnv "SPM_TILE_COMPARE_REVERSE"
+    ((distances, counters), reverseMs) <-
+      if useManhattan
+        then timedIO forceReverseResult $ do
+          let manhattan = halveDistances (reverseDijkstraManhattanUncounted graph (targetSeedsManhattan graph target))
+          when compareReverse (assertReverseLabelsEqual graph (reverseDijkstraUncounted graph (targetSeeds graph target)) manhattan)
+          pure (manhattan, emptyReverseCounters)
+        else if countReverse
+        then timedIO forceReverseResult (pure (reverseDijkstra graph (targetSeeds graph target)))
+        else timedIO forceReverseResult (pure (reverseDijkstraUncounted graph (targetSeeds graph target), emptyReverseCounters))
     (table, seedMs) <- timedIO forceSeedTable (pure (seedTableFromDistances components graph distances))
     pure (Heuristic table reverseMs seedMs counters)
 
 renderHeuristicTiles :: TileAStar -> Query -> FilePath -> String -> IO HeuristicRender
-renderHeuristicTiles astar@(TileAStar _ components) q outputRoot urlRoot = do
+renderHeuristicTiles astar@(TileAStar _ components _) q outputRoot urlRoot = do
   createDirectoryIfMissing True outputRoot
   useCTransform <- (== Just "c") <$> lookupEnv "SPM_HEURISTIC_TRANSFORM"
   layers <- mapM (renderLayer useCTransform) [("no-bank", "Banking disabled", False), ("bank", "Banking enabled", True)]
@@ -552,6 +635,187 @@ componentTileGroups components = runST $ do
   pure (Boxed.generate groupCount (\cid -> Vector.slice (starts Vector.! cid) (frozenCounts Vector.! cid) frozenGrouped))
  where
   groupCount = maxComponentId components + 1
+
+buildTileStatic :: World -> NaturalComponents -> TileStatic
+buildTileStatic world components =
+  TileStatic tiles comps network
+ where
+  sites = Set.toAscList (Set.fromList (staticEndpoints <> Set.toList (worldBanks world)))
+  staticEndpoints =
+    [ tile
+    | t <- concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
+    , Just tile <- [origin t] <> [destination t]
+    ]
+  tiles = Vector.fromList (map unTile sites)
+  comps = Vector.map (\packed -> maybe (-1) id (componentOf components (Tile packed))) tiles
+  network = buildSparseWalkingNetworkComponents (Vector.length tiles) [(comps Vector.! ix, ix, Tile packed) | (ix, packed) <- Vector.toList (Vector.indexed tiles), comps Vector.! ix >= 0]
+
+data ManhattanPoint = ManhattanPoint
+  { pointOriginal :: !Int
+  , pointA :: !Int
+  , pointB :: !Int
+  }
+  deriving stock (Eq, Show)
+
+buildSparseWalkingNetwork :: [(Int, Tile)] -> SparseWalkingNetwork
+buildSparseWalkingNetwork sites =
+  SparseWalkingNetwork originalCount vertexCount steinerCount edgeCount offsets destinations weights
+ where
+  points = map toPoint sites
+  originalCount = if null sites then 0 else maximum (map fst sites) + 1
+  (nextVertex, edges) = buildManhattanEdges originalCount points
+  vertexCount = nextVertex
+  steinerCount = vertexCount - originalCount
+  edgeCount = length edges
+  (offsets, destinations, weights) = undirectedAdjacency vertexCount edges
+  toPoint (siteId, tile) =
+    let (x, y, _) = unpackTile tile
+     in ManhattanPoint siteId (x + y) (x - y)
+
+sparseWalkingDistance :: SparseWalkingNetwork -> Int -> Int -> Maybe Int
+sparseWalkingDistance network source target
+  | source < 0 || source >= sparseOriginalCount network = Nothing
+  | target < 0 || target >= sparseOriginalCount network = Nothing
+  | otherwise = finiteDistance (dijkstra source Vector.! target)
+ where
+  finiteDistance value
+    | value == maxBound = Nothing
+    | otherwise = Just value
+  dijkstra start = runST $ do
+    result <- Mutable.replicate (sparseVertexCount network) maxBound
+    queue <- queueNew (max 1 (sparseWalkingEdgeCount network * 4 + 1))
+    Mutable.write result start 0
+    queuePush queue 0 start 0
+    let go = do
+          popped <- queuePop queue
+          case popped of
+            Nothing -> Vector.freeze result
+            Just (_, node, cost) -> do
+              known <- Mutable.read result node
+              if cost /= known
+                then go
+                else do
+                  relaxEdges result queue cost node
+                  go
+    go
+  relaxEdges :: Mutable.MVector s Int -> MutableQueue s -> Int -> Int -> ST s ()
+  relaxEdges result queue cost node =
+    goEdges (sparseOffsets network Vector.! node)
+   where
+    end = sparseOffsets network Vector.! (node + 1)
+    goEdges ix
+      | ix >= end = pure ()
+      | otherwise = do
+          let next = sparseDestinations network Vector.! ix
+              edgeCost = sparseWeights network Vector.! ix
+          case addCost cost edgeCost of
+            Nothing -> pure ()
+            Just newCost -> do
+              old <- Mutable.read result next
+              when (newCost < old) $ do
+                Mutable.write result next newCost
+                queuePush queue newCost next newCost
+          goEdges (ix + 1)
+
+buildSparseWalkingNetworkComponents :: Int -> [(Int, Int, Tile)] -> SparseWalkingNetwork
+buildSparseWalkingNetworkComponents originalCount sites =
+  SparseWalkingNetwork originalCount vertexCount steinerCount edgeCount offsets destinations weights
+ where
+  grouped = Map.elems (Map.fromListWith (<>) [(cid, [(siteId, tile)]) | (cid, siteId, tile) <- sites])
+  (vertexCount, edges) = foldl' addComponent (originalCount, []) grouped
+  steinerCount = vertexCount - originalCount
+  edgeCount = length edges
+  (offsets, destinations, weights) = undirectedAdjacency vertexCount edges
+  addComponent (next, allEdges) componentSites =
+    let points = map toPoint componentSites
+        (next', componentEdges) = buildManhattanEdges next points
+     in (next', componentEdges <> allEdges)
+  toPoint (siteId, tile) =
+    let (x, y, _) = unpackTile tile
+     in ManhattanPoint siteId (x + y) (x - y)
+
+data SplitAxis = SplitA | SplitB
+
+buildManhattanEdges :: Int -> [ManhattanPoint] -> (Int, [(Int, Int, Int)])
+buildManhattanEdges firstSteiner points = go firstSteiner (sortPoints points) []
+ where
+  sortPoints = sortBy (comparing pointA <> comparing pointB <> comparing pointOriginal)
+  go next [] edges = (next, edges)
+  go next [_] edges = (next, edges)
+  go next pts@(firstPoint:_:_) edges
+    | allSameA && allSameB = (next, zeroChain pts edges)
+    | allSameA = splitOn SplitB next pts edges
+    | otherwise = splitOn SplitA next pts edges
+   where
+    allSameA = all ((== pointA firstPoint) . pointA) pts
+    allSameB = all ((== pointB firstPoint) . pointB) pts
+  splitOn axis next pts edges =
+    let sorted = sortBy (comparing (coordOf axis) <> comparing pointA <> comparing pointB <> comparing pointOriginal) pts
+        (left, right, m) = balancedGapSplit (coordOf axis) sorted
+        (next', edges') = addProjectionLevel axis m next pts edges
+        (next'', edges'') = go next' left edges'
+     in go next'' right edges''
+  zeroChain [] edges = edges
+  zeroChain [_] edges = edges
+  zeroChain (p:q:rest) edges = zeroChain (q:rest) ((pointOriginal p, pointOriginal q, 0) : edges)
+
+balancedGapSplit :: (ManhattanPoint -> Int) -> [ManhattanPoint] -> ([ManhattanPoint], [ManhattanPoint], Int)
+balancedGapSplit coord pts =
+  pickGap preferred gaps
+ where
+  n = length pts
+  preferred = n `div` 2
+  indexed = zip [1 :: Int ..] (zip pts (drop 1 pts))
+  gaps = [(abs (i - preferred), i, coord left, coord right) | (i, (left, right)) <- indexed, coord left < coord right]
+  pickGap _ [] = error "sparse walking split without a strict coordinate gap"
+  pickGap _ candidates =
+    let (_, i, l, r) = minimum candidates
+     in (take i pts, drop i pts, (l + r) `div` 2)
+
+coordOf :: SplitAxis -> ManhattanPoint -> Int
+coordOf SplitA = pointA
+coordOf SplitB = pointB
+
+otherCoordOf :: SplitAxis -> ManhattanPoint -> Int
+otherCoordOf SplitA = pointB
+otherCoordOf SplitB = pointA
+
+addProjectionLevel :: SplitAxis -> Int -> Int -> [ManhattanPoint] -> [(Int, Int, Int)] -> (Int, [(Int, Int, Int)])
+addProjectionLevel axis m firstProjection pts edges =
+  (firstProjection + length projections, chain sortedProjections (spokes <> edges))
+ where
+  projections = zip [firstProjection ..] pts
+  spokes = [(pointOriginal p, steiner, abs (coordOf axis p - m)) | (steiner, p) <- projections]
+  chain sorted edgesSoFar =
+    foldr addChain edgesSoFar (zip sorted (drop 1 sorted))
+  sortedProjections =
+    sortBy (comparing (otherCoordOf axis . snd) <> comparing (pointOriginal . snd)) projections
+  addChain ((leftId, left), (rightId, right)) edgesSoFar =
+    (leftId, rightId, abs (otherCoordOf axis left - otherCoordOf axis right)) : edgesSoFar
+
+undirectedAdjacency :: Int -> [(Int, Int, Int)] -> (Vector.Vector Int, Vector.Vector Int, Vector.Vector Int)
+undirectedAdjacency size edges = runST $ do
+  counts <- Mutable.replicate size 0
+  forM_ edges $ \(a, b, _) -> do
+    Mutable.modify counts (+ 1) a
+    Mutable.modify counts (+ 1) b
+  frozenCounts <- Vector.freeze counts
+  let offsets = Vector.scanl' (+) 0 frozenCounts
+  cursors <- Vector.thaw offsets
+  destinations <- Mutable.new (Vector.last offsets)
+  weights <- Mutable.new (Vector.last offsets)
+  forM_ edges $ \(a, b, cost) -> do
+    add cursors destinations weights a b cost
+    add cursors destinations weights b a cost
+  frozenDestinations <- Vector.freeze destinations
+  frozenWeights <- Vector.freeze weights
+  pure (offsets, frozenDestinations, frozenWeights)
+ where
+  add cursors destinations weights from to cost = do
+    ix <- Mutable.read cursors from
+    Mutable.write destinations ix to
+    Mutable.write weights ix cost
+    Mutable.write cursors from (ix + 1)
 
 layerPoints :: (Box -> [(Tile, Int)] -> Vector.Vector Int) -> Boxed.Vector (Vector.Vector Int) -> Heuristic -> Bool -> [(Int, Int)]
 layerPoints transform groups heuristic banked =
@@ -668,17 +932,19 @@ seedKey :: Int -> Bool -> Int
 seedKey cid banked = cid * 2 + if banked then 1 else 0
 
 siteGraph :: TileAStar -> Query -> SiteGraph
-siteGraph (TileAStar world components) q =
-  SiteGraph tiles comps componentSites reverseEdges
+siteGraph (TileAStar world components static) q =
+  SiteGraph tiles tileIndex comps staticCount (staticWalkingNetwork static) componentSites reverseEdges
  where
-  sites = Set.toAscList (Set.fromList (queryStart q : queryTarget q : endpoints <> Set.toList (worldBanks world)))
-  endpoints =
-    [ tile
-    | t <- concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
-    , Just tile <- [origin t] <> [destination t]
+  staticCount = Vector.length (staticTiles static)
+  queryExtras =
+    [ packed
+    | packed <- IntSet.toAscList (IntSet.fromList [unTile (queryStart q), unTile (queryTarget q)])
+    , binarySearch packed (staticTiles static) == Nothing
     ]
-  tiles = Vector.fromList (map unTile sites)
-  comps = Vector.map (\packed -> maybe (-1) id (componentOf components (Tile packed))) tiles
+  tiles = staticTiles static <> Vector.fromList queryExtras
+  tileIndex = IntMap.fromList [(packed, ix) | (ix, packed) <- Vector.toList (Vector.indexed tiles)]
+  extraComps = Vector.fromList [maybe (-1) id (componentOf components (Tile packed)) | packed <- queryExtras]
+  comps = staticComponents static <> extraComps
   componentSites = siteComponentGroups (maxComponentId components) comps
   nodeCount = Vector.length tiles
   edges = localEdges <> bankEdges <> initialGlobalEdges <> bankGlobalEdges
@@ -726,7 +992,7 @@ siteGraph (TileAStar world components) q =
     , Just to <- [nodeFor destinationTile]
     ]
 
-  nodeFor tile = binarySearch (unTile tile) tiles
+  nodeFor tile = IntMap.lookup (unTile tile) tileIndex
   transportCost t = duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q)
 
 siteComponentGroups :: Int -> Vector.Vector Int -> Boxed.Vector (Vector.Vector Int)
@@ -742,52 +1008,125 @@ siteComponentGroups highestComponent comps = runST $ do
 targetSeeds :: SiteGraph -> Tile -> [(Int, Int)]
 targetSeeds graph target =
   [ (stateId node banked, 0)
-  | Just node <- [binarySearch (unTile target) (siteTiles graph)]
+  | Just node <- [IntMap.lookup (unTile target) (siteTileIndex graph)]
   , banked <- [False, True]
   ]
+
+targetSeedsManhattan :: SiteGraph -> Tile -> [(Int, Int)]
+targetSeedsManhattan = targetSeeds
 
 reverseDijkstra :: SiteGraph -> [(Int, Int)] -> (Vector.Vector Int, TileReverseCounters)
 reverseDijkstra graph seeds = runST $ do
   result <- Mutable.replicate stateCount maxBound
-  (queue, counters) <- foldM (seed result) (PQueue.empty, emptyReverseCounters) seeds
-  let searchReverse pending currentCounters =
-        case PQueue.minViewWithKey pending of
+  queue <- queueNew (max 262144 (stateCount * 16))
+  counters <- foldM (seed result queue) emptyReverseCounters seeds
+  let searchReverse currentCounters = do
+        popped <- queuePop queue
+        case popped of
           Nothing -> do
             distances <- Vector.freeze result
             pure (distances, currentCounters)
-          Just ((cost, node), rest) -> do
+          Just (_, node, cost) -> do
             let poppedCounters = currentCounters
                   { reversePqPops = reversePqPops currentCounters + 1
                   }
             known <- Mutable.read result node
             if cost /= known
-              then searchReverse rest poppedCounters {reverseStalePqEntries = reverseStalePqEntries poppedCounters + 1}
+              then searchReverse poppedCounters {reverseStalePqEntries = reverseStalePqEntries poppedCounters + 1}
               else do
-                (queue', transportCounters) <- Vector.foldM (relax result cost True) (rest, poppedCounters {reverseStatesPopped = reverseStatesPopped poppedCounters + 1}) (siteReverseEdges graph Boxed.! node)
-                (queue'', scanCounters) <- relaxSameComponent result cost queue' node transportCounters
-                searchReverse queue'' scanCounters
-  searchReverse queue counters
+                transportCounters <- Vector.foldM (relax result queue cost True) (poppedCounters {reverseStatesPopped = reverseStatesPopped poppedCounters + 1}) (siteReverseEdges graph Boxed.! node)
+                scanCounters <- relaxSameComponent result queue cost node transportCounters
+                searchReverse scanCounters
+  searchReverse counters
  where
   siteCount = Vector.length (siteTiles graph)
   stateCount = siteCount * 2
-  seed :: Mutable.MVector s Int -> (PQueue.MinPQueue Int Int, TileReverseCounters) -> (Int, Int) -> ST s (PQueue.MinPQueue Int Int, TileReverseCounters)
-  seed result (queue, counters) (node, cost) = Mutable.write result node cost >> pure (PQueue.insert cost node queue, counters {reversePqPushes = reversePqPushes counters + 1})
-  relax :: Mutable.MVector s Int -> Int -> Bool -> (PQueue.MinPQueue Int Int, TileReverseCounters) -> (Int, Int) -> ST s (PQueue.MinPQueue Int Int, TileReverseCounters)
-  relax result cost transportEdge (queue, counters) (next, edgeCost) =
+  seed :: Mutable.MVector s Int -> MutableQueue s -> TileReverseCounters -> (Int, Int) -> ST s TileReverseCounters
+  seed result queue counters (node, cost) = do
+    Mutable.write result node cost
+    queuePush queue cost node cost
+    pure counters {reversePqPushes = reversePqPushes counters + 1}
+  relax :: Mutable.MVector s Int -> MutableQueue s -> Int -> Bool -> TileReverseCounters -> (Int, Int) -> ST s TileReverseCounters
+  relax result queue cost transportEdge counters (next, edgeCost) =
     case addCost cost edgeCost of
-      Nothing -> pure (queue, counters')
+      Nothing -> pure counters'
       Just newCost -> do
         known <- Mutable.read result next
         if newCost >= known
-          then pure (queue, counters')
-          else Mutable.write result next newCost >> pure (PQueue.insert newCost next queue, counters' {reversePqPushes = reversePqPushes counters' + 1})
+          then pure counters'
+          else do
+            Mutable.write result next newCost
+            queuePush queue newCost next newCost
+            pure counters' {reversePqPushes = reversePqPushes counters' + 1}
    where
     counters'
       | transportEdge = counters {reverseTransportRelaxations = reverseTransportRelaxations counters + 1}
       | otherwise = counters
-  relaxSameComponent :: Mutable.MVector s Int -> Int -> PQueue.MinPQueue Int Int -> Int -> TileReverseCounters -> ST s (PQueue.MinPQueue Int Int, TileReverseCounters)
-  relaxSameComponent result cost queue node counters =
-    Vector.foldM go (queue, counters') sameComponentSites
+  relaxSameComponent :: Mutable.MVector s Int -> MutableQueue s -> Int -> Int -> TileReverseCounters -> ST s TileReverseCounters
+  relaxSameComponent result queue cost node counters =
+    go 0 counters'
+     where
+      site = node `div` 2
+      banked = odd node
+      sourceTile = siteTiles graph Vector.! site
+      sourceComponent = siteComponents graph Vector.! site
+      sameComponentSites
+        | sourceComponent < 0 = Vector.empty
+        | otherwise = siteComponentSiteIds graph Boxed.! sourceComponent
+      scanned = Vector.length sameComponentSites
+      counters' = counters
+        { reverseSameComponentSiteScans = reverseSameComponentSiteScans counters + 1
+        , reverseTotalSitesScanned = reverseTotalSitesScanned counters + scanned
+        , reverseMaxSitesScannedPerPop = max (reverseMaxSitesScannedPerPop counters) scanned
+        }
+      go ix countersSoFar
+        | ix >= scanned = pure countersSoFar
+        | other == site = go (ix + 1) countersSoFar
+        | otherwise = do
+            nextCounters <- relax result queue cost False scanCounters (stateId other banked, chebyshevPacked sourceTile otherTile)
+            go (ix + 1) nextCounters
+       where
+        other = sameComponentSites Vector.! ix
+        otherTile = siteTiles graph Vector.! other
+        scanCounters = countersSoFar {reverseChebyshevComparisons = reverseChebyshevComparisons countersSoFar + 1}
+
+reverseDijkstraUncounted :: SiteGraph -> [(Int, Int)] -> Vector.Vector Int
+reverseDijkstraUncounted graph seeds = runST $ do
+  result <- Mutable.replicate stateCount maxBound
+  queue <- queueNew (max 262144 (stateCount * 16))
+  forM_ seeds (seed result queue)
+  let searchReverse = do
+        popped <- queuePop queue
+        case popped of
+          Nothing -> Vector.freeze result
+          Just (_, node, cost) -> do
+            known <- Mutable.read result node
+            if cost /= known
+              then searchReverse
+              else do
+                Vector.forM_ (siteReverseEdges graph Boxed.! node) (relax result queue cost)
+                relaxSameComponent result queue cost node
+                searchReverse
+  searchReverse
+ where
+  siteCount = Vector.length (siteTiles graph)
+  stateCount = siteCount * 2
+  seed :: Mutable.MVector s Int -> MutableQueue s -> (Int, Int) -> ST s ()
+  seed result queue (node, cost) = do
+    Mutable.write result node cost
+    queuePush queue cost node cost
+  relax :: Mutable.MVector s Int -> MutableQueue s -> Int -> (Int, Int) -> ST s ()
+  relax result queue cost (next, edgeCost) =
+    case addCost cost edgeCost of
+      Nothing -> pure ()
+      Just newCost -> do
+        known <- Mutable.read result next
+        when (newCost < known) $ do
+          Mutable.write result next newCost
+          queuePush queue newCost next newCost
+  relaxSameComponent :: Mutable.MVector s Int -> MutableQueue s -> Int -> Int -> ST s ()
+  relaxSameComponent result queue cost node =
+    go 0
    where
     site = node `div` 2
     banked = odd node
@@ -797,19 +1136,120 @@ reverseDijkstra graph seeds = runST $ do
       | sourceComponent < 0 = Vector.empty
       | otherwise = siteComponentSiteIds graph Boxed.! sourceComponent
     scanned = Vector.length sameComponentSites
-    counters' = counters
-      { reverseSameComponentSiteScans = reverseSameComponentSiteScans counters + 1
-      , reverseTotalSitesScanned = reverseTotalSitesScanned counters + scanned
-      , reverseMaxSitesScannedPerPop = max (reverseMaxSitesScannedPerPop counters) scanned
-      }
-    go pending other
-      | other == site = pure pending
-      | otherwise =
-          relax result cost False (pendingQueue, scanCounters) (stateId other banked, chebyshevPacked sourceTile otherTile)
+    go ix
+      | ix >= scanned = pure ()
+      | other == site = go (ix + 1)
+      | otherwise = do
+          relax result queue cost (stateId other banked, chebyshevPacked sourceTile otherTile)
+          go (ix + 1)
      where
+      other = sameComponentSites Vector.! ix
       otherTile = siteTiles graph Vector.! other
-      (pendingQueue, countersSoFar) = pending
-      scanCounters = countersSoFar {reverseChebyshevComparisons = reverseChebyshevComparisons countersSoFar + 1}
+
+reverseDijkstraManhattanUncounted :: SiteGraph -> [(Int, Int)] -> Vector.Vector Int
+reverseDijkstraManhattanUncounted graph seeds = runST $ do
+  result <- Mutable.replicate stateCount maxBound
+  queue <- queueNew (max 262144 (stateCount * 16))
+  forM_ seeds (seed result queue)
+  let searchReverse = do
+        popped <- queuePop queue
+        case popped of
+          Nothing -> Vector.freeze result
+          Just (_, node, cost) -> do
+            known <- Mutable.read result node
+            if cost /= known
+              then searchReverse
+              else do
+                relaxWalking result queue cost node
+                when (node `div` 2 < siteCount) $
+                  Vector.forM_ (siteReverseEdges graph Boxed.! node) (relax result queue cost . doubleEdge)
+                searchReverse
+  searchReverse
+ where
+  siteCount = Vector.length (siteTiles graph)
+  staticCount = siteStaticCount graph
+  network = siteSparseNetwork graph
+  stateCount = (siteCount + sparseSteinerCount network) * 2
+  seed :: Mutable.MVector s Int -> MutableQueue s -> (Int, Int) -> ST s ()
+  seed result queue (node, cost) = do
+    Mutable.write result node (cost * 2)
+    queuePush queue (cost * 2) node (cost * 2)
+  doubleEdge (next, edgeCost) = (next, edgeCost * 2)
+  relax :: Mutable.MVector s Int -> MutableQueue s -> Int -> (Int, Int) -> ST s ()
+  relax result queue cost (next, edgeCost) =
+    case addCost cost edgeCost of
+      Nothing -> pure ()
+      Just newCost -> do
+        known <- Mutable.read result next
+        when (newCost < known) $ do
+          Mutable.write result next newCost
+          queuePush queue newCost next newCost
+  relaxWalking :: Mutable.MVector s Int -> MutableQueue s -> Int -> Int -> ST s ()
+  relaxWalking result queue cost state = do
+    relaxSparseWalkingEdges result queue cost banked vertex
+    when (vertex < siteCount) (relaxQueryAttachments result queue cost vertex banked)
+   where
+    vertex = state `div` 2
+    banked = odd state
+  relaxSparseWalkingEdges :: Mutable.MVector s Int -> MutableQueue s -> Int -> Bool -> Int -> ST s ()
+  relaxSparseWalkingEdges result queue cost banked vertex
+    | vertex < staticCount = go (sparseOffsets network Vector.! vertex)
+    | vertex < siteCount = pure ()
+    | otherwise = go (sparseOffsets network Vector.! sparseVertex)
+   where
+    sparseVertex = staticCount + vertex - siteCount
+    end
+      | vertex < staticCount = sparseOffsets network Vector.! (vertex + 1)
+      | otherwise = sparseOffsets network Vector.! (sparseVertex + 1)
+    go ix
+      | ix >= end = pure ()
+      | otherwise = do
+          let sparseNext = sparseDestinations network Vector.! ix
+              edgeCost = sparseWeights network Vector.! ix
+              next
+                | sparseNext < staticCount = sparseNext
+                | otherwise = siteCount + sparseNext - staticCount
+          relax result queue cost (stateId next banked, edgeCost)
+          go (ix + 1)
+  relaxQueryAttachments :: Mutable.MVector s Int -> MutableQueue s -> Int -> Int -> Bool -> ST s ()
+  relaxQueryAttachments result queue cost vertex banked =
+    go 0
+   where
+    vertexTile = siteTiles graph Vector.! vertex
+    vertexComponent = siteComponents graph Vector.! vertex
+    componentSites
+      | vertexComponent < 0 = Vector.empty
+      | otherwise = siteComponentSiteIds graph Boxed.! vertexComponent
+    count = Vector.length componentSites
+    go ix
+      | ix >= count = pure ()
+      | other == vertex = go (ix + 1)
+      | vertex < staticCount && other < staticCount = go (ix + 1)
+      | otherwise = do
+          relax result queue cost (stateId other banked, chebyshevPacked vertexTile otherTile * 2)
+          go (ix + 1)
+     where
+      other = componentSites Vector.! ix
+      otherTile = siteTiles graph Vector.! other
+
+halveDistances :: Vector.Vector Int -> Vector.Vector Int
+halveDistances = Vector.map halve
+ where
+  halve value
+    | value == maxBound = maxBound
+    | otherwise = value `div` 2
+
+assertReverseLabelsEqual :: SiteGraph -> Vector.Vector Int -> Vector.Vector Int -> IO ()
+assertReverseLabelsEqual graph clique manhattan =
+  case [ (state, clique Vector.! state, manhattan Vector.! state)
+       | node <- [0 .. Vector.length (siteTiles graph) - 1]
+       , banked <- [False, True]
+       , let state = stateId node banked
+       , clique Vector.! state /= manhattan Vector.! state
+       ] of
+    [] -> pure ()
+    ((state, expected, actual):_) ->
+      fail ("sparse Manhattan reverse label mismatch at state " <> show state <> ": clique=" <> show expected <> " manhattan=" <> show actual)
 
 chebyshevTransform :: Box -> [(Tile, Int)] -> Vector.Vector Int
 chebyshevTransform box seeds = runST $ do

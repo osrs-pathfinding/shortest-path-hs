@@ -95,7 +95,7 @@ data RegionTableCache = RegionTableCache Word64 RegionTable
   deriving stock (Generic)
   deriving anyclass (Binary)
 
-data TileComponentCache = TileComponentCache Word64 NaturalComponents
+data TileComponentCache = TileComponentCache Word64 NaturalComponents TileStatic
   deriving stock (Generic)
   deriving anyclass (Binary)
 
@@ -110,6 +110,9 @@ main = do
     ComponentTransformReport -> do
       tileAStar <- loadOrBuildTileAStar world
       writeComponentTransformReport tileAStar
+    TileStaticReport -> do
+      tileAStar <- loadOrBuildTileAStar world
+      writeTileStaticReport tileAStar
     GenerateRegionTable -> do
       hierarchy <- loadOrBuildHierarchy world
       regionGraph <- timedPhase "build detailed optimistic terminal graph" $ do
@@ -149,11 +152,12 @@ runCommand command world hierarchy tileAStar hierarchical = do
     ServeDirect -> pure ()
     GenerateRegionTable -> pure ()
     ComponentTransformReport -> pure ()
+    TileStaticReport -> pure ()
 
 data Mode = Smoke | All
   deriving (Eq, Show)
 
-data Command = Run Mode Bool | Serve | ServeDirect | GenerateRegionTable | ComponentTransformReport
+data Command = Run Mode Bool | Serve | ServeDirect | GenerateRegionTable | ComponentTransformReport | TileStaticReport
   deriving (Eq, Show)
 
 parseCommand :: [String] -> IO Command
@@ -167,8 +171,9 @@ parseCommand ["serve"] = pure Serve
 parseCommand ["serve-direct"] = pure ServeDirect
 parseCommand ["generate-region-table"] = pure GenerateRegionTable
 parseCommand ["component-transform-report"] = pure ComponentTransformReport
+parseCommand ["tile-static-report"] = pure TileStaticReport
 parseCommand _ = do
-  putStrLn "usage: runghc app/HierarchyDifferential.hs [smoke|all [--write-routes]|serve|serve-direct|generate-region-table|component-transform-report]"
+  putStrLn "usage: runghc app/HierarchyDifferential.hs [smoke|all [--write-routes]|serve|serve-direct|generate-region-table|component-transform-report|tile-static-report]"
   exitFailure
 
 selectCases :: Mode -> Partition -> [TestCase]
@@ -285,7 +290,7 @@ writeCorpus results = do
       ]
 
 writeComponentTransformReport :: TileAStar -> IO ()
-writeComponentTransformReport (TileAStar _ components) = do
+writeComponentTransformReport (TileAStar _ components _) = do
   createDirectoryIfMissing True "out"
   let rows = componentTransformRows components
       csvPath = "out/component-transform-report.csv"
@@ -298,6 +303,18 @@ writeComponentTransformReport (TileAStar _ components) = do
     (length rows)
     (sum (map componentTransformArea rows))
     (sum (map componentTransformTiles rows))
+
+writeTileStaticReport :: TileAStar -> IO ()
+writeTileStaticReport astar = do
+  let (originals, steiners, vertices, edges) = tileStaticStats astar
+      cliqueDirected = originals * max 0 (originals - 1)
+      bytesEstimate = vertices * 24 + edges * 16
+  printf "static original sites: %d\n" originals
+  printf "static Steiner vertices: %d\n" steiners
+  printf "static total vertices: %d\n" vertices
+  printf "sparse walking undirected edges: %d\n" edges
+  printf "global complete-clique directed edge proxy: %d\n" cliqueDirected
+  printf "rough adjacency memory estimate: %.2f MiB\n" (fromIntegral bytesEstimate / (1024 * 1024) :: Double)
 
 data ComponentTransformRow = ComponentTransformRow
   { componentTransformId :: !Int
@@ -671,18 +688,18 @@ loadOrBuildTileAStar world = do
   fresh <- tileComponentCacheIsFresh
   cached <- if fresh then loadTileComponentCache else pure Nothing
   case cached of
-    Just components -> timedPhase "force cached tile astar components" (forceTileAStar (TileAStar world components))
+    Just (components, static) -> timedPhase "force cached tile astar components" (forceTileAStar (TileAStar world components static))
     Nothing -> do
-      tileAStar@(TileAStar _ components) <- timedPhase "build tile astar components" (buildTileAStar world)
+      tileAStar@(TileAStar _ components static) <- timedPhase "build tile astar components" (buildTileAStar world)
       createDirectoryIfMissing True "out"
-      timedPhase "write tile astar component cache" (encodeFile tileComponentCachePath (TileComponentCache tileComponentCacheVersion components))
+      timedPhase "write tile astar component cache" (encodeFile tileComponentCachePath (TileComponentCache tileComponentCacheVersion components static))
       pure tileAStar
 
-loadTileComponentCache :: IO (Maybe NaturalComponents)
+loadTileComponentCache :: IO (Maybe (NaturalComponents, TileStatic))
 loadTileComponentCache = timedPhase "load tile astar component cache" $ do
   decoded <- decodeFileOrFail tileComponentCachePath
   case decoded of
-    Right (TileComponentCache version components) | version == tileComponentCacheVersion -> pure (Just components)
+    Right (TileComponentCache version components static) | version == tileComponentCacheVersion -> pure (Just (components, static))
     Right _ -> putStrLn "tile astar component cache version mismatch; rebuilding" >> pure Nothing
     Left (_, message) -> putStrLn ("tile astar component cache decode failed; rebuilding: " <> message) >> pure Nothing
 
@@ -764,7 +781,7 @@ regionTableVersion :: Word64
 regionTableVersion = 2
 
 tileComponentCacheVersion :: Word64
-tileComponentCacheVersion = 2
+tileComponentCacheVersion = 4
 
 cachePath, partitionPath, regionTablePath, tileComponentCachePath, heuristicTileRoot :: FilePath
 cachePath = "out/hierarchy-cache.bin"
