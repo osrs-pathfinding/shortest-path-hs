@@ -26,6 +26,8 @@ let bboxLayer;
 let routeLayer;
 let expandedLayer;
 let regionLayer;
+let heuristicImageLayers = [];
+let heuristicLayerControl;
 let cutLayer;
 let separatorLayer;
 let doorLayer;
@@ -33,6 +35,10 @@ let heuristicBounds;
 let route = null;
 let fixtureRoutes = [];
 let routeMarkers = [];
+let heuristicRender = null;
+let heuristicRequestKey = "";
+let heuristicVisibleKeys = new Set(["no-bank"]);
+let removingLayers = false;
 let partitions = [];
 let kahipPartitions = [];
 let cutEdges = [];
@@ -55,10 +61,16 @@ const map = L.map("map", {
   center: [3200, 3200], zoom: 1,
   maxBounds: [[-1000, -1000], [13800, 13800]], maxBoundsViscosity: 0.5
 });
-new WikiTileLayer("", {
+const baseTileLayer = new WikiTileLayer("", {
   minZoom: -4, minNativeZoom: -2, maxNativeZoom: 3, maxZoom: 4, noWrap: true
 }).addTo(map);
 const renderer = L.canvas({ padding: 0.5 });
+map.on("overlayadd", event => {
+  if (!removingLayers && event.layer?.heuristicKey) heuristicVisibleKeys.add(event.layer.heuristicKey);
+});
+map.on("overlayremove", event => {
+  if (!removingLayers && event.layer?.heuristicKey) heuristicVisibleKeys.delete(event.layer.heuristicKey);
+});
 
 function fetchJson(path, onSuccess, onError) {
   return fetch(path).then(response => {
@@ -288,10 +300,17 @@ function componentColor(id) {
 }
 
 function removeLayers() {
-  [shapeLayer, bboxLayer, routeLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, ...routeMarkers].forEach(layer => {
+  removingLayers = true;
+  [shapeLayer, bboxLayer, routeLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, ...heuristicImageLayers, ...routeMarkers].forEach(layer => {
     if (layer) map.removeLayer(layer);
   });
+  if (heuristicLayerControl) {
+    map.removeControl(heuristicLayerControl);
+    heuristicLayerControl = null;
+  }
+  removingLayers = false;
   routeMarkers = [];
+  heuristicImageLayers = [];
 }
 
 function render() {
@@ -339,6 +358,124 @@ function render() {
 
 function drawHeuristic(fillOpacity) {
   heuristicBounds = null;
+  const request = heuristicRequest();
+  if (!request) return null;
+  if (request.key !== heuristicRequestKey) {
+    heuristicRequestKey = request.key;
+    heuristicRender = null;
+    fetchHeuristic(request.body, request.key);
+  }
+  if (!heuristicRender) return null;
+  const visibleLayers = heuristicRender.layers.map(layer => ({
+    ...layer,
+    tiles: layer.tiles.filter(tile => tile.plane === currentPlane)
+  })).filter(layer => layer.tiles.length);
+  const layerGroups = visibleLayers.map(layer => {
+    const group = L.layerGroup(layer.tiles.map(tile => rgbaTileOverlay(tile, fillOpacity)));
+    group.heuristicKey = layer.key;
+    return [layer, group];
+  });
+  heuristicImageLayers = layerGroups.map(([, group]) => group);
+  for (const [layer, group] of layerGroups) {
+    if (heuristicVisibleKeys.has(layer.key)) group.addTo(map);
+  }
+  heuristicLayerControl = L.control.layers(null, {
+    "OSRS map": baseTileLayer,
+    ...Object.fromEntries(layerGroups.map(([layer, group]) => [layer.label, group]))
+  }, {
+    collapsed: false
+  }).addTo(map);
+  const allTiles = visibleLayers.flatMap(layer => layer.tiles);
+  if (allTiles.length) {
+    heuristicBounds = [
+      [Math.min(...allTiles.map(tile => tile.bounds[0][0])), Math.min(...allTiles.map(tile => tile.bounds[0][1]))],
+      [Math.max(...allTiles.map(tile => tile.bounds[1][0])), Math.max(...allTiles.map(tile => tile.bounds[1][1]))]
+    ];
+  }
+  return {
+    layers: visibleLayers.length,
+    bins: allTiles.length,
+    regions: 0,
+    samples: 0,
+    heuristicMs: visibleLayers.reduce((total, layer) => total + Number(layer.heuristicMs || 0), 0),
+    transformMs: visibleLayers.reduce((total, layer) => total + Number(layer.transformMs || 0), 0),
+    writeMs: visibleLayers.reduce((total, layer) => total + Number(layer.writeMs || 0), 0),
+    minimum: Math.min(...visibleLayers.map(layer => layer.min)),
+    maximum: Math.max(...visibleLayers.map(layer => layer.max))
+  };
+}
+
+function rgbaTileOverlay(tile, opacity) {
+  return new (L.Layer.extend({
+    onAdd(map) {
+      this._map = map;
+      this._bounds = L.latLngBounds(tile.bounds);
+      this._canvas = L.DomUtil.create("canvas", "heuristic-bitmap-tile");
+      this._canvas.width = 256;
+      this._canvas.height = 256;
+      this._canvas.style.opacity = opacity;
+      this._canvas.style.position = "absolute";
+      map.getPanes().overlayPane.appendChild(this._canvas);
+      map.on("zoom viewreset move", this._reset, this);
+      this._reset();
+      fetch(tile.url)
+        .then(response => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.arrayBuffer();
+        })
+        .then(buffer => {
+          const data = new Uint8ClampedArray(buffer);
+          if (data.length !== 256 * 256 * 4) return;
+          this._canvas.getContext("2d").putImageData(new ImageData(data, 256, 256), 0, 0);
+        })
+        .catch(error => { status.textContent = `Heuristic tile error: ${error.message}`; });
+    },
+    onRemove(map) {
+      map.off("zoom viewreset move", this._reset, this);
+      this._canvas?.remove();
+    },
+    _reset() {
+      const northWest = this._map.latLngToLayerPoint(this._bounds.getNorthWest());
+      const southEast = this._map.latLngToLayerPoint(this._bounds.getSouthEast());
+      L.DomUtil.setPosition(this._canvas, northWest);
+      this._canvas.style.width = `${southEast.x - northWest.x}px`;
+      this._canvas.style.height = `${southEast.y - northWest.y}px`;
+    }
+  }))();
+}
+
+function heuristicRequest() {
+  try {
+    const body = {
+      start: readRouteInputs("start"),
+      target: readRouteInputs("end"),
+      allowTransports: document.getElementById("allow-transports").checked,
+      includeExpandedTiles: false,
+      useHeuristic: true
+    };
+    return { key: JSON.stringify(body), body };
+  } catch (error) {
+    status.textContent = `Heuristic error: ${error.message}`;
+    return null;
+  }
+}
+
+async function fetchHeuristic(body, key) {
+  status.textContent = "Rendering heuristic tiles...";
+  try {
+    const response = await fetch("/api/heuristic", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    if (key !== heuristicRequestKey) return;
+    heuristicRender = result;
+    status.textContent = "Heuristic tiles loaded.";
+    render();
+  } catch (error) {
+    if (key === heuristicRequestKey) status.textContent = `Heuristic error: ${error.message}`;
+  }
+}
+
+function drawLegacyHeuristic(fillOpacity) {
   if (!route?.heuristicRegions?.length && !route?.heuristicTiles?.length) return null;
   const values = new Map(route.heuristicRegions.map(row => [`${row.component}:${row.region}`, Number(row.value)]));
   const samples = route.heuristicTiles.filter(point => point.plane === currentPlane && Number.isFinite(point.value));
@@ -469,17 +606,19 @@ function renderRouteStats() {
 async function runRoute() {
   try {
     const previous = route;
+    const algorithm = document.getElementById("route-algorithm").value;
     const body = {
       start: readRouteInputs("start"), target: readRouteInputs("end"),
       allowTransports: document.getElementById("allow-transports").checked,
       includeExpandedTiles: document.getElementById("include-expanded").checked,
-      useHeuristic: document.getElementById("route-algorithm").value === "astar"
+      useHeuristic: algorithm === "astar",
+      finder: algorithm === "astar" ? "tile-full" : "raw"
     };
     routeStatus.textContent = "Requesting route...";
     const response = await fetch("/api/route", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
-    route = { ...normaliseRoute(result, previous?.name || (body.useHeuristic ? "region A*" : "Dijkstra")), start: body.start, target: body.target, config: { ...(previous?.config || {}), allowTransports: body.allowTransports, includeExpandedTiles: body.includeExpandedTiles, search: body.useHeuristic ? "Region A*" : "Dijkstra" } };
+    route = { ...normaliseRoute(result, previous?.name || (body.useHeuristic ? "Tile A*" : "Dijkstra")), start: body.start, target: body.target, config: { ...(previous?.config || {}), allowTransports: body.allowTransports, includeExpandedTiles: body.includeExpandedTiles, search: body.useHeuristic ? "Tile A*" : "Dijkstra" } };
     routeStatus.textContent = "Route loaded from Haskell.";
     render();
   } catch (error) { routeStatus.textContent = `Route error: ${error.message}`; }
@@ -586,9 +725,11 @@ function renderStats(component, visibleBins, mode, heuristicSummary) {
   const selectedSeparators = selectedTiles(kahipPartitions.filter(point => point.kind === "separator"), component);
   const rows = mode === "heuristic" ? [
     ["mode", "A* heuristic"], ["plane", currentPlane],
-    ["heuristic regions", heuristicSummary?.regions.toLocaleString() || "0"],
-    ["terminal samples", heuristicSummary?.samples.toLocaleString() || "0"],
-    ["rendered bins", heuristicSummary?.bins.toLocaleString() || "0"]
+    ["heuristic layers", heuristicSummary?.layers.toLocaleString() || "0"],
+    ["heuristic tiles", heuristicSummary?.bins.toLocaleString() || "0"],
+    ["heuristic setup", heuristicSummary ? `${heuristicSummary.heuristicMs.toFixed(1)} ms` : "0.0 ms"],
+    ["transform", heuristicSummary ? `${heuristicSummary.transformMs.toFixed(1)} ms` : "0.0 ms"],
+    ["tile writes", heuristicSummary ? `${heuristicSummary.writeMs.toFixed(1)} ms` : "0.0 ms"]
   ] : [
     ["mode", { "all-components": "All components", manual: "Manual", metis: "METIS", kahip: "KaHIP", heuristic: "A* heuristic", difference: "Difference" }[mode]],
     ["tiles", mode === "all-components" ? data.components.reduce((total, item) => total + item.tiles, 0).toLocaleString() : component.tiles.toLocaleString()], ["bbox", mode === "all-components" ? "all visible components" : `${component.minX},${component.minY}..${component.maxX},${component.maxY}`],

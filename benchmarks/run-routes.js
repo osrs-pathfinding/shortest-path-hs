@@ -23,7 +23,15 @@ function point([x, y, plane]) {
   return { x, y, plane };
 }
 
-async function query(test, useHeuristic) {
+const modes = [
+  ["raw", { finder: "raw", useHeuristic: false }],
+  ["tileFull", { finder: "tile-full", useHeuristic: true }]
+];
+if (process.env.BENCHMARK_INCLUDE_HIERARCHY === "1") {
+  modes.push(["hierarchical", { finder: "hierarchical", useHeuristic: true }]);
+}
+
+async function query(test, options) {
   const response = await fetch(`${baseUrl}/api/route`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -32,7 +40,8 @@ async function query(test, useHeuristic) {
       target: point(test.target),
       allowTransports: test.allowTransports,
       includeExpandedTiles: false,
-      useHeuristic
+      useHeuristic: options.useHeuristic,
+      finder: options.finder
     })
   });
   const result = await response.json();
@@ -53,7 +62,20 @@ function median(values) {
 
 function summariseSamples(samples) {
   const timings = samples.map(sample => sample.timings);
-  const fields = ["sourceAttachmentMs", "targetAttachmentMs", "heuristicMs", "abstractSearchMs", "reconstructionMs", "totalMs", "httpWorkerRoundTripMs"];
+  const fields = [
+    "setupMs",
+    "reverseDijkstraMs",
+    "seedTableMs",
+    "distanceTransformMs",
+    "searchMs",
+    "totalMs",
+    "sourceAttachmentMs",
+    "targetAttachmentMs",
+    "heuristicMs",
+    "abstractSearchMs",
+    "reconstructionMs",
+    "httpWorkerRoundTripMs"
+  ];
   return {
     cost: samples[0].cost,
     expandedNodes: median(samples.map(sample => sample.expandedNodes)),
@@ -73,11 +95,8 @@ function categorySummary(results, mode) {
       p50Ms: percentile(totals, 0.5),
       p95Ms: percentile(totals, 0.95),
       p50ExpandedNodes: percentile(selected.map(value => value.expandedNodes), 0.5),
-      p50SourceAttachmentMs: percentile(selected.map(value => value.timings.sourceAttachmentMs), 0.5),
-      p50TargetAttachmentMs: percentile(selected.map(value => value.timings.targetAttachmentMs), 0.5),
-      p50HeuristicMs: percentile(selected.map(value => value.timings.heuristicMs), 0.5),
-      p50AbstractSearchMs: percentile(selected.map(value => value.timings.abstractSearchMs), 0.5),
-      p50ReconstructionMs: percentile(selected.map(value => value.timings.reconstructionMs), 0.5)
+      p50SetupMs: percentile(selected.map(value => value.timings.setupMs || value.timings.heuristicMs || 0), 0.5),
+      p50SearchMs: percentile(selected.map(value => value.timings.searchMs || value.timings.abstractSearchMs || 0), 0.5)
     }];
   }));
 }
@@ -88,35 +107,30 @@ function printCategoryTable(summary, mode) {
 }
 
 async function main() {
-  console.log(`Benchmarking ${cases.length} routes x ${runs} runs x A*/Dijkstra via ${baseUrl}`);
-  await query(cases[0], true);
-  await query(cases[0], false);
+  console.log(`Benchmarking ${cases.length} routes x ${runs} runs x ${modes.length} modes via ${baseUrl}`);
+  for (const [, options] of modes) await query(cases[0], options);
 
   const results = [];
   for (const [index, test] of cases.entries()) {
-    const samples = { astar: [], dijkstra: [] };
-    const order = index % 2 ? [["dijkstra", false], ["astar", true]] : [["astar", true], ["dijkstra", false]];
+    const samples = Object.fromEntries(modes.map(([mode]) => [mode, []]));
+    const order = index % 2 ? [...modes].reverse() : modes;
     for (let run = 0; run < runs; run++) {
-      for (const [mode, useHeuristic] of order) samples[mode].push(await query(test, useHeuristic));
+      for (const [mode, options] of order) samples[mode].push(await query(test, options));
     }
-    const astar = summariseSamples(samples.astar);
-    const dijkstra = summariseSamples(samples.dijkstra);
-    if (astar.cost !== dijkstra.cost) throw new Error(`${test.name}: A* cost ${astar.cost} != Dijkstra cost ${dijkstra.cost}`);
-    if (samples.astar.some(sample => sample.cost !== astar.cost) || samples.dijkstra.some(sample => sample.cost !== dijkstra.cost)) {
-      throw new Error(`${test.name}: route cost changed between runs`);
+    const summaries = Object.fromEntries(modes.map(([mode]) => [mode, summariseSamples(samples[mode])]));
+    const costs = modes.map(([mode]) => summaries[mode].cost);
+    if (!costs.every(cost => cost === costs[0])) throw new Error(`${test.name}: mode costs differ: ${JSON.stringify(Object.fromEntries(modes.map(([mode]) => [mode, summaries[mode].cost])))}`);
+    for (const [mode] of modes) {
+      if (samples[mode].some(sample => sample.cost !== summaries[mode].cost)) throw new Error(`${test.name}: ${mode} route cost changed between runs`);
     }
-    results.push({ ...test, astar, dijkstra });
-    console.log(`${String(index + 1).padStart(2)}/${cases.length} ${test.name}: cost=${astar.cost}, A*=${astar.timings.totalMs.toFixed(1)}ms/${astar.expandedNodes} nodes, Dijkstra=${dijkstra.timings.totalMs.toFixed(1)}ms/${dijkstra.expandedNodes} nodes`);
+    results.push({ ...test, ...summaries });
+    console.log(`${String(index + 1).padStart(2)}/${cases.length} ${test.name}: cost=${costs[0]}, ${modes.map(([mode]) => `${mode}=${summaries[mode].timings.totalMs.toFixed(1)}ms/${summaries[mode].expandedNodes}`).join(", ")}`);
   }
 
-  const summary = {
-    astar: categorySummary(results, "astar"),
-    dijkstra: categorySummary(results, "dijkstra")
-  };
+  const summary = Object.fromEntries(modes.map(([mode]) => [mode, categorySummary(results, mode)]));
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, JSON.stringify({ generatedAt: new Date().toISOString(), baseUrl, runs, routes: results, summary }, null, 2));
-  printCategoryTable(summary.astar, "A*");
-  printCategoryTable(summary.dijkstra, "Dijkstra");
+  for (const [mode] of modes) printCategoryTable(summary[mode], mode);
   console.log(`\nWrote ${outputPath}`);
 }
 

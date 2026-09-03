@@ -4,7 +4,7 @@ version: 0.1.0.0
 build-type: Simple
 
 common warnings
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns
+  ghc-options: -O2 -fspecialise-aggressively -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns
 
 library
   import: warnings
@@ -12,6 +12,7 @@ library
     ShortestPath.Exact.Dijkstra
     ShortestPath.Exact.Hierarchical
     ShortestPath.Exact.RawDijkstra
+    ShortestPath.Exact.TileAStar
     ShortestPath.Hierarchy.Partition
     ShortestPath.Hierarchy.Preprocess
     ShortestPath.Hierarchy.Types
@@ -23,6 +24,8 @@ library
     ShortestPath.Tsv
     ShortestPath.World
   hs-source-dirs: src
+  c-sources:
+    csrc/tile_astar_render.c
   build-depends:
     base >=4.20 && <4.21,
     aeson,
@@ -98,7 +101,8 @@ executable hierarchy-differential
     containers,
     directory,
     filepath,
-    shortest-path-model
+    shortest-path-model,
+    vector
   default-language: GHC2024
 
 test-suite smoke
@@ -122,5 +126,15 @@ test-suite hierarchy-synthetic
     binary,
     bytestring,
     containers,
+    shortest-path-model
+  default-language: GHC2024
+
+test-suite tile-astar
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: TileAStar.hs
+  hs-source-dirs: test
+  build-depends:
+    base,
     shortest-path-model
   default-language: GHC2024

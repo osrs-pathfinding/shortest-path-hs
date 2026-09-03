@@ -12,6 +12,8 @@ const types = {
   ".html": "text/html",
   ".js": "application/javascript",
   ".css": "text/css",
+  ".png": "image/png",
+  ".rgba": "application/octet-stream",
   ".json": "application/json",
   ".tsv": "text/tab-separated-values"
 };
@@ -40,7 +42,8 @@ function parseRouteRequest(body) {
       !validCoordinate(value.start) || !validCoordinate(value.target) ||
       (value.allowTransports !== undefined && typeof value.allowTransports !== "boolean") ||
       (value.includeExpandedTiles !== undefined && typeof value.includeExpandedTiles !== "boolean") ||
-      (value.useHeuristic !== undefined && typeof value.useHeuristic !== "boolean")) {
+      (value.useHeuristic !== undefined && typeof value.useHeuristic !== "boolean") ||
+      (value.finder !== undefined && typeof value.finder !== "string")) {
     return { error: "expected start and target coordinates and optional boolean route settings" };
   }
   return {
@@ -49,7 +52,8 @@ function parseRouteRequest(body) {
       target: value.target,
       allowTransports: value.allowTransports === undefined ? true : value.allowTransports,
       includeExpandedTiles: value.includeExpandedTiles === true,
-      useHeuristic: value.useHeuristic !== false
+      useHeuristic: value.useHeuristic !== false,
+      finder: value.finder
     }
   };
 }
@@ -71,7 +75,7 @@ class RouteProcess {
       const command = executable || "nix-shell";
       const args = executable
         ? ["serve"]
-        : ["shell.nix", "--run", "cabal run hierarchy-differential -- serve"];
+        : ["shell.nix", "--run", `cabal run hierarchy-differential -- ${process.env.HIERARCHY_ROUTE_MODE || "serve-direct"}`];
       const child = spawn(command, args, {
         cwd: root,
         stdio: ["pipe", "pipe", "pipe"]
@@ -226,10 +230,46 @@ function handleRoute(req, res) {
   });
 }
 
+function handleHeuristic(req, res) {
+  if (req.method !== "POST") {
+    json(res, 405, { error: "method not allowed" });
+    return;
+  }
+  let size = 0;
+  let tooLarge = false;
+  const chunks = [];
+  req.on("data", chunk => {
+    size += chunk.length;
+    if (size <= maxBodyBytes) chunks.push(chunk);
+    else tooLarge = true;
+  });
+  req.on("end", async () => {
+    if (tooLarge) {
+      json(res, 413, { error: "request body too large" });
+      return;
+    }
+    const parsed = parseRouteRequest(Buffer.concat(chunks).toString("utf8"));
+    if (parsed.error) {
+      json(res, 400, { error: parsed.error });
+      return;
+    }
+    try {
+      json(res, 200, await routeProcess.request({ ...parsed.value, finder: "heuristic" }));
+    } catch (error) {
+      const status = /timed out/.test(error.message) ? 504 : 503;
+      json(res, status, { error: error.message });
+    }
+  });
+}
+
 http.createServer((req, res) => {
   const requestPath = new URL(req.url, "http://127.0.0.1").pathname;
   if (requestPath === "/api/route") {
     handleRoute(req, res);
+    return;
+  }
+  if (requestPath === "/api/heuristic") {
+    handleHeuristic(req, res);
     return;
   }
   if (requestPath === "/door_transports.tsv") {
@@ -261,7 +301,10 @@ http.createServer((req, res) => {
         res.end("not found");
         return;
       }
-      res.writeHead(200, { "content-type": types[path.extname(file)] || "application/octet-stream" });
+      const extension = path.extname(file);
+      const headers = { "content-type": types[extension] || "application/octet-stream" };
+      if (extension === ".rgba") headers["cache-control"] = "no-store";
+      res.writeHead(200, headers);
       res.end(body);
     });
   });

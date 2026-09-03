@@ -5,14 +5,17 @@ module Main (main) where
 
 import Control.Exception (evaluate)
 import Control.Monad (filterM, forM, when)
-import Data.Aeson (FromJSON(..), Value, encode, eitherDecode, object, withObject, (.:), (.=))
+import Data.Aeson (FromJSON(..), Value, encode, eitherDecode, object, withObject, (.:), (.:?), (.=))
 import Data.Binary (Binary, decodeFileOrFail, encodeFile)
+import Data.Ord (Down(..))
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Vector as Boxed
+import qualified Data.Vector.Unboxed as Vector
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Generics (Generic)
@@ -21,12 +24,14 @@ import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileE
 import System.Exit (exitFailure)
 import System.FilePath ((</>))
 import System.IO (hFlush, isEOF, stdout)
+import Data.List (sortOn)
 import Text.Printf (printf)
 
 import ShortestPath.Exact.Hierarchical
   ( Hierarchical, QueryTimings(..), SearchCounters(..), buildHierarchical, buildHierarchicalWithRegionTable, findRouteProfiledWithOptions
   , hierarchicalRegionGraphSize
   )
+import ShortestPath.Exact.TileAStar
 import ShortestPath.Heuristic.Region (RegionTable, buildRegionGraph, buildRegionTable)
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
 import ShortestPath.Hierarchy.Partition
@@ -68,6 +73,7 @@ data ServeRequest = ServeRequest
   , requestAllowTransports :: Bool
   , requestIncludeExpandedTiles :: Bool
   , requestUseHeuristic :: Bool
+  , requestFinder :: Maybe String
   }
 
 instance FromJSON ServeRequest where
@@ -79,6 +85,7 @@ instance FromJSON ServeRequest where
       <*> value .: "allowTransports"
       <*> value .: "includeExpandedTiles"
       <*> value .: "useHeuristic"
+      <*> value .:? "finder"
 
 data HierarchyCache = HierarchyCache Word64 Hierarchy
   deriving stock (Generic)
@@ -88,13 +95,23 @@ data RegionTableCache = RegionTableCache Word64 RegionTable
   deriving stock (Generic)
   deriving anyclass (Binary)
 
+data TileComponentCache = TileComponentCache Word64 NaturalComponents
+  deriving stock (Generic)
+  deriving anyclass (Binary)
+
 main :: IO ()
 main = do
   command <- parseCommand =<< getArgs
   world <- timedPhase "load world" (loadWorld defaultSourcePaths)
-  hierarchy <- loadOrBuildHierarchy world
   case command of
+    ServeDirect -> do
+      tileAStar <- loadOrBuildTileAStar world
+      serveLoop world tileAStar Nothing
+    ComponentTransformReport -> do
+      tileAStar <- loadOrBuildTileAStar world
+      writeComponentTransformReport tileAStar
     GenerateRegionTable -> do
+      hierarchy <- loadOrBuildHierarchy world
       regionGraph <- timedPhase "build detailed optimistic terminal graph" $ do
         let value = buildRegionGraph world hierarchy
         _ <- evaluate value
@@ -102,6 +119,7 @@ main = do
       table <- timedPhase "generate region lower-bound table" (buildRegionTable regionGraph)
       timedPhase "write region lower-bound table" (encodeFile regionTablePath (RegionTableCache regionTableVersion table))
     _ -> do
+      hierarchy <- loadOrBuildHierarchy world
       table <- loadFreshRegionTable
       hierarchical <- timedPhase "load routing heuristic" $ do
         let value = maybe (buildHierarchical world hierarchy) (buildHierarchicalWithRegionTable world hierarchy) table
@@ -109,13 +127,14 @@ main = do
         _ <- evaluate (nodes + edges)
         printf "routing heuristic: %d regions/nodes, %d edges/table entries\n" nodes edges
         pure value
-      runCommand command world hierarchy hierarchical
+      tileAStar <- loadOrBuildTileAStar world
+      runCommand command world hierarchy tileAStar hierarchical
 
-runCommand :: Command -> World -> Hierarchy -> Hierarchical -> IO ()
-runCommand command world hierarchy hierarchical = do
+runCommand :: Command -> World -> Hierarchy -> TileAStar -> Hierarchical -> IO ()
+runCommand command world hierarchy tileAStar hierarchical = do
   let partition = hierarchyPartition hierarchy
   case command of
-    Serve -> serveLoop hierarchical
+    Serve -> serveLoop world tileAStar (Just hierarchical)
     Run mode writeRoutes -> do
       let cases = selectCases mode partition
           raw = RawDijkstra world
@@ -123,16 +142,18 @@ runCommand command world hierarchy hierarchical = do
       results <- forM (zip [1 :: Int ..] cases) $ \(number, testCase) -> do
         printf "route %d/%d: %s\n" number (length cases) (testLabel testCase)
         hFlush stdout
-        (flat, abstract) <- compareRoute partition raw hierarchical testCase
-        pure (testCase, flat, abstract)
+        (flat, tile, abstract) <- compareRoute partition raw tileAStar hierarchical testCase
+        pure (testCase, flat, tile, abstract)
       when writeRoutes (writeCorpus results)
       putStrLn "hierarchy differential: pass"
+    ServeDirect -> pure ()
     GenerateRegionTable -> pure ()
+    ComponentTransformReport -> pure ()
 
 data Mode = Smoke | All
   deriving (Eq, Show)
 
-data Command = Run Mode Bool | Serve | GenerateRegionTable
+data Command = Run Mode Bool | Serve | ServeDirect | GenerateRegionTable | ComponentTransformReport
   deriving (Eq, Show)
 
 parseCommand :: [String] -> IO Command
@@ -143,9 +164,11 @@ parseCommand [mode, "--write-routes"]
   | mode == "smoke" = pure (Run Smoke True)
   | mode == "all" = pure (Run All True)
 parseCommand ["serve"] = pure Serve
+parseCommand ["serve-direct"] = pure ServeDirect
 parseCommand ["generate-region-table"] = pure GenerateRegionTable
+parseCommand ["component-transform-report"] = pure ComponentTransformReport
 parseCommand _ = do
-  putStrLn "usage: runghc app/HierarchyDifferential.hs [smoke|all [--write-routes]|serve|generate-region-table]"
+  putStrLn "usage: runghc app/HierarchyDifferential.hs [smoke|all [--write-routes]|serve|serve-direct|generate-region-table|component-transform-report]"
   exitFailure
 
 selectCases :: Mode -> Partition -> [TestCase]
@@ -221,12 +244,13 @@ generatedCases partition =
       (Just (firstPacked, _), Just (lastPacked, _)) -> [Tile firstPacked, Tile lastPacked]
       _ -> []
 
-compareRoute :: Partition -> RawDijkstra -> Hierarchical -> TestCase -> IO (Route, Route)
-compareRoute partition raw hierarchical testCase = do
+compareRoute :: Partition -> RawDijkstra -> TileAStar -> Hierarchical -> TestCase -> IO (Route, Route, Route)
+compareRoute partition raw tileAStar hierarchical testCase = do
   let query = testQuery testCase
       flat = findRoute raw query
+      tile = findRoute tileAStar query
       abstract = findRoute hierarchical query
-  when (routeCost flat /= routeCost abstract) $ do
+  when (routeCost flat /= routeCost tile || routeCost flat /= routeCost abstract) $ do
     putStrLn "DIFFERENTIAL MISMATCH"
     putStrLn ("case: " <> testLabel testCase)
     putStrLn ("source: " <> coordinateText (queryStart query))
@@ -234,28 +258,163 @@ compareRoute partition raw hierarchical testCase = do
     putStrLn ("query: " <> show query)
     putStrLn ("raw cost: " <> show (routeCost flat))
     putStrLn ("raw route: " <> show (routeSteps flat))
+    putStrLn ("tile astar cost: " <> show (routeCost tile))
+    putStrLn ("tile astar route: " <> show (routeSteps tile))
     putStrLn ("hierarchical cost: " <> show (routeCost abstract))
     putStrLn ("hierarchical route: " <> show (routeSteps abstract))
     putStrLn ("raw regions: " <> show (regionSequence partition query flat))
     putStrLn ("hierarchical regions: " <> show (regionSequence partition query abstract))
     exitFailure
-  pure (flat, abstract)
+  pure (flat, tile, abstract)
 
-writeCorpus :: [(TestCase, Route, Route)] -> IO ()
+writeCorpus :: [(TestCase, Route, Route, Route)] -> IO ()
 writeCorpus results = do
   createDirectoryIfMissing True "out"
   LBS.writeFile "out/hierarchy-test-routes.json" (encode (map resultJson results))
   putStrLn "wrote out/hierarchy-test-routes.json"
  where
-  resultJson (testCase, flat, abstract) =
+  resultJson (testCase, flat, tile, abstract) =
     object
       [ "name" .= testLabel testCase
       , "source" .= coordinateText (queryStart (testQuery testCase))
       , "target" .= coordinateText (queryTarget (testQuery testCase))
       , "rawCost" .= routeCost flat
+      , "tileAStarCost" .= routeCost tile
       , "hierarchicalCost" .= routeCost abstract
       , "path" .= routeStepsJson (routeSteps abstract)
       ]
+
+writeComponentTransformReport :: TileAStar -> IO ()
+writeComponentTransformReport (TileAStar _ components) = do
+  createDirectoryIfMissing True "out"
+  let rows = componentTransformRows components
+      csvPath = "out/component-transform-report.csv"
+      mdPath = "out/component-transform-report.md"
+  writeFile csvPath (componentTransformCsv rows)
+  writeFile mdPath (componentTransformMarkdown rows)
+  printf "wrote %s and %s (%d components, %d bbox cells, %d walkable tiles)\n"
+    csvPath
+    mdPath
+    (length rows)
+    (sum (map componentTransformArea rows))
+    (sum (map componentTransformTiles rows))
+
+data ComponentTransformRow = ComponentTransformRow
+  { componentTransformId :: !Int
+  , componentTransformPlane :: !Int
+  , componentTransformMinX :: !Int
+  , componentTransformMinY :: !Int
+  , componentTransformMaxX :: !Int
+  , componentTransformMaxY :: !Int
+  , componentTransformWidth :: !Int
+  , componentTransformHeight :: !Int
+  , componentTransformArea :: !Int
+  , componentTransformTiles :: !Int
+  }
+
+componentTransformRows :: NaturalComponents -> [ComponentTransformRow]
+componentTransformRows components =
+  map row (filter (not . Vector.null . snd) (Boxed.toList (Boxed.indexed groups)))
+ where
+  groups = componentTileGroups components
+  row (cid, tiles) =
+    let box = componentBox tiles
+        width = boxMaxX box - boxMinX box + 1
+        height = boxMaxY box - boxMinY box + 1
+     in ComponentTransformRow
+          cid
+          (boxPlane box)
+          (boxMinX box)
+          (boxMinY box)
+          (boxMaxX box)
+          (boxMaxY box)
+          width
+          height
+          (width * height)
+          (Vector.length tiles)
+
+componentTransformCsv :: [ComponentTransformRow] -> String
+componentTransformCsv rows =
+  unlines
+    ( "component,plane,min_x,min_y,max_x,max_y,width,height,bbox_cells,walkable_tiles,fill_ratio"
+        : map csvRow rows
+    )
+ where
+  csvRow row =
+    show (componentTransformId row)
+      <> ","
+      <> show (componentTransformPlane row)
+      <> ","
+      <> show (componentTransformMinX row)
+      <> ","
+      <> show (componentTransformMinY row)
+      <> ","
+      <> show (componentTransformMaxX row)
+      <> ","
+      <> show (componentTransformMaxY row)
+      <> ","
+      <> show (componentTransformWidth row)
+      <> ","
+      <> show (componentTransformHeight row)
+      <> ","
+      <> show (componentTransformArea row)
+      <> ","
+      <> show (componentTransformTiles row)
+      <> ","
+      <> printf "%.6f" (fillRatio row)
+
+componentTransformMarkdown :: [ComponentTransformRow] -> String
+componentTransformMarkdown rows =
+  unlines
+    [ "# Component Transform Report"
+    , ""
+    , "Components: " <> show totalComponents
+    , "Walkable tiles: " <> show totalTiles
+    , "Bounding-box cells: " <> show totalArea
+    , "BBox/walkable multiplier: " <> printf "%.2f" areaMultiplier
+    , ""
+    , "## Largest Bounding Boxes"
+    , ""
+    , table (take 30 (sortOn (Down . componentTransformArea) rows))
+    , ""
+    , "## Sparsest Bounding Boxes"
+    , ""
+    , table (take 30 (sortOn fillRatio rows))
+    ]
+ where
+  totalComponents = length rows
+  totalTiles = sum (map componentTransformTiles rows)
+  totalArea = sum (map componentTransformArea rows)
+  areaMultiplier = fromIntegral totalArea / fromIntegral (max 1 totalTiles) :: Double
+  table selected =
+    unlines
+      ( "| component | plane | bbox | bbox cells | walkable tiles | fill |"
+          : "|---:|---:|---|---:|---:|---:|"
+          : map tableRow selected
+      )
+  tableRow row =
+    "| "
+      <> show (componentTransformId row)
+      <> " | "
+      <> show (componentTransformPlane row)
+      <> " | "
+      <> show (componentTransformMinX row)
+      <> ","
+      <> show (componentTransformMinY row)
+      <> ".."
+      <> show (componentTransformMaxX row)
+      <> ","
+      <> show (componentTransformMaxY row)
+      <> " | "
+      <> show (componentTransformArea row)
+      <> " | "
+      <> show (componentTransformTiles row)
+      <> " | "
+      <> printf "%.4f" (fillRatio row)
+      <> " |"
+
+fillRatio :: ComponentTransformRow -> Double
+fillRatio row = fromIntegral (componentTransformTiles row) / fromIntegral (max 1 (componentTransformArea row))
 
 routeStepsJson :: [RouteStep] -> [Value]
 routeStepsJson = map stepJson
@@ -263,8 +422,8 @@ routeStepsJson = map stepJson
   stepJson (Walk tile) = object ["kind" .= ("walk" :: String), "coordinate" .= coordinateText tile]
   stepJson (UseTransport label tile) = object ["kind" .= ("transport" :: String), "label" .= label, "coordinate" .= coordinateText tile]
 
-serveLoop :: Hierarchical -> IO ()
-serveLoop hierarchical = do
+serveLoop :: World -> TileAStar -> Maybe Hierarchical -> IO ()
+serveLoop world tileAStar hierarchical = do
   LBS.putStrLn (encode (object ["ready" .= True]))
   hFlush stdout
   loop
@@ -273,13 +432,13 @@ serveLoop hierarchical = do
     done <- isEOF
     when (not done) $ do
       line <- BS.getLine
-      response <- serveRequest hierarchical (LBS.fromStrict line)
+      response <- serveRequest world tileAStar hierarchical (LBS.fromStrict line)
       LBS.putStrLn (encode response)
       hFlush stdout
       loop
 
-serveRequest :: Hierarchical -> LBS.ByteString -> IO Value
-serveRequest hierarchical line =
+serveRequest :: World -> TileAStar -> Maybe Hierarchical -> LBS.ByteString -> IO Value
+serveRequest world tileAStar hierarchical line =
   case eitherDecode line of
     Left message -> pure (object ["ok" .= False, "error" .= ("invalid JSON request: " <> message)])
     Right request
@@ -288,22 +447,33 @@ serveRequest hierarchical line =
       | otherwise -> do
           let query = (defaultQuery (pointTile (requestStart request)) (pointTile (requestTarget request)))
                 { allowTransports = requestAllowTransports request }
-          (route, timings, expandedTiles, heuristicRegions, heuristicTiles) <- findRouteProfiledWithOptions
-            (requestIncludeExpandedTiles request)
-            (requestUseHeuristic request)
-            hierarchical
-            query
-          pure (object
-            [ "id" .= requestId request
-            , "ok" .= True
-            , "cost" .= routeCost route
-            , "expandedNodes" .= routeExpandedNodes route
-            , "path" .= routeStepsJson (routeSteps route)
-            , "expandedTiles" .= map coordinateText expandedTiles
-            , "heuristicRegions" .= map heuristicRegionJson heuristicRegions
-            , "heuristicTiles" .= map heuristicTileJson heuristicTiles
-            , "timings" .= timingsJson timings
-            ])
+          case maybe "hierarchical" id (requestFinder request) of
+            "raw" -> do
+              started <- getMonotonicTimeNSec
+              let route = findRoute (RawDijkstra world) query
+              _ <- evaluate (routeCost route + routeExpandedNodes route + length (routeSteps route))
+              finished <- getMonotonicTimeNSec
+              pure (routeResponse request route [] [] [] (rawTimingsJson route started finished))
+            "tile-full" -> do
+              (route, timings) <- findRouteProfiledTileAStar tileAStar query
+              pure (routeResponse request route [] [] [] (tileTimingsJson timings))
+            "heuristic" -> do
+              let stem = "start-" <> coordinateFileText (queryStart query) <> "-target-" <> coordinateFileText (queryTarget query) <> "-transports-" <> (if allowTransports query then "1" else "0")
+                  outputRoot = heuristicTileRoot </> stem
+                  urlRoot = "/out/heuristic-tiles/" <> stem
+              render <- renderHeuristicTiles tileAStar query outputRoot urlRoot
+              pure (heuristicRenderResponse request render)
+            "hierarchical" -> do
+              case hierarchical of
+                Nothing -> invalid request "hierarchical finder is unavailable in direct mode"
+                Just value -> do
+                  (route, timings, expandedTiles, heuristicRegions, heuristicTiles) <- findRouteProfiledWithOptions
+                    (requestIncludeExpandedTiles request)
+                    (requestUseHeuristic request)
+                    value
+                    query
+                  pure (routeResponse request route expandedTiles heuristicRegions heuristicTiles (timingsJson timings))
+            other -> invalid request ("unknown finder: " <> other)
  where
   invalid :: ServeRequest -> String -> IO Value
   invalid request message = pure (object ["id" .= requestId request, "ok" .= False, "error" .= message])
@@ -311,6 +481,7 @@ serveRequest hierarchical line =
   validPoint point = pointX point >= 0 && pointX point <= 32767
     && pointY point >= 0 && pointY point <= 32767
     && pointPlane point >= 0 && pointPlane point <= 3
+  coordinateFileText tile = let (x, y, p) = unpackTile tile in show x <> "-" <> show y <> "-" <> show p
   heuristicRegionJson (LeafId component region, value) = object
     [ "component" .= component
     , "region" .= region
@@ -319,6 +490,55 @@ serveRequest hierarchical line =
   heuristicTileJson (tile, value) =
     let (x, y, plane) = unpackTile tile
      in object ["x" .= x, "y" .= y, "plane" .= plane, "value" .= value]
+  routeResponse :: ServeRequest -> Route -> [Tile] -> [(LeafId, Int)] -> [(Tile, Int)] -> Value -> Value
+  routeResponse request route expandedTiles heuristicRegions heuristicTiles timings =
+    object
+      [ "id" .= requestId request
+      , "ok" .= True
+      , "cost" .= routeCost route
+      , "expandedNodes" .= routeExpandedNodes route
+      , "path" .= routeStepsJson (routeSteps route)
+      , "expandedTiles" .= map coordinateText expandedTiles
+      , "heuristicRegions" .= map heuristicRegionJson heuristicRegions
+      , "heuristicTiles" .= map heuristicTileJson heuristicTiles
+      , "timings" .= timings
+      ]
+
+  heuristicRenderResponse :: ServeRequest -> HeuristicRender -> Value
+  heuristicRenderResponse request render =
+    object
+      [ "id" .= requestId request
+      , "ok" .= True
+      , "tileSize" .= renderTileSize render
+      , "layers" .= map (layerJson (renderTileSize render)) (renderLayers render)
+      ]
+
+  layerJson tileSize layer =
+    object
+      [ "key" .= layerKey layer
+      , "label" .= layerLabel layer
+      , "bankPathEnabled" .= layerBankPathEnabled layer
+      , "min" .= layerMinimum layer
+      , "max" .= layerMaximum layer
+      , "heuristicMs" .= layerHeuristicMilliseconds layer
+      , "transformMs" .= layerTransformMilliseconds layer
+      , "writeMs" .= layerWriteMilliseconds layer
+      , "tiles" .= map (tileJson tileSize) (layerTiles layer)
+      ]
+
+  tileJson tileSize tile =
+    object
+      [ "url" .= tileUrl tile
+      , "plane" .= tilePlane tile
+      , "x" .= tileX tile
+      , "y" .= tileY tile
+      , "min" .= tileMinimum tile
+      , "max" .= tileMaximum tile
+      , "bounds" .=
+          [ [tileY tile * tileSize, tileX tile * tileSize]
+          , [(tileY tile + 1) * tileSize, (tileX tile + 1) * tileSize]
+          ]
+      ]
 
 timingsJson :: QueryTimings -> Value
 timingsJson timings = object
@@ -330,6 +550,65 @@ timingsJson timings = object
   , "heuristicMs" .= heuristicMilliseconds timings
   , "search" .= searchCountersJson (querySearchCounters timings)
   ]
+
+rawTimingsJson :: Route -> Word64 -> Word64 -> Value
+rawTimingsJson route started finished = object
+  [ "setupMs" .= (0 :: Double)
+  , "reverseDijkstraMs" .= (0 :: Double)
+  , "seedTableMs" .= (0 :: Double)
+  , "distanceTransformMs" .= (0 :: Double)
+  , "searchMs" .= milliseconds started finished
+  , "totalMs" .= milliseconds started finished
+  , "search" .= object
+      [ "statesPopped" .= routeExpandedNodes route
+      , "stalePqEntries" .= (0 :: Int)
+      , "pqPushes" .= (0 :: Int)
+      , "uniqueStatesReached" .= (0 :: Int)
+      , "walkingRelaxations" .= (0 :: Int)
+      , "transportRelaxations" .= (0 :: Int)
+      , "heuristicEvaluations" .= (0 :: Int)
+      ]
+  ]
+
+tileTimingsJson :: TileAStarTimings -> Value
+tileTimingsJson timings = object
+  [ "setupMs" .= tileHeuristicSetupMilliseconds timings
+  , "reverseDijkstraMs" .= tileReverseDijkstraMilliseconds timings
+  , "seedTableMs" .= tileSeedTableMilliseconds timings
+  , "distanceTransformMs" .= (0 :: Double)
+  , "searchMs" .= tileSearchMilliseconds timings
+  , "totalMs" .= tileTotalMilliseconds timings
+  , "search" .= tileCountersJson (tileSearchCounters timings)
+  , "reverseSearch" .= tileReverseCountersJson (tileReverseCounters timings)
+  ]
+
+tileCountersJson :: TileAStarCounters -> Value
+tileCountersJson counters = object
+  [ "statesPopped" .= tileStatesPopped counters
+  , "stalePqEntries" .= tileStalePqEntries counters
+  , "pqPushes" .= tilePqPushes counters
+  , "uniqueStatesReached" .= tileUniqueStatesReached counters
+  , "walkingRelaxations" .= tileWalkingRelaxations counters
+  , "transportRelaxations" .= tileTransportRelaxations counters
+  , "heuristicEvaluations" .= tileHeuristicEvaluations counters
+  ]
+
+tileReverseCountersJson :: TileReverseCounters -> Value
+tileReverseCountersJson counters = object
+  [ "statesPopped" .= reverseStatesPopped counters
+  , "stalePqEntries" .= reverseStalePqEntries counters
+  , "pqPushes" .= reversePqPushes counters
+  , "pqPops" .= reversePqPops counters
+  , "sameComponentSiteScans" .= reverseSameComponentSiteScans counters
+  , "totalSitesScanned" .= reverseTotalSitesScanned counters
+  , "chebyshevComparisons" .= reverseChebyshevComparisons counters
+  , "maxSitesScannedPerPop" .= reverseMaxSitesScannedPerPop counters
+  , "meanSitesScannedPerPop" .= meanSitesScanned counters
+  , "transportRelaxations" .= reverseTransportRelaxations counters
+  ]
+ where
+  meanSitesScanned c =
+    fromIntegral (reverseTotalSitesScanned c) / fromIntegral (max 1 (reverseSameComponentSiteScans c)) :: Double
 
 searchCountersJson :: SearchCounters -> Value
 searchCountersJson counters = object
@@ -387,6 +666,26 @@ loadCache = timedPhase "load hierarchy cache" $ do
     Right _ -> putStrLn "hierarchy cache version mismatch; rebuilding" >> pure Nothing
     Left (_, message) -> putStrLn ("hierarchy cache decode failed; rebuilding: " <> message) >> pure Nothing
 
+loadOrBuildTileAStar :: World -> IO TileAStar
+loadOrBuildTileAStar world = do
+  fresh <- tileComponentCacheIsFresh
+  cached <- if fresh then loadTileComponentCache else pure Nothing
+  case cached of
+    Just components -> timedPhase "force cached tile astar components" (forceTileAStar (TileAStar world components))
+    Nothing -> do
+      tileAStar@(TileAStar _ components) <- timedPhase "build tile astar components" (buildTileAStar world)
+      createDirectoryIfMissing True "out"
+      timedPhase "write tile astar component cache" (encodeFile tileComponentCachePath (TileComponentCache tileComponentCacheVersion components))
+      pure tileAStar
+
+loadTileComponentCache :: IO (Maybe NaturalComponents)
+loadTileComponentCache = timedPhase "load tile astar component cache" $ do
+  decoded <- decodeFileOrFail tileComponentCachePath
+  case decoded of
+    Right (TileComponentCache version components) | version == tileComponentCacheVersion -> pure (Just components)
+    Right _ -> putStrLn "tile astar component cache version mismatch; rebuilding" >> pure Nothing
+    Left (_, message) -> putStrLn ("tile astar component cache decode failed; rebuilding: " <> message) >> pure Nothing
+
 forceHierarchy :: Hierarchy -> IO Hierarchy
 forceHierarchy hierarchy = do
   let overlaySize = Map.foldl' (\total overlay -> total + overlayEntries overlay) 0 (leafOverlays hierarchy)
@@ -410,6 +709,16 @@ cacheIsFresh = do
     else do
       inputs <- concat <$> mapM filesBelow cacheInputRoots
       cacheTime <- getModificationTime cachePath
+      and <$> mapM (fmap (<= cacheTime) . getModificationTime) inputs
+
+tileComponentCacheIsFresh :: IO Bool
+tileComponentCacheIsFresh = do
+  exists <- doesFileExist tileComponentCachePath
+  if not exists
+    then pure False
+    else do
+      inputs <- concat <$> mapM filesBelow tileComponentCacheInputRoots
+      cacheTime <- getModificationTime tileComponentCachePath
       and <$> mapM (fmap (<= cacheTime) . getModificationTime) inputs
 
 loadFreshRegionTable :: IO (Maybe RegionTable)
@@ -454,10 +763,15 @@ cacheVersion = 2
 regionTableVersion :: Word64
 regionTableVersion = 2
 
-cachePath, partitionPath, regionTablePath :: FilePath
+tileComponentCacheVersion :: Word64
+tileComponentCacheVersion = 2
+
+cachePath, partitionPath, regionTablePath, tileComponentCachePath, heuristicTileRoot :: FilePath
 cachePath = "out/hierarchy-cache.bin"
 partitionPath = "out/metis/kahip-partitions.csv"
 regionTablePath = "out/region-lower-bounds.bin"
+tileComponentCachePath = "out/tile-astar-components.bin"
+heuristicTileRoot = "out/heuristic-tiles"
 
 cacheInputRoots :: [FilePath]
 cacheInputRoots =
@@ -466,6 +780,14 @@ cacheInputRoots =
   , "src/ShortestPath/Hierarchy"
   , "src/ShortestPath/Tile.hs"
   , "src/ShortestPath/Transport.hs"
+  , "src/ShortestPath/World.hs"
+  ]
+
+tileComponentCacheInputRoots :: [FilePath]
+tileComponentCacheInputRoots =
+  [ resourcesDir defaultSourcePaths
+  , "src/ShortestPath/Exact/TileAStar.hs"
+  , "src/ShortestPath/Tile.hs"
   , "src/ShortestPath/World.hs"
   ]
 

@@ -209,6 +209,11 @@ dd {
   margin: 0;
 }
 
+.heuristic-bitmap-tile {
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
 @media (max-width: 800px) {
   .layout {
     grid-template-columns: 1fr;

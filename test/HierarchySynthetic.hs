@@ -9,6 +9,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import ShortestPath.Exact.Hierarchical
+import ShortestPath.Exact.TileAStar
 import ShortestPath.Exact.RawDijkstra
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess
@@ -38,11 +39,12 @@ main = do
         (tA25 tiles)
         (Map.singleton (tA25 tiles) 0)
   assert (tileLowerBound exactValues False (tA0 tiles) == 25)
-  mapM_ (checkRoute raw hierarchical world) (cases tiles)
+  tileAStar <- buildTileAStar world
+  mapM_ (checkRoute raw tileAStar hierarchical world) (cases tiles)
   regionTable <- buildRegionTable (buildRegionGraph world hierarchy)
   assert (tableLowerBound regionTable False [LeafId 1 "a"] [LeafId 1 "d"] < tableLowerBound regionTable True [LeafId 1 "a"] [LeafId 1 "d"])
   let precomputed = buildHierarchicalWithRegionTable world hierarchy regionTable
-  mapM_ (checkRoute raw precomputed world) (cases tiles)
+  mapM_ (checkRoute raw tileAStar precomputed world) (cases tiles)
   let profiledQuery = walkingQuery (tA3 tiles) (tA8 tiles)
   (tracedRoute, _, expandedTiles, heuristicRegions, heuristicTiles) <- findRouteProfiledWithOptions True True hierarchical profiledQuery
   (dijkstraRoute, _, _, noHeuristicRegions, noHeuristicTiles) <- findRouteProfiledWithOptions False False hierarchical profiledQuery
@@ -195,20 +197,25 @@ query start target enabled bank =
 walkingQuery :: Tile -> Tile -> Query
 walkingQuery start target = (query start target Set.empty False) { allowTransports = False }
 
-checkRoute :: RawDijkstra -> Hierarchical -> World -> Case -> IO ()
-checkRoute raw hierarchical world (Case name q expectation) = do
+checkRoute :: RawDijkstra -> TileAStar -> Hierarchical -> World -> Case -> IO ()
+checkRoute raw tileAStar hierarchical world (Case name q expectation) = do
   let flat = findRoute raw q
+      tile = findRoute tileAStar q
       abstract = findRoute hierarchical q
   case expectation of
     Reachable -> do
       assert (routeCost flat < maxBound)
+      assert (routeCost tile == routeCost flat)
       assert (routeCost abstract == routeCost flat)
+      assert (concreteCost world q (routeSteps tile) == routeCost tile)
       assert (concreteCost world q (routeSteps abstract) == routeCost abstract)
     Unreachable -> do
       assert (routeCost flat == maxBound)
+      assert (routeCost tile == maxBound)
       assert (routeCost abstract == maxBound)
+      assert (null (routeSteps tile))
       assert (null (routeSteps abstract))
-  putStrLn (name <> ": " <> show (routeCost flat) <> " / " <> show (routeCost abstract))
+  putStrLn (name <> ": " <> show (routeCost flat) <> " / " <> show (routeCost tile) <> " / " <> show (routeCost abstract))
 
 concreteCost :: World -> Query -> [RouteStep] -> Int
 concreteCost world q = snd . foldl step (queryStart q, 0)

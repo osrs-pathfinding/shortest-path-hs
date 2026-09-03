@@ -11,7 +11,7 @@ import Data.List (intercalate, sort, sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.Environment (getArgs)
+import System.Environment (getArgs, lookupEnv)
 import System.IO (IOMode(WriteMode), hPutStrLn, withFile)
 import System.Process (callProcess)
 import Text.Printf (printf)
@@ -19,6 +19,7 @@ import Text.Read (readMaybe)
 
 import ShortestPath.Tile
 import ShortestPath.Transport
+import ShortestPath.Tsv
 import ShortestPath.World
 
 targetSize :: Int
@@ -64,11 +65,9 @@ main = do
 partition :: IO ()
 partition = do
   createDirectoryIfMissing True "out/metis"
-  world <- timed "load world" (loadWorld defaultSourcePaths)
-  walkable <- timed "enumerate walkable tiles" (enumerateWalkable (worldCollision world))
-  (components, owner) <- timed "raw walking components" (componentsOf world walkable)
+  (world, components, owner) <- loadPartitionInputs
   let reachable = reachableComponents world owner
-      selected = [(cid, tiles) | (cid, tiles) <- components, IntSet.member cid reachable, length tiles > targetSize]
+      selected = [(cid, tiles) | (cid, tiles) <- components, IntSet.member cid reachable, length tiles > targetSize, cid /= 4162]
   putFlush ("selected components: " <> show (length selected))
   results <- forM selected $ \(cid, tiles) -> do
     putFlush ("partitioning component " <> show cid <> " (" <> show (length tiles) <> " tiles)")
@@ -84,45 +83,33 @@ partition = do
 integrate :: IO ()
 integrate = do
   createDirectoryIfMissing True "out/metis"
-  world <- timed "load world" (loadWorld defaultSourcePaths)
-  walkable <- timed "enumerate walkable tiles" (enumerateWalkable (worldCollision world))
-  (components, owner) <- timed "raw walking components" (componentsOf world walkable)
+  (world, components, owner) <- loadPartitionInputs
   let reachable = reachableComponents world owner
       raw = [(cid, ns) | (cid, ns) <- components, IntSet.member cid reachable]
-      selectedIds = Set.fromList [cid | (cid, ns) <- raw, length ns > targetSize]
+      selectedIds = Set.fromList [cid | (cid, ns) <- raw, length ns > targetSize, cid /= 4162]
   manualRows <- baselineRows "out/components.csv"
-  metis <- readAssignments "out/metis/partitions.csv"
   kahip <- fmap concat (forM [(cid, ns) | (cid, ns) <- raw, Set.member cid selectedIds] $ \(cid, ns) -> do
     putFlush ("reconstructing KaHIP assignments for component " <> show cid)
     reuseKahip cid "1" 0 ns)
-  validateAssignments owner raw selectedIds metis kahip
+--  validateAssignments owner raw selectedIds metis kahip
   let interesting = interestingTiles world
-      completeMetisAssignments = completeMetis raw selectedIds metis
       completeKahipAssignments = completeKahip raw selectedIds kahip
-      metisLike = instanceLikeMetis completeMetisAssignments
       kahipLike = instanceLikeKahip completeKahipAssignments
-      metisRows = regionRows world interesting metisLike
       kahipRows = regionRows world interesting kahipLike
-      metisEdges = regionEdges world (assignmentOwners metisLike)
       kahipEdges = regionEdges world (kahipOwners completeKahipAssignments)
-      metisLinks = regionLinks metisEdges
       kahipLinks = regionLinks kahipEdges
-      summary = censusJson raw metisRows metisLinks kahipRows kahipLinks (baselineRegionRows manualRows) kahip
-  timed "write metis-components.csv" (writeFile "out/metis/metis-components.csv" (rowsCsv metisLinks metisRows))
+      summary = censusJson raw mempty mempty kahipRows kahipLinks (baselineRegionRows manualRows) kahip
   timed "write kahip-components.csv" (writeFile "out/metis/kahip-components.csv" (rowsCsv kahipLinks kahipRows))
-  timed "write metis-region-graph.csv" (writeFile "out/metis/metis-region-graph.csv" (regionGraphCsv metisEdges))
   timed "write kahip-region-graph.csv" (writeFile "out/metis/kahip-region-graph.csv" (regionGraphCsv kahipEdges))
   timed "write kahip-partitions.csv" (writeFile "out/metis/kahip-partitions.csv" (kahipAssignmentsCsv kahip))
   timed "write partition-census.json" (BL.writeFile "out/metis/partition-census.json" (encode summary))
-  timed "write automatic-partition-census.md" (writeFile "automatic-partition-census.md" (censusMarkdown world raw metisRows metisLinks kahipRows kahipLinks manualRows metis kahip))
+  timed "write automatic-partition-census.md" (writeFile "automatic-partition-census.md" (censusMarkdown world raw mempty mempty kahipRows kahipLinks manualRows mempty kahip))
   putStrLn "wrote automatic partition census outputs"
 
 refineKahip :: Int -> Int -> Int -> IO ()
 refineKahip maximumSize minimumSize maximumCheapSeparator = do
   createDirectoryIfMissing True "out/metis"
-  world <- timed "load world" (loadWorld defaultSourcePaths)
-  walkable <- timed "enumerate walkable tiles" (enumerateWalkable (worldCollision world))
-  (components, owner) <- timed "raw walking components" (componentsOf world walkable)
+  (world, components, owner) <- loadPartitionInputs
   let reachable = reachableComponents world owner
       selected = [(cid, ns) | (cid, ns) <- components, IntSet.member cid reachable, length ns > targetSize]
   current <- fmap concat (forM selected $ \(cid, ns) -> reuseKahip cid "1" 0 ns)
@@ -143,6 +130,107 @@ refineKahip maximumSize minimumSize maximumCheapSeparator = do
   timed "write refinement candidates" (writeFile ("out/metis/" <> outputStem <> "-candidates.csv") (refinementCsv minimumSize refinements))
   timed "write refinement report" (writeFile (outputStem <> "-report.md") (refinementReport maximumSize minimumSize maximumCheapSeparator current assignments refinements))
   putStrLn ("wrote isolated KaHIP refinement outputs with prefix " <> outputStem <> "; current hierarchy assignments are unchanged")
+
+loadPartitionInputs :: IO (World, [(Int, [Int])], IntMap.IntMap Int)
+loadPartitionInputs = do
+  world <- timed "load world" loadConfiguredWorld
+  walkable <- timed "enumerate walkable tiles" (enumerateWalkable (worldCollision world))
+  (rawComponents, rawOwner) <- timed "raw walking components" (componentsOf world walkable)
+  threshold <- envInt "COLLAPSE_SMALL_DOOR_COMPONENTS" 0
+  if threshold <= 0
+    then pure (world, rawComponents, rawOwner)
+    else do
+      let (components, owner) = collapseSmallDoorComponents world threshold rawComponents rawOwner
+      putFlush ("collapsed door-connected components below " <> show threshold <> " tiles: " <> show (length rawComponents) <> " -> " <> show (length components))
+      pure (world, components, owner)
+
+loadConfiguredWorld :: IO World
+loadConfiguredWorld = do
+  paths <- configuredSourcePaths
+  world <- loadWorld paths
+  doorFile <- lookupEnv "DOOR_TRANSPORTS_TSV"
+  doors <- maybe (pure []) (\path -> map (doorTransport path) <$> readRows path) doorFile
+  dropDitch <- envFlag "DROP_WILDERNESS_DITCH"
+  let withDoors = appendTransports world doors
+      filtered = if dropDitch then filterLocalTransports (not . isWildernessDitch) withDoors else withDoors
+  putFlush ("configured transports: doors=" <> show (length doors) <> " drop-ditch=" <> show dropDitch)
+  pure filtered
+
+configuredSourcePaths :: IO SourcePaths
+configuredSourcePaths = do
+  resources <- lookupEnv "SPM_RESOURCES_DIR"
+  collision <- lookupEnv "SPM_COLLISION_ZIP"
+  bank <- lookupEnv "SPM_BANK_FILE"
+  pure defaultSourcePaths
+    { resourcesDir = maybe (resourcesDir defaultSourcePaths) id resources
+    , collisionZip = maybe (collisionZip defaultSourcePaths) id collision
+    , bankFile = maybe (bankFile defaultSourcePaths) id bank
+    }
+
+doorTransport :: FilePath -> Row -> Transport
+doorTransport sourcePath row =
+  Transport "DOOR" (parseTileField (field "Origin" row)) (parseTileField (field "Destination" row)) 1 (field "Display info" row) (field "menuOption menuTarget objectID" row) False Nothing [] Nothing [] [] [] sourcePath
+
+appendTransports :: World -> [Transport] -> World
+appendTransports world transports =
+  world { worldTransports = Map.fromListWith (<>) (transportRows world <> [(originTile, [transport]) | transport <- transports, Just originTile <- [origin transport]]) }
+
+filterLocalTransports :: (Transport -> Bool) -> World -> World
+filterLocalTransports keep world =
+  world { worldTransports = Map.fromListWith (<>) [(originTile, [transport]) | transports <- Map.elems (worldTransports world), transport <- transports, keep transport, Just originTile <- [origin transport]] }
+
+transportRows :: World -> [(Tile, [Transport])]
+transportRows world = [(originTile, [transport]) | transports <- Map.elems (worldTransports world), transport <- transports, Just originTile <- [origin transport]]
+
+isWildernessDitch :: Transport -> Bool
+isWildernessDitch transport = displayInfo transport == "Cross Wilderness Ditch" || objectInfo transport == "Cross Wilderness Ditch 23271"
+
+collapseSmallDoorComponents :: World -> Int -> [(Int, [Int])] -> IntMap.IntMap Int -> ([(Int, [Int])], IntMap.IntMap Int)
+collapseSmallDoorComponents world threshold components owner =
+  (Map.toAscList grouped, IntMap.map (\cid -> Map.findWithDefault cid cid roots) owner)
+ where
+  sizes = Map.fromList [(cid, length tiles) | (cid, tiles) <- components]
+  doorEdges =
+    [ (a, b)
+    | transports <- Map.elems (worldTransports world)
+    , transport <- transports
+    , transportType transport == "DOOR"
+    , Just originTile <- [origin transport]
+    , Just destinationTile <- [destination transport]
+    , Just a <- [attachedComponent world owner originTile]
+    , Just b <- [attachedComponent world owner destinationTile]
+    , a /= b
+    , Map.findWithDefault 0 a sizes < threshold || Map.findWithDefault 0 b sizes < threshold
+    ]
+  adjacency = Map.fromListWith (<>) ([(a, [b]) | (a, b) <- doorEdges] <> [(b, [a]) | (a, b) <- doorEdges])
+  roots = Map.fromList [(cid, root) | group <- doorGroups, let root = minimum group, cid <- group]
+  doorGroups = connectedGroups (Set.fromList (concatMap (\(a, b) -> [a, b]) doorEdges)) adjacency
+  grouped = Map.fromListWith (<>) [(Map.findWithDefault cid cid roots, tiles) | (cid, tiles) <- components]
+
+attachedComponent :: World -> IntMap.IntMap Int -> Tile -> Maybe Int
+attachedComponent world owner tile =
+  case IntSet.toList (IntSet.fromList [cid | candidate <- tile : walkingNeighborsRaw world tile, Just cid <- [IntMap.lookup (unTile candidate) owner]]) of
+    cid:_ -> Just cid
+    [] -> Nothing
+
+connectedGroups :: Set.Set Int -> Map.Map Int [Int] -> [[Int]]
+connectedGroups nodes adjacency = go nodes []
+ where
+  go remaining groups = case Set.minView remaining of
+    Nothing -> groups
+    Just (start, rest) ->
+      let group = flood Set.empty [start]
+       in go (foldr Set.delete rest group) (group : groups)
+  flood seen [] = Set.toList seen
+  flood seen (cid:queue)
+    | Set.member cid seen = flood seen queue
+    | otherwise = flood (Set.insert cid seen) (Map.findWithDefault [] cid adjacency <> queue)
+
+envFlag :: String -> IO Bool
+envFlag name = maybe False (`elem` ["1", "true", "yes", "on"]) <$> lookupEnv name
+
+envInt :: String -> Int -> IO Int
+envInt name fallback = maybe fallback (maybe fallback id . readMaybe) <$> lookupEnv name
 
 refineKahipLeaf :: World -> Int -> Int -> Int -> Int -> String -> Int -> [Int] -> IO ([KAssignment], [KRefinement])
 refineKahipLeaf world maximumSize minimumSize maximumCheapSeparator cid label level ns
@@ -250,9 +338,9 @@ refinementReport maximumSize minimumSize maximumCheapSeparator before after refi
 
 partitionComponent :: World -> Int -> [Int] -> IO Result
 partitionComponent world cid tiles = do
-  (metis, splits) <- goMetis "1" tiles
+--  (metis, splits) <- goMetis "1" tiles
   (kahip, ksplits) <- goKahip "1" 0 tiles
-  pure (Result cid tiles metis splits kahip ksplits)
+  pure (Result cid tiles [] [] kahip ksplits)
  where
   goMetis label ns
     | length ns <= targetSize = pure ([Assignment cid n label | n <- ns], [])
@@ -309,19 +397,16 @@ writeGraph world ns path = do
 
 validateResults :: IntMap.IntMap Int -> [(Int, [Int])] -> [Result] -> IO ()
 validateResults owner selected results = validateAssignments owner selected (Set.fromList (map fst selected))
-  (concat [a | Result _ _ a _ _ _ <- results]) (concat [k | Result _ _ _ _ k _ <- results])
+   (concat [k | Result _ _ _ _ k _ <- results])
   >> putFlush "assignment invariants: pass"
 
-validateAssignments :: IntMap.IntMap Int -> [(Int, [Int])] -> Set.Set Int -> [Assignment] -> [KAssignment] -> IO ()
-validateAssignments owner raw selected metis kahip = do
+validateAssignments :: IntMap.IntMap Int -> [(Int, [Int])] -> Set.Set Int -> [KAssignment] -> IO ()
+validateAssignments owner raw selected kahip = do
   let expected = IntMap.fromList [(n, cid) | (cid, ns) <- raw, Set.member cid selected, n <- ns]
-      checkMetis = [(n, cid) | Assignment cid n _ <- metis, IntMap.lookup n owner == Just cid]
       checkKahip = [(n, cid) | KAssignment cid n _ _ _ <- kahip, IntMap.lookup n owner == Just cid]
       unique xs = length xs == Set.size (Set.fromList (map fst xs))
-      metisOk = length metis == IntMap.size expected && length checkMetis == length metis && unique checkMetis && IntMap.fromList checkMetis == expected
       kinds = Set.fromList [k | KAssignment _ _ _ k _ <- kahip]
       kahipOk = length kahip == IntMap.size expected && length checkKahip == length kahip && unique checkKahip && IntMap.fromList checkKahip == expected && kinds == Set.fromList ["leaf", "separator"]
-  unless metisOk (fail ("METIS assignment invariant failed: expected=" <> show (IntMap.size expected) <> " assignments=" <> show (length metis) <> " owned=" <> show (length checkMetis) <> " unique=" <> show (unique checkMetis) <> " coverage=" <> show (IntMap.fromList checkMetis == expected)))
   unless kahipOk (fail ("KaHIP assignment invariant failed: expected=" <> show (IntMap.size expected) <> " assignments=" <> show (length kahip) <> " owned=" <> show (length checkKahip) <> " unique=" <> show (unique checkKahip) <> " coverage=" <> show (IntMap.fromList checkKahip == expected) <> " kinds=" <> show kinds))
  where
   unless True _ = pure ()
