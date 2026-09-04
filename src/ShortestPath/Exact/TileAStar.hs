@@ -1301,7 +1301,7 @@ siteGraph (TileAStar world components static) q =
     ]
 
   bankGlobalEdges =
-    [ (stateId from True, stateId to True, transportCost t)
+    [ (stateId from False, stateId to True, transportCost t)
     | allowTransports q
     , bankPathEnabled q
     , bank <- Set.toList reachableBanks
