@@ -29,6 +29,7 @@
   {"name":"Southern mainland to western Kourend","category":"cross-component","start":[3203,3213,0],"target":[1247,3726,0],"startRegion":"657/1aab","targetRegion":"2954/1ba","allowTransports":true,"source":"RuneLite clue locations"},
   {"name":"Kourend to deep Wilderness","category":"cross-component","start":[1815,3852,0],"target":[3189,3963,0],"startRegion":"2954/1aa","targetRegion":"3607/1ba","allowTransports":true,"source":"RuneLite clue locations"},
   {"name":"Deep Wilderness to Kourend","category":"cross-component","start":[3189,3963,0],"target":[1815,3852,0],"startRegion":"3607/1ba","targetRegion":"2954/1aa","allowTransports":true,"source":"RuneLite clue locations"},
+  {"name":"Deep Wilderness to Mos Le'Harmless","category":"cross-component","start":[3189,3963,0],"target":[3733,2998,0],"allowTransports":true,"source":"user-provided benchmark route"},
   {"name":"Wilderness to western mainland","category":"cross-component","start":[3369,3894,0],"target":[2501,3487,0],"startRegion":"3607/1ab","targetRegion":"657/1baa","allowTransports":true,"source":"RuneLite clue locations"},
   {"name":"Western mainland to Wilderness","category":"cross-component","start":[2501,3487,0],"target":[3369,3894,0],"startRegion":"657/1baa","targetRegion":"3607/1ab","allowTransports":true,"source":"RuneLite clue locations"},
   {"name":"Morytania to western mainland","category":"cross-component","start":[3462,3557,0],"target":[2526,3162,0],"startRegion":"1722/1a","targetRegion":"657/1bba","allowTransports":true,"source":"RuneLite clue locations"},

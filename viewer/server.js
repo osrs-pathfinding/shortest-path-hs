@@ -43,6 +43,7 @@ function parseRouteRequest(body) {
       (value.allowTransports !== undefined && typeof value.allowTransports !== "boolean") ||
       (value.includeExpandedTiles !== undefined && typeof value.includeExpandedTiles !== "boolean") ||
       (value.useHeuristic !== undefined && typeof value.useHeuristic !== "boolean") ||
+      (value.heuristicWeight !== undefined && (!Number.isFinite(value.heuristicWeight) || value.heuristicWeight < 0 || value.heuristicWeight > 10)) ||
       (value.finder !== undefined && typeof value.finder !== "string")) {
     return { error: "expected start and target coordinates and optional boolean route settings" };
   }
@@ -53,6 +54,7 @@ function parseRouteRequest(body) {
       allowTransports: value.allowTransports === undefined ? true : value.allowTransports,
       includeExpandedTiles: value.includeExpandedTiles === true,
       useHeuristic: value.useHeuristic !== false,
+      heuristicWeight: value.heuristicWeight === undefined ? 1 : value.heuristicWeight,
       finder: value.finder
     }
   };
@@ -262,6 +264,22 @@ function handleHeuristic(req, res) {
   });
 }
 
+async function handleComponents(req, res) {
+  try {
+    json(res, 200, await routeProcess.request({
+      start: { x: 3221, y: 3218, plane: 0 },
+      target: { x: 3221, y: 3218, plane: 0 },
+      allowTransports: true,
+      includeExpandedTiles: false,
+      useHeuristic: true,
+      finder: "components"
+    }));
+  } catch (error) {
+    const status = /timed out/.test(error.message) ? 504 : 503;
+    json(res, status, { error: error.message });
+  }
+}
+
 http.createServer((req, res) => {
   const requestPath = new URL(req.url, "http://127.0.0.1").pathname;
   if (requestPath === "/api/route") {
@@ -270,6 +288,10 @@ http.createServer((req, res) => {
   }
   if (requestPath === "/api/heuristic") {
     handleHeuristic(req, res);
+    return;
+  }
+  if (requestPath === "/api/components") {
+    handleComponents(req, res);
     return;
   }
   if (requestPath === "/door_transports.tsv") {

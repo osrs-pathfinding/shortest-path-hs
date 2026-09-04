@@ -28,6 +28,7 @@ data Query = Query
   , enabledTransportTypes :: Set.Set String
   , transportPenalties :: Map.Map String Int
   , bankPathEnabled :: Bool
+  , heuristicWeight :: Double
   , inventoryItems :: ItemCounts
   , bankItems :: BankItems
   }
@@ -60,6 +61,7 @@ defaultQuery start target =
         ]
     , transportPenalties = Map.empty
     , bankPathEnabled = True
+    , heuristicWeight = 1
     , inventoryItems = Map.fromList [("772", 1), ("8007", 1), ("13393", 1)]
     , bankItems = AllBankItems
     }

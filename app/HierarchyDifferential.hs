@@ -5,7 +5,7 @@ module Main (main) where
 
 import Control.Exception (evaluate)
 import Control.Monad (filterM, forM, when)
-import Data.Aeson (FromJSON(..), Value, encode, eitherDecode, object, withObject, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON(..), Value, encode, eitherDecode, object, withObject, (.:), (.:?), (.=), (.!=))
 import Data.Binary (Binary, decodeFileOrFail, encodeFile)
 import Data.Ord (Down(..))
 import qualified Data.ByteString.Char8 as BS
@@ -73,6 +73,7 @@ data ServeRequest = ServeRequest
   , requestAllowTransports :: Bool
   , requestIncludeExpandedTiles :: Bool
   , requestUseHeuristic :: Bool
+  , requestHeuristicWeight :: Double
   , requestFinder :: Maybe String
   }
 
@@ -85,6 +86,7 @@ instance FromJSON ServeRequest where
       <*> value .: "allowTransports"
       <*> value .: "includeExpandedTiles"
       <*> value .: "useHeuristic"
+      <*> value .:? "heuristicWeight" .!= 1
       <*> value .:? "finder"
 
 data HierarchyCache = HierarchyCache Word64 Hierarchy
@@ -463,22 +465,27 @@ serveRequest world tileAStar hierarchical line =
       | not (validPoint (requestTarget request)) -> invalid request "target coordinate is outside 0..32767 or has an invalid plane"
       | otherwise -> do
           let query = (defaultQuery (pointTile (requestStart request)) (pointTile (requestTarget request)))
-                { allowTransports = requestAllowTransports request }
+                { allowTransports = requestAllowTransports request
+                , heuristicWeight = requestHeuristicWeight request
+                }
           case maybe "hierarchical" id (requestFinder request) of
             "raw" -> do
               started <- getMonotonicTimeNSec
               let route = findRoute (RawDijkstra world) query
               _ <- evaluate (routeCost route + routeExpandedNodes route + length (routeSteps route))
               finished <- getMonotonicTimeNSec
-              pure (routeResponse request route [] [] [] (rawTimingsJson route started finished))
+              pure (routeResponse request route [] [] [] [] (rawTimingsJson route started finished))
             "tile-full" -> do
-              (route, timings) <- findRouteProfiledTileAStar tileAStar query
-              pure (routeResponse request route [] [] [] (tileTimingsJson timings))
+              (route, timings, expandedStates) <- findRouteProfiledTileAStarWithTrace (requestIncludeExpandedTiles request) tileAStar query
+              pure (routeResponse request route (map fst expandedStates) expandedStates [] [] (tileTimingsJson timings))
             "heuristic" -> do
               let stem = "start-" <> coordinateFileText (queryStart query) <> "-target-" <> coordinateFileText (queryTarget query) <> "-transports-" <> (if allowTransports query then "1" else "0")
                   outputRoot = heuristicTileRoot </> stem
                   urlRoot = "/out/heuristic-tiles/" <> stem
               render <- renderHeuristicTiles tileAStar query outputRoot urlRoot
+              pure (heuristicRenderResponse request render)
+            "components" -> do
+              render <- renderComponentTiles tileAStar componentTileRoot "/out/component-tiles"
               pure (heuristicRenderResponse request render)
             "hierarchical" -> do
               case hierarchical of
@@ -489,7 +496,7 @@ serveRequest world tileAStar hierarchical line =
                     (requestUseHeuristic request)
                     value
                     query
-                  pure (routeResponse request route expandedTiles heuristicRegions heuristicTiles (timingsJson timings))
+                  pure (routeResponse request route expandedTiles [] heuristicRegions heuristicTiles (timingsJson timings))
             other -> invalid request ("unknown finder: " <> other)
  where
   invalid :: ServeRequest -> String -> IO Value
@@ -507,8 +514,11 @@ serveRequest world tileAStar hierarchical line =
   heuristicTileJson (tile, value) =
     let (x, y, plane) = unpackTile tile
      in object ["x" .= x, "y" .= y, "plane" .= plane, "value" .= value]
-  routeResponse :: ServeRequest -> Route -> [Tile] -> [(LeafId, Int)] -> [(Tile, Int)] -> Value -> Value
-  routeResponse request route expandedTiles heuristicRegions heuristicTiles timings =
+  expandedStateJson (tile, banked) =
+    let (x, y, plane) = unpackTile tile
+     in object ["x" .= x, "y" .= y, "plane" .= plane, "banked" .= banked]
+  routeResponse :: ServeRequest -> Route -> [Tile] -> [(Tile, Bool)] -> [(LeafId, Int)] -> [(Tile, Int)] -> Value -> Value
+  routeResponse request route expandedTiles expandedStates heuristicRegions heuristicTiles timings =
     object
       [ "id" .= requestId request
       , "ok" .= True
@@ -516,6 +526,7 @@ serveRequest world tileAStar hierarchical line =
       , "expandedNodes" .= routeExpandedNodes route
       , "path" .= routeStepsJson (routeSteps route)
       , "expandedTiles" .= map coordinateText expandedTiles
+      , "expandedStates" .= map expandedStateJson expandedStates
       , "heuristicRegions" .= map heuristicRegionJson heuristicRegions
       , "heuristicTiles" .= map heuristicTileJson heuristicTiles
       , "timings" .= timings
@@ -783,12 +794,13 @@ regionTableVersion = 2
 tileComponentCacheVersion :: Word64
 tileComponentCacheVersion = 4
 
-cachePath, partitionPath, regionTablePath, tileComponentCachePath, heuristicTileRoot :: FilePath
+cachePath, partitionPath, regionTablePath, tileComponentCachePath, heuristicTileRoot, componentTileRoot :: FilePath
 cachePath = "out/hierarchy-cache.bin"
 partitionPath = "out/metis/kahip-partitions.csv"
 regionTablePath = "out/region-lower-bounds.bin"
 tileComponentCachePath = "out/tile-astar-components.bin"
 heuristicTileRoot = "out/heuristic-tiles"
+componentTileRoot = "out/component-tiles"
 
 cacheInputRoots :: [FilePath]
 cacheInputRoots =

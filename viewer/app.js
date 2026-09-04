@@ -24,7 +24,10 @@ let currentPlane = 0;
 let shapeLayer;
 let bboxLayer;
 let routeLayer;
+let comparisonRouteLayer;
 let expandedLayer;
+let expandedStateLayers = [];
+let expandedLayerControl;
 let regionLayer;
 let heuristicImageLayers = [];
 let heuristicLayerControl;
@@ -37,7 +40,8 @@ let fixtureRoutes = [];
 let routeMarkers = [];
 let heuristicRender = null;
 let heuristicRequestKey = "";
-let heuristicVisibleKeys = new Set(["no-bank"]);
+let heuristicVisibleKeys = new Set(["no-bank", "no-bank-seeds", "bank-seeds"]);
+let componentRender = null;
 let removingLayers = false;
 let partitions = [];
 let kahipPartitions = [];
@@ -106,16 +110,20 @@ function normaliseRoute(value, name = "") {
     startRegion: value.startRegion,
     targetRegion: value.targetRegion,
     enabledTransportTypes: value.enabledTransportTypes || value.enabledTypes || value.transportTypes
+    , heuristicWeight: value.heuristicWeight
   };
-  return {
+  const normalised = {
     name: value.name || name, cost: value.cost ?? value.hierarchicalCost ?? value.rawCost, expandedNodes: value.expandedNodes,
     expandedTiles: (value.expandedTiles || []).map(coordinate), timings: value.timings,
+    expandedStates: (value.expandedStates || []).map(point => ({ ...coordinate(point), banked: point.banked === true })),
     heuristicRegions: value.heuristicRegions || [],
     heuristicTiles: (value.heuristicTiles || []).map(point => ({ ...coordinate(point), value: Number(point.value) })),
     path, start: coordinate(value.start || value.source || path[0]?.coordinate),
     target: coordinate(value.target || path[path.length - 1]?.coordinate),
     config
   };
+  normalised.comparisonRoutes = (value.comparisonRoutes || []).map(item => normaliseRoute(item, item.name));
+  return normalised;
 }
 
 function setRouteInputs(which, point) {
@@ -131,9 +139,25 @@ function readRouteInputs(which) {
 
 function addFixtureRoutes(group, json) {
   const routes = Array.isArray(json) ? json : (json.routes || []);
+  const previousValue = routeCaseSelect.value;
   fixtureRoutes = fixtureRoutes.concat(routes.map(route => ({ ...route, fixtureGroup: group })));
   routeCaseSelect.replaceChildren(new Option("Select a test case", ""), ...fixtureRoutes.map((item, index) =>
     new Option(`${item.fixtureGroup}: ${item.name || `Case ${index + 1}`}`, String(index))));
+  routeCaseSelect.value = previousValue;
+  if (group === "Mismatch" && routes.length) loadFixtureRoute(fixtureRoutes.length - routes.length, true);
+}
+
+function loadFixtureRoute(index, fit = false) {
+  const selected = fixtureRoutes[index];
+  if (!selected) return;
+  routeCaseSelect.value = String(index);
+  route = normaliseRoute(selected, selected.name);
+  setRouteInputs("start", route.start); setRouteInputs("end", route.target);
+  if (typeof route.config.allowTransports === "boolean") document.getElementById("allow-transports").checked = route.config.allowTransports;
+  if (Number.isFinite(route.config.heuristicWeight)) document.getElementById("heuristic-weight").value = route.config.heuristicWeight;
+  routeStatus.textContent = `Fixture loaded: ${route.name}`;
+  render();
+  if (fit) setTimeout(fitRoute, 0);
 }
 
 function fetchCsv(path, key, onSuccess) {
@@ -216,7 +240,8 @@ shapeSourceSelect.addEventListener("change", () => {
   render();
 });
 fetchJson("../out/leak-route.json", json => { route = normaliseRoute(json, "leak route"); render(); }, message => { routeStatus.textContent = message; });
-fetchJson("../out/hierarchy-test-routes.json", json => addFixtureRoutes("Fixture", json), message => { routeStatus.textContent = message; });
+fetchJson("../out/length-mismatch-routes.json", json => addFixtureRoutes("Mismatch", json), () => {});
+fetchJson("../out/hierarchy-test-routes.json", json => addFixtureRoutes("Fixture", json), () => {});
 fetchJson("../benchmarks/routes.json", json => addFixtureRoutes("Clue", json), message => { routeStatus.textContent = message; });
 fetchCsv("../out/metis/partitions.csv", "metis", rows => { partitions = rows.map(tile); });
 fetchCsv("../out/metis/kahip-partitions.csv", "kahip", rows => { kahipPartitions = rows.map(tile); });
@@ -255,13 +280,7 @@ planeSelect.addEventListener("change", () => {
 opacityInput.addEventListener("input", render);
 fitButton.addEventListener("click", fitComponent);
 routeCaseSelect.addEventListener("change", () => {
-  const selected = fixtureRoutes[Number(routeCaseSelect.value)];
-  if (!selected) return;
-  route = normaliseRoute(selected, selected.name);
-  setRouteInputs("start", route.start); setRouteInputs("end", route.target);
-  if (typeof route.config.allowTransports === "boolean") document.getElementById("allow-transports").checked = route.config.allowTransports;
-  routeStatus.textContent = `Fixture loaded: ${route.name}`;
-  render();
+  loadFixtureRoute(Number(routeCaseSelect.value));
 });
 document.getElementById("run-route").addEventListener("click", runRoute);
 document.getElementById("fit-route").addEventListener("click", fitRoute);
@@ -301,31 +320,47 @@ function componentColor(id) {
 
 function removeLayers() {
   removingLayers = true;
-  [shapeLayer, bboxLayer, routeLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, ...heuristicImageLayers, ...routeMarkers].forEach(layer => {
+  [shapeLayer, bboxLayer, routeLayer, comparisonRouteLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, ...expandedStateLayers, ...heuristicImageLayers, ...routeMarkers].forEach(layer => {
     if (layer) map.removeLayer(layer);
   });
   if (heuristicLayerControl) {
     map.removeControl(heuristicLayerControl);
     heuristicLayerControl = null;
   }
+  if (expandedLayerControl) {
+    map.removeControl(expandedLayerControl);
+    expandedLayerControl = null;
+  }
   removingLayers = false;
   routeMarkers = [];
+  expandedStateLayers = [];
   heuristicImageLayers = [];
 }
 
 function render() {
-  if (!data || !selectedComponent()) return;
   removeLayers();
+  if (!data || !selectedComponent()) {
+    const mode = modeSelect.value;
+    const fillOpacity = Number(opacityInput.value);
+    const heuristicSummary = mode === "heuristic" ? drawHeuristic(fillOpacity) : null;
+    const componentSummary = mode === "component-bitmap" ? drawComponentBitmap(fillOpacity) : null;
+    drawExpandedTiles();
+    drawRoute();
+    renderLegend(mode);
+    if (heuristicSummary) status.textContent = `Heuristic rendered: ${heuristicSummary.layers} layers.`;
+    if (componentSummary) status.textContent = `Component tiles rendered: ${componentSummary.tiles.toLocaleString()} image tiles.`;
+    return;
+  }
   const component = selectedComponent();
   const plane = Number(planeSelect.value);
   const mode = modeSelect.value;
   const fillOpacity = Number(opacityInput.value);
   const globalMode = mode === "all-components";
   const bins = data.bins.filter(bin => bin.plane === plane && (globalMode || bin.component === component.id));
-  fitButton.textContent = mode === "heuristic" ? "Fit Heuristic" : globalMode ? "Fit Components" : "Fit Component";
-  componentSelect.disabled = mode === "heuristic" || globalMode;
+  fitButton.textContent = mode === "heuristic" ? "Fit Heuristic" : mode === "component-bitmap" ? "Fit Components" : globalMode ? "Fit Components" : "Fit Component";
+  componentSelect.disabled = mode === "heuristic" || mode === "component-bitmap" || globalMode;
 
-  if (mode !== "heuristic") {
+  if (mode !== "heuristic" && mode !== "component-bitmap") {
     shapeLayer = L.layerGroup(bins.map(bin => {
       const density = bin.tiles / (data.binSize * data.binSize);
       return L.rectangle([[bin.y, bin.x], [bin.y + data.binSize, bin.x + data.binSize]], {
@@ -345,6 +380,7 @@ function render() {
     drawRegions(selectedTiles(source, component), fillOpacity);
   }
   const heuristicSummary = mode === "heuristic" ? drawHeuristic(fillOpacity) : null;
+  const componentSummary = mode === "component-bitmap" ? drawComponentBitmap(fillOpacity) : null;
   if (mode === "difference") {
     drawCuts(component);
     drawSeparators(selectedTiles(kahipPartitions.filter(point => point.kind === "separator"), component));
@@ -352,8 +388,43 @@ function render() {
   drawDoors();
   drawExpandedTiles();
   drawRoute();
-  renderLegend(mode);
-  renderStats(component, bins.length, mode, heuristicSummary);
+  renderLegend(mode, heuristicSummary);
+  renderStats(component, bins.length, mode, heuristicSummary, componentSummary);
+}
+
+function drawComponentBitmap(fillOpacity) {
+  if (!componentRender) {
+    fetchComponentBitmap();
+    return null;
+  }
+  const visibleLayers = componentRender.layers.map(layer => ({
+    ...layer,
+    tiles: layer.tiles.filter(tile => tile.plane === currentPlane)
+  })).filter(layer => layer.tiles.length);
+  const layerGroups = visibleLayers.map(layer => [layer, L.layerGroup(layer.tiles.map(tile => rgbaTileOverlay({ ...tile, url: `${tile.url}?v=${componentRender.cacheBust}` }, fillOpacity)))]);
+  heuristicImageLayers = layerGroups.map(([, group]) => group);
+  for (const [layer, group] of layerGroups) {
+    if (layer.key === "largest-component" || layer.key === "largest-interesting") group.addTo(map);
+  }
+  heuristicLayerControl = L.control.layers(null, {
+    "OSRS map": baseTileLayer,
+    ...Object.fromEntries(layerGroups.map(([layer, group]) => [layer.label, group]))
+  }, { collapsed: false }).addTo(map);
+  return { layers: visibleLayers.length, tiles: visibleLayers.reduce((total, layer) => total + layer.tiles.length, 0) };
+}
+
+async function fetchComponentBitmap() {
+  status.textContent = "Rendering component tiles...";
+  try {
+    const response = await fetch("/api/components");
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    result.cacheBust = Date.now();
+    componentRender = result;
+    render();
+  } catch (error) {
+    status.textContent = `Component render error: ${error.message}`;
+  }
 }
 
 function drawHeuristic(fillOpacity) {
@@ -531,6 +602,21 @@ function drawLegacyHeuristic(fillOpacity) {
 }
 
 function drawExpandedTiles() {
+  if (route?.expandedStates?.length) {
+    const groups = [false, true].map(banked => {
+      const group = L.layerGroup(route.expandedStates.filter(point => point.banked === banked && point.plane === currentPlane).map(point =>
+        L.circleMarker([point.y + 0.5, point.x + 0.5], {
+          renderer, stroke: false, fillColor: banked ? "#06b6d4" : "#fde047", fillOpacity: 0.55,
+          radius: 2, interactive: false
+        })
+      ));
+      group.addTo(map);
+      return group;
+    });
+    expandedStateLayers = groups;
+    expandedLayerControl = L.control.layers(null, { "A* explored": groups[0], "A* explored (banked)": groups[1] }, { collapsed: false }).addTo(map);
+    return;
+  }
   if (!route?.expandedTiles?.length) return;
   expandedLayer = L.layerGroup(route.expandedTiles.filter(point => point.plane === currentPlane).map(point =>
     L.circleMarker([point.y + 0.5, point.x + 0.5], {
@@ -542,19 +628,28 @@ function drawExpandedTiles() {
 
 function drawRoute() {
   if (!route) return;
+  const comparison = route.comparisonRoutes || [];
+  if (comparison.length) comparisonRouteLayer = L.layerGroup(comparison.flatMap((item, index) => routeSegments(item, index ? "#2563eb" : "#dc2626", index ? 3 : 5))).addTo(map);
+  if (comparison.length) { renderRouteStats(); return; }
+  routeLayer = L.layerGroup(routeSegments(route, "#dc2626", 4)).addTo(map);
+  drawRouteEndpoints(route);
+  renderRouteStats();
+}
+
+function routeSegments(value, color, weight) {
   const walkSegments = [];
-  let previous = route.start;
+  let previous = value.start;
   let current = previous?.plane === currentPlane ? [[previous.y + 0.5, previous.x + 0.5]] : [];
-  const flush = () => { if (current.length > 1) walkSegments.push(L.polyline(current, { color: "#dc2626", weight: 4, opacity: 0.95 })); current = []; };
-  route.path.forEach(step => {
+  const flush = () => { if (current.length > 1) walkSegments.push(L.polyline(current, { color, weight, opacity: 0.95 })); current = []; };
+  value.path.forEach(step => {
     const point = step.coordinate;
     if (step.kind === "transport") {
       flush();
       if (previous?.plane === currentPlane && point.plane === currentPlane) {
-        routeMarkers.push(L.polyline([[previous.y + 0.5, previous.x + 0.5], [point.y + 0.5, point.x + 0.5]], { color: "#b91c1c", dashArray: "6 5", weight: 4 }).addTo(map));
+        walkSegments.push(L.polyline([[previous.y + 0.5, previous.x + 0.5], [point.y + 0.5, point.x + 0.5]], { color, dashArray: "6 5", weight }));
       }
       if (point.plane === currentPlane) {
-        routeMarkers.push(L.circleMarker([point.y + 0.5, point.x + 0.5], { className: "route-transport", color: "#b91c1c", fillColor: "#f97316", fillOpacity: 1, radius: 7, weight: 2 }).bindTooltip(step.label || "Transport").addTo(map));
+        walkSegments.push(L.circleMarker([point.y + 0.5, point.x + 0.5], { className: "route-transport", color, fillColor: "#f97316", fillOpacity: 1, radius: 7, weight: 2 }).bindTooltip(`${value.name}: ${step.label || "Transport"}`));
         current = [[point.y + 0.5, point.x + 0.5]];
       }
       previous = point;
@@ -566,12 +661,14 @@ function drawRoute() {
     previous = point;
   });
   flush();
-  routeLayer = L.layerGroup(walkSegments).addTo(map);
+  return walkSegments;
+}
+
+function drawRouteEndpoints(value) {
   ["start", "target"].forEach((name, index) => {
-    const point = route[name];
+    const point = value[name];
     if (point?.plane === currentPlane) routeMarkers.push(L.circleMarker([point.y + 0.5, point.x + 0.5], { color: index ? "#111827" : "#fff", fillColor: index ? "#111827" : "#16a34a", fillOpacity: 1, radius: 8, weight: 3 }).bindTooltip(index ? "End" : "Start").addTo(map));
   });
-  renderRouteStats();
 }
 
 function renderRouteStats() {
@@ -582,6 +679,7 @@ function renderRouteStats() {
   if (config.source) rows.push(["source", config.source]);
   if (config.category) rows.push(["category", config.category]);
   if (typeof config.allowTransports === "boolean") rows.push(["allow transports", config.allowTransports ? "yes" : "no"]);
+  if (Number.isFinite(config.heuristicWeight)) rows.push(["heuristic weight", config.heuristicWeight]);
   if (config.search) rows.push(["search", config.search]);
   if (typeof config.includeExpandedTiles === "boolean") rows.push(["trace expanded", config.includeExpandedTiles ? "yes" : "no"]);
   if (config.enabledTransportTypes) rows.push(["transport types", config.enabledTransportTypes.join?.(", ") || String(config.enabledTransportTypes)]);
@@ -612,6 +710,7 @@ async function runRoute() {
       allowTransports: document.getElementById("allow-transports").checked,
       includeExpandedTiles: document.getElementById("include-expanded").checked,
       useHeuristic: algorithm === "astar",
+      heuristicWeight: Number(document.getElementById("heuristic-weight").value),
       finder: algorithm === "astar" ? "tile-full" : "raw"
     };
     routeStatus.textContent = "Requesting route...";
@@ -626,8 +725,9 @@ async function runRoute() {
 
 function fitRoute() {
   if (!route) { routeStatus.textContent = "No route to fit."; return; }
+  const routes = route.comparisonRoutes?.length ? route.comparisonRoutes : [route];
   const endpoints = [route.start, route.target].filter(point => point?.plane === currentPlane);
-  const points = endpoints.concat(route.path.map(step => step.coordinate).filter(point => point.plane === currentPlane)).map(point => [point.y, point.x]);
+  const points = endpoints.concat(routes.flatMap(item => item.path).map(step => step.coordinate).filter(point => point.plane === currentPlane)).map(point => [point.y, point.x]);
   if (points.length) map.fitBounds(points, { padding: [30, 30], maxZoom: 4 });
 }
 
@@ -697,25 +797,49 @@ function visibleDoorCount() {
   return doorTransports.filter(door => door.origin.plane === currentPlane || door.destination.plane === currentPlane).length;
 }
 
-function renderLegend(mode) {
+function renderLegend(mode, heuristicSummary) {
   const items = mode === "difference" ? [
     ["#00e5ff", "METIS cut edges", "legend-line"],
     ["#ff1493", "KaHIP separator tiles", ""]
   ] : mode === "heuristic" ? [["#16a34a", "Low heuristic", ""], ["#dc2626", "High heuristic", ""]] :
+    mode === "component-bitmap" ? [["#2563eb", "Reachable components", ""]] :
     mode === "all-components" ? [["#3b82f6", "Contiguous components", ""]] :
     mode === "metis" ? [["#38bdf8", "METIS leaf regions", ""]] :
     mode === "kahip" ? [["#fb923c", "KaHIP leaf regions", ""]] :
     [["#2563eb", "Manual walking components", ""]];
   if (route?.expandedTiles?.length) items.push(["#fde047", "Expanded abstract tiles", ""]);
+  if (route?.expandedStates?.length) items.push(["#fde047", "A* explored", ""], ["#06b6d4", "A* explored (banked)", ""]);
+  if (route?.comparisonRoutes?.length) items.push(["#dc2626", "Raw Dijkstra", "legend-line"], ["#2563eb", "Tile A*", "legend-line"]);
   if (showDoorsInput.checked) items.push(["#10b981", "Door transports", ""]);
-  legend.replaceChildren(...items.map(([color, label, className]) => {
+  const legendItems = items.map(([color, label, className]) => {
     const item = document.createElement("div"); item.className = "legend-item";
     const swatch = document.createElement("span"); swatch.className = `legend-swatch ${className}`;
     swatch.style.background = color; item.append(swatch, document.createTextNode(label)); return item;
-  }));
+  });
+  if (mode === "heuristic" && heuristicSummary) {
+    const scale = document.createElement("div"); scale.className = "heuristic-scale";
+    const range = Math.max(0, heuristicSummary.maximum - heuristicSummary.minimum);
+    const scaleFraction = value => {
+      const linear = range ? (value - heuristicSummary.minimum) / range : 0;
+      const logarithmic = range ? Math.log1p(value - heuristicSummary.minimum) / Math.log1p(range) : 0;
+      return (linear + logarithmic) * 0.5;
+    };
+    const valueAt = fraction => {
+      let low = heuristicSummary.minimum; let high = heuristicSummary.maximum;
+      for (let i = 0; i < 32; i++) {
+        const middle = Math.floor((low + high) / 2);
+        if (scaleFraction(middle) < fraction) low = middle + 1; else high = middle;
+      }
+      return low;
+    };
+    const labels = [0, 0.25, 0.5, 0.75, 1].map(valueAt).map(value => `<span>${value.toLocaleString()}</span>`).join("");
+    scale.innerHTML = `<div class="heuristic-scale-row"><span class="heuristic-scale-bar heuristic-scale-no-bank"></span><span>Disabled</span></div><div class="heuristic-scale-row"><span class="heuristic-scale-bar heuristic-scale-bank"></span><span>Enabled</span></div><div class="heuristic-scale-labels">${labels}</div>`;
+    legendItems.push(scale);
+  }
+  legend.replaceChildren(...legendItems);
 }
 
-function renderStats(component, visibleBins, mode, heuristicSummary) {
+function renderStats(component, visibleBins, mode, heuristicSummary, componentSummary) {
   const source = mode === "metis" ? selectedTiles(partitions, component) :
     mode === "kahip" ? selectedTiles(kahipPartitions.filter(point => point.kind === "leaf"), component) : [];
   const regions = new Set(source.map(point => point.region));
@@ -730,8 +854,12 @@ function renderStats(component, visibleBins, mode, heuristicSummary) {
     ["heuristic setup", heuristicSummary ? `${heuristicSummary.heuristicMs.toFixed(1)} ms` : "0.0 ms"],
     ["transform", heuristicSummary ? `${heuristicSummary.transformMs.toFixed(1)} ms` : "0.0 ms"],
     ["tile writes", heuristicSummary ? `${heuristicSummary.writeMs.toFixed(1)} ms` : "0.0 ms"]
+  ] : mode === "component-bitmap" ? [
+    ["mode", "Detailed components"], ["plane", currentPlane],
+    ["image tiles", componentSummary?.tiles.toLocaleString() || "0"],
+    ["layers", componentSummary?.layers.toLocaleString() || "0"]
   ] : [
-    ["mode", { "all-components": "All components", manual: "Manual", metis: "METIS", kahip: "KaHIP", heuristic: "A* heuristic", difference: "Difference" }[mode]],
+    ["mode", { "all-components": "All components", manual: "Manual", metis: "METIS", kahip: "KaHIP", heuristic: "A* heuristic", "component-bitmap": "Detailed components", difference: "Difference" }[mode]],
     ["tiles", mode === "all-components" ? data.components.reduce((total, item) => total + item.tiles, 0).toLocaleString() : component.tiles.toLocaleString()], ["bbox", mode === "all-components" ? "all visible components" : `${component.minX},${component.minY}..${component.maxX},${component.maxY}`],
     ["plane", currentPlane], ["visible bins", visibleBins.toLocaleString()]
   ];

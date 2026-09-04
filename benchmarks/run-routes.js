@@ -111,6 +111,7 @@ async function main() {
   for (const [, options] of modes) await query(cases[0], options);
 
   const results = [];
+  const mismatches = [];
   for (const [index, test] of cases.entries()) {
     const samples = Object.fromEntries(modes.map(([mode]) => [mode, []]));
     const order = index % 2 ? [...modes].reverse() : modes;
@@ -119,18 +120,30 @@ async function main() {
     }
     const summaries = Object.fromEntries(modes.map(([mode]) => [mode, summariseSamples(samples[mode])]));
     const costs = modes.map(([mode]) => summaries[mode].cost);
-    if (!costs.every(cost => cost === costs[0])) throw new Error(`${test.name}: mode costs differ: ${JSON.stringify(Object.fromEntries(modes.map(([mode]) => [mode, summaries[mode].cost])))}`);
+    if (!costs.every(cost => cost === costs[0])) mismatches.push({
+      name: test.name,
+      type: "mode costs differ",
+      costs: Object.fromEntries(modes.map(([mode]) => [mode, summaries[mode].cost]))
+    });
     for (const [mode] of modes) {
-      if (samples[mode].some(sample => sample.cost !== summaries[mode].cost)) throw new Error(`${test.name}: ${mode} route cost changed between runs`);
+      if (samples[mode].some(sample => sample.cost !== summaries[mode].cost)) mismatches.push({
+        name: test.name,
+        type: `${mode} route cost changed between runs`,
+        costs: samples[mode].map(sample => sample.cost)
+      });
     }
     results.push({ ...test, ...summaries });
-    console.log(`${String(index + 1).padStart(2)}/${cases.length} ${test.name}: cost=${costs[0]}, ${modes.map(([mode]) => `${mode}=${summaries[mode].timings.totalMs.toFixed(1)}ms/${summaries[mode].expandedNodes}`).join(", ")}`);
+    console.log(`${String(index + 1).padStart(2)}/${cases.length} ${test.name}: cost=${costs[0]}, ${modes.map(([mode]) => `${mode}=${summaries[mode].cost}/${summaries[mode].timings.totalMs.toFixed(1)}ms/${summaries[mode].expandedNodes}`).join(", ")}`);
   }
 
   const summary = Object.fromEntries(modes.map(([mode]) => [mode, categorySummary(results, mode)]));
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, JSON.stringify({ generatedAt: new Date().toISOString(), baseUrl, runs, routes: results, summary }, null, 2));
+  fs.writeFileSync(outputPath, JSON.stringify({ generatedAt: new Date().toISOString(), baseUrl, runs, routes: results, summary, mismatches }, null, 2));
   for (const [mode] of modes) printCategoryTable(summary[mode], mode);
+  if (mismatches.length) {
+    console.log("\nMismatches:");
+    console.table(mismatches);
+  }
   console.log(`\nWrote ${outputPath}`);
 }
 

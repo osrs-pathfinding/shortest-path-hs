@@ -44,6 +44,7 @@
             <option value="kahip">KaHIP regions</option>
             <option value="heuristic">A* heuristic</option>
             <option value="difference">Difference</option>
+            <option value="component-bitmap">Detailed components</option>
           </select>
         </label>
         <label class="checkbox-label"><input id="show-doors" type="checkbox"> Door layer</label>
@@ -76,6 +77,10 @@
               <option value="dijkstra">Dijkstra</option>
             </select>
           </label>
+          <label>
+            Heuristic weight
+            <input id="heuristic-weight" type="number" min="0" max="10" step="0.05" value="1">
+          </label>
           <div class="route-actions">
             <button id="run-route" type="button">Run route</button>
             <button id="fit-route" type="button">Fit route</button>
@@ -93,6 +98,6 @@
     </main>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=weighted-astar-v1"></script>
   </body>
 </html>

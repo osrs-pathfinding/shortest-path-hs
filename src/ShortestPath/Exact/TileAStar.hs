@@ -18,7 +18,9 @@ module ShortestPath.Exact.TileAStar
   , componentBox
   , componentTileGroups
   , findRouteProfiledTileAStar
+  , findRouteProfiledTileAStarWithTrace
   , forceTileAStar
+  , renderComponentTiles
   , renderHeuristicTiles
   , tileStaticStats
   , HeuristicRender(..)
@@ -49,7 +51,9 @@ import qualified Data.Vector.Unboxed.Mutable as Mutable
 import Data.Word (Word64, Word8)
 import Foreign.ForeignPtr (mallocForeignPtrArray, withForeignPtr)
 import GHC.Clock (getMonotonicTimeNSec)
+import Foreign.Marshal.Utils (fillBytes)
 import Foreign.Ptr (Ptr)
+import Foreign.Storable (pokeByteOff)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
@@ -276,10 +280,15 @@ forceTileAStar astar@(TileAStar _ components static) = do
   pure astar
 
 findRouteProfiledTileAStar :: TileAStar -> Query -> IO (Route, TileAStarTimings)
-findRouteProfiledTileAStar astar@(TileAStar _ _ _) query =
+findRouteProfiledTileAStar astar query = do
+  (route, timings, _) <- findRouteProfiledTileAStarWithTrace False astar query
+  pure (route, timings)
+
+findRouteProfiledTileAStarWithTrace :: Bool -> TileAStar -> Query -> IO (Route, TileAStarTimings, [(Tile, Bool)])
+findRouteProfiledTileAStarWithTrace trace astar@(TileAStar _ _ _) query =
   do
     (heuristic, setupMs) <- timedIO forceHeuristic (buildHeuristic astar query)
-    ((route, counters), searchMs) <- timedIO forceSearch (pure (search astar query heuristic))
+    ((route, counters, explored), searchMs) <- timedIO forceSearch (pure (search trace astar query heuristic))
     let totalMs = setupMs + searchMs
     pure
       ( route
@@ -291,50 +300,60 @@ findRouteProfiledTileAStar astar@(TileAStar _ _ _) query =
           totalMs
           counters
           (heuristicReverseCounters heuristic)
+      , explored
       )
 
-search :: TileAStar -> Query -> Heuristic -> (Route, TileAStarCounters)
-search astar@(TileAStar world components _) q heuristic = runST $ do
+search :: Bool -> TileAStar -> Query -> Heuristic -> (Route, TileAStarCounters, [(Tile, Bool)])
+search trace astar@(TileAStar world components _) q heuristic = runST $ do
   best <- Mutable.replicate stateCount maxBound
   prevState <- Mutable.replicate stateCount maxBound
   prevStep <- BoxedMutable.replicate stateCount Nothing
+  exploredRef <- newSTRef []
   -- ponytail: fixed initial heap cap; switch to a growable heap when benchmark routes exceed it.
   queue <- queueNew (min stateCount 262144)
   Mutable.write best startState 0
-  queuePush queue (evalH (queryStart q) False) startState 0
-  go best prevState prevStep queue emptyCounters {tilePqPushes = 1, tileUniqueStatesReached = 1, tileHeuristicEvaluations = 1}
+  queuePush queue (priorityH (queryStart q) False) startState 0
+  go exploredRef best prevState prevStep queue emptyCounters {tilePqPushes = 1, tileUniqueStatesReached = 1, tileHeuristicEvaluations = 1}
  where
   space = searchSpace astar q
   stateCount = searchSize space * 2
   startNode = maybe 0 id (nodeFor (queryStart q))
   startState = stateId startNode False
   target = queryTarget q
+  reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
 
   go ::
+    STRef s [(Tile, Bool)] ->
     Mutable.MVector s Int ->
     Mutable.MVector s Int ->
     BoxedMutable.MVector s (Maybe RouteStep) ->
     MutableQueue s ->
     TileAStarCounters ->
-    ST s (Route, TileAStarCounters)
-  go best prevState prevStep queue counters = do
+    ST s (Route, TileAStarCounters, [(Tile, Bool)])
+  go exploredRef best prevState prevStep queue counters = do
     popped <- queuePop queue
     case popped of
-      Nothing -> pure (Route maxBound (tileStatesPopped counters) [], counters)
+      Nothing -> do
+        explored <- reverse <$> readSTRef exploredRef
+        pure (Route maxBound (tileStatesPopped counters) [], counters, explored)
       Just (_, state, cost) -> do
         known <- Mutable.read best state
         if cost /= known
-          then go best prevState prevStep queue counters {tileStalePqEntries = tileStalePqEntries counters + 1}
+          then go exploredRef best prevState prevStep queue counters {tileStalePqEntries = tileStalePqEntries counters + 1}
           else do
             let tile = stateTile state
+            when trace $ do
+              explored <- readSTRef exploredRef
+              writeSTRef exploredRef ((tile, stateBanked state) : explored)
             if tile == target
               then do
                 steps <- reconstruct prevState prevStep state
-                pure (Route cost (tileStatesPopped counters) steps, counters)
+                explored <- reverse <$> readSTRef exploredRef
+                pure (Route cost (tileStatesPopped counters) steps, counters, explored)
               else do
                 let counters' = counters {tileStatesPopped = tileStatesPopped counters + 1}
                 counters'' <- foldM (relax best prevState prevStep queue cost state) counters' (neighbors state)
-                go best prevState prevStep queue counters''
+                go exploredRef best prevState prevStep queue counters''
 
   relax ::
     Mutable.MVector s Int ->
@@ -357,7 +376,7 @@ search astar@(TileAStar world components _) q heuristic = runST $ do
             Mutable.write best next newCost
             Mutable.write prevState next state
             BoxedMutable.write prevStep next (Just step)
-            let priority = addCostDefault maxBound newCost (evalH (stateTile next) (stateBanked next))
+            let priority = addCostDefault maxBound newCost (priorityH (stateTile next) (stateBanked next))
                 counted = countKind kind counters
                 counters' = counted
                   { tilePqPushes = tilePqPushes counted + 1
@@ -371,6 +390,8 @@ search astar@(TileAStar world components _) q heuristic = runST $ do
   countKind TransportEdge counters = counters {tileTransportRelaxations = tileTransportRelaxations counters + 1}
 
   evalH tile banked = heuristicAt components heuristic (State tile banked)
+  priorityH tile banked = weightedHeuristic (evalH tile banked)
+  weightedHeuristic value = min maxBound (round (heuristicWeight q * fromIntegral value))
 
   neighbors state =
     walk <> bank <> localTransports <> initialGlobalTransports <> bankGlobalTransports
@@ -387,7 +408,7 @@ search astar@(TileAStar world components _) q heuristic = runST $ do
       [ (next, 0, Walk tile, TransportEdge)
       | bankPathEnabled q
       , not banked
-      , Set.member tile (worldBanks world)
+      , Set.member tile reachableBanks
       , Just next <- [stateFor tile True]
       ]
     localTransports =
@@ -406,7 +427,7 @@ search astar@(TileAStar world components _) q heuristic = runST $ do
       | allowTransports q
       , bankPathEnabled q
       , not banked
-      , Set.member tile (worldBanks world)
+      , Set.member tile reachableBanks
       , (next, stepCost, step, _) <- transportEdges True (worldGlobalTeleports world)
       ]
 
@@ -597,25 +618,91 @@ renderHeuristicTiles :: TileAStar -> Query -> FilePath -> String -> IO Heuristic
 renderHeuristicTiles astar@(TileAStar _ components _) q outputRoot urlRoot = do
   createDirectoryIfMissing True outputRoot
   useCTransform <- (== Just "c") <$> lookupEnv "SPM_HEURISTIC_TRANSFORM"
-  layers <- mapM (renderLayer useCTransform) [("no-bank", "Banking disabled", False), ("bank", "Banking enabled", True)]
+  prepared <- mapM (prepareLayer useCTransform) [("no-bank", "Banking disabled", False), ("bank", "Banking enabled", True)]
+  let values = concatMap (map snd . layerPointsPrepared) prepared <> concatMap (map snd . layerSeedPointsPrepared) prepared
+      minimumValue = minimumDefault 0 values
+      maximumValue = maximumDefault 0 values
+  layers <- concat <$> mapM (renderPreparedLayers minimumValue maximumValue) prepared
   pure (HeuristicRender imageTileSize layers)
  where
   groups = componentTileGroups components
   transform useCTransform box seeds =
     (if useCTransform then chebyshevTransformC else chebyshevTransform) box seeds
-  renderLayer useCTransform (key, title, banking) = do
+  prepareLayer useCTransform (key, title, banking) = do
     let q' = q {bankPathEnabled = banking}
     (heuristic, heuristicMs) <- timedIO forceHeuristic (buildHeuristic astar q')
     (points, transformMs) <- timedIO forcePointList (pure (layerPoints (transform useCTransform) groups heuristic False))
-    let
-        values = map snd points
-        minimumValue = minimumDefault 0 values
-        maximumValue = maximumDefault 0 values
-        layerDir = outputRoot </> key
+    pure (key, title, banking, heuristicMs, transformMs, points, seedPoints heuristic banking)
+  layerPointsPrepared (_, _, _, _, _, points, _) = points
+  layerSeedPointsPrepared (_, _, _, _, _, _, points) = points
+  seedPoints heuristic banking =
+    [ (unTile (packTile (x + dx) (y + dy) plane), value)
+    | (cid, _) <- Boxed.toList (Boxed.indexed groups)
+    , (packed, value) <- Vector.toList (heuristicSeeds heuristic Boxed.! seedKey cid banking)
+    , let (x, y, plane) = unpackTile (Tile packed)
+    , dx <- [-4 .. 4]
+    , dy <- [-4 .. 4]
+    ]
+  renderPreparedLayers minimumValue maximumValue (key, title, banking, heuristicMs, transformMs, points, seeds) = do
+    normal <- renderLayer minimumValue maximumValue (key, title, banking, heuristicMs, transformMs, points)
+    seedsLayer <- renderLayer minimumValue maximumValue (key <> "-seeds", title <> " seeds", banking, heuristicMs, transformMs, seeds)
+    pure [normal, seedsLayer]
+  renderLayer minimumValue maximumValue (key, title, banking, heuristicMs, transformMs, points) = do
+    let layerDir = outputRoot </> key
         layerUrl = urlRoot <> "/" <> key
     createDirectoryIfMissing True layerDir
     (tiles, writeMs) <- timedIO (evaluate . length) (writeHeuristicImageTiles key minimumValue maximumValue layerDir layerUrl points)
     pure (HeuristicLayer key title banking minimumValue maximumValue heuristicMs transformMs writeMs tiles)
+
+renderComponentTiles :: TileAStar -> FilePath -> String -> IO HeuristicRender
+renderComponentTiles (TileAStar world components _) outputRoot urlRoot = do
+  createDirectoryIfMissing True outputRoot
+  allLayer <- renderLayer "reachable-components" "Reachable components" allPoints
+  largestLayer <- renderLayer "largest-component" ("Largest component " <> show largestCid) largestPoints
+  interestingLayer <- renderMarkers "largest-interesting" "Largest component entry/exit/bank tiles" interestingPoints
+  pure (HeuristicRender imageTileSize [largestLayer, interestingLayer, allLayer])
+ where
+  groups = componentTileGroups components
+  (largestCid, largestTiles) = Boxed.ifoldl' pickLargest (0, Vector.empty) groups
+  transports = concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
+  originTiles = Set.fromList [tile | transport <- transports, Just tile <- [origin transport]]
+  destinationTiles = Set.fromList [tile | transport <- transports, Just tile <- [destination transport]]
+  touchesLargest tile = any ((== Just largestCid) . componentOf components) (tile : walkingNeighborsRaw world tile)
+  interestingTiles = Set.filter touchesLargest (originTiles <> destinationTiles <> worldBanks world)
+  allPoints =
+    [ (packed, cid)
+    | (cid, packedTiles) <- Boxed.toList (Boxed.indexed groups)
+    , packed <- Vector.toList packedTiles
+    ]
+  largestPoints = [(packed, largestCid) | packed <- Vector.toList largestTiles]
+  interestingPoints = IntMap.toList (IntMap.fromListWith max
+    [ (unTile (packTile (x + dx) (y + dy) plane), interestingKind tile)
+    | tile <- Set.toList interestingTiles
+    , let (x, y, plane) = unpackTile tile
+    , dx <- [-4 .. 4]
+    , dy <- [-4 .. 4]
+    ])
+  interestingKind tile =
+    (if Set.member tile originTiles then 1 else 0)
+      + (if Set.member tile destinationTiles then 2 else 0)
+      + (if Set.member tile (worldBanks world) then 4 else 0)
+  pickLargest best@(_, bestTiles) cid packedTiles
+    | Vector.length packedTiles > Vector.length bestTiles = (cid, packedTiles)
+    | otherwise = best
+  renderLayer key title points = do
+    let values = map snd points
+        layerDir = outputRoot </> key
+        layerUrl = urlRoot <> "/" <> key
+    createDirectoryIfMissing True layerDir
+    (tiles, writeMs) <- timedIO (evaluate . length) (writeComponentImageTiles layerDir layerUrl points)
+    pure (HeuristicLayer key title False (minimumDefault 0 values) (maximumDefault 0 values) 0 0 writeMs tiles)
+  renderMarkers key title points = do
+    let values = map snd points
+        layerDir = outputRoot </> key
+        layerUrl = urlRoot <> "/" <> key
+    createDirectoryIfMissing True layerDir
+    (tiles, writeMs) <- timedIO (evaluate . length) (writeMarkerImageTiles layerDir layerUrl points)
+    pure (HeuristicLayer key title False (minimumDefault 0 values) (maximumDefault 0 values) 0 0 writeMs tiles)
 
 componentTileGroups :: NaturalComponents -> Boxed.Vector (Vector.Vector Int)
 componentTileGroups components = runST $ do
@@ -640,7 +727,8 @@ buildTileStatic :: World -> NaturalComponents -> TileStatic
 buildTileStatic world components =
   TileStatic tiles comps network
  where
-  sites = Set.toAscList (Set.fromList (staticEndpoints <> Set.toList (worldBanks world)))
+  sites = Set.toAscList (Set.fromList (staticEndpoints <> Set.toList reachableBanks))
+  reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
   staticEndpoints =
     [ tile
     | t <- concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
@@ -874,6 +962,66 @@ writeHeuristicImageTiles key minimumValue maximumValue layerDir layerUrl points 
     BS.writeFile filePath pixels
     pure (HeuristicTile url plane tx ty tileMin tileMax)
 
+writeComponentImageTiles :: FilePath -> String -> [(Int, Int)] -> IO [HeuristicTile]
+writeComponentImageTiles = writeColorImageTiles componentRgb 230
+
+writeMarkerImageTiles :: FilePath -> String -> [(Int, Int)] -> IO [HeuristicTile]
+writeMarkerImageTiles = writeColorImageTiles markerRgb 255
+
+writeColorImageTiles :: (Int -> (Word8, Word8, Word8)) -> Word8 -> FilePath -> String -> [(Int, Int)] -> IO [HeuristicTile]
+writeColorImageTiles color alpha layerDir layerUrl points = do
+  let grouped = IntMap.toList (foldl addPoint IntMap.empty points)
+  mapM writeTile grouped
+ where
+  addPoint tiles (packed, cid) =
+    let (x, y, plane) = unpackTile (Tile packed)
+        tx = x `div` imageTileSize
+        ty = y `div` imageTileSize
+     in IntMap.insertWith (++) (imageTileKey plane tx ty) [(x, y, cid)] tiles
+
+  writeTile (encoded, tilePoints) = do
+    let (plane, tx, ty) = decodeImageTileKey encoded
+        values = map (\(_, _, cid) -> cid) tilePoints
+        fileName = printf "%d_%d_%d.rgba" plane tx ty
+        filePath = layerDir </> fileName
+        url = layerUrl <> "/" <> fileName
+    pixels <- colorPixels color alpha tx ty tilePoints
+    BS.writeFile filePath pixels
+    pure (HeuristicTile url plane tx ty (minimumDefault 0 values) (maximumDefault 0 values))
+
+colorPixels :: (Int -> (Word8, Word8, Word8)) -> Word8 -> Int -> Int -> [(Int, Int, Int)] -> IO BS.ByteString
+colorPixels color alpha tx ty points =
+  BSI.create (imageTileSize * imageTileSize * 4) $ \pixels -> do
+    fillBytes pixels 0 (imageTileSize * imageTileSize * 4)
+    forM_ points $ \(x, y, value) -> do
+      let localX = x - tx * imageTileSize
+          localY = y - ty * imageTileSize
+          row = imageTileSize - 1 - localY
+          ix = (row * imageTileSize + localX) * 4
+          (r, g, b) = color value
+      pokeByteOff pixels ix r
+      pokeByteOff pixels (ix + 1) g
+      pokeByteOff pixels (ix + 2) b
+      pokeByteOff pixels (ix + 3) alpha
+
+componentRgb :: Int -> (Word8, Word8, Word8)
+componentRgb cid =
+  (channel 16, channel 8, channel 0)
+ where
+  h = cid * 1103515245 + 12345
+  channel shift = fromIntegral (72 + ((h `shiftR` shift) .&. 159))
+
+markerRgb :: Int -> (Word8, Word8, Word8)
+markerRgb kind =
+  case kind of
+    1 -> (34, 197, 94)
+    2 -> (239, 68, 68)
+    3 -> (217, 70, 239)
+    4 -> (250, 204, 21)
+    5 -> (20, 184, 166)
+    6 -> (249, 115, 22)
+    _ -> (255, 255, 255)
+
 imagePixels :: String -> Int -> Int -> Int -> Int -> [(Int, Int, Int)] -> IO BS.ByteString
 imagePixels key minimumValue maximumValue tx ty points =
   BSI.create (imageTileSize * imageTileSize * 4) $ \pixels -> do
@@ -949,6 +1097,7 @@ siteGraph (TileAStar world components static) q =
   nodeCount = Vector.length tiles
   edges = localEdges <> bankEdges <> initialGlobalEdges <> bankGlobalEdges
   reverseEdges = reverseAdjacency (nodeCount * 2) edges
+  reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
 
   localEdges =
     [ (stateId from banked, stateId to banked, transportCost t)
@@ -966,7 +1115,7 @@ siteGraph (TileAStar world components static) q =
   bankEdges =
     [ (stateId node False, stateId node True, 0)
     | bankPathEnabled q
-    , tile <- Set.toList (worldBanks world)
+    , tile <- Set.toList reachableBanks
     , Just node <- [nodeFor tile]
     ]
 
@@ -984,7 +1133,7 @@ siteGraph (TileAStar world components static) q =
     [ (stateId from True, stateId to True, transportCost t)
     | allowTransports q
     , bankPathEnabled q
-    , bank <- Set.toList (worldBanks world)
+    , bank <- Set.toList reachableBanks
     , Just from <- [nodeFor bank]
     , t <- worldGlobalTeleports world
     , transportAvailable q True t
@@ -1484,12 +1633,13 @@ forceSeedTable :: Boxed.Vector (Vector.Vector (Int, Int)) -> IO Int
 forceSeedTable table =
   evaluate (Boxed.ifoldl' (\total ix seeds -> total + ix + Vector.length seeds) 0 table)
 
-forceSearch :: (Route, TileAStarCounters) -> IO Int
-forceSearch (route, counters) =
+forceSearch :: (Route, TileAStarCounters, [(Tile, Bool)]) -> IO Int
+forceSearch (route, counters, explored) =
   evaluate
     ( routeCost route
         + routeExpandedNodes route
         + length (routeSteps route)
+        + length explored
         + tileStatesPopped counters
         + tileStalePqEntries counters
         + tilePqPushes counters

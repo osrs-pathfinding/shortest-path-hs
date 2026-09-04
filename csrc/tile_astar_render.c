@@ -1,6 +1,7 @@
 #include <HsFFI.h>
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
 
 static HsInt spm_inf(void) {
   return sizeof(HsInt) == 8 ? (HsInt)INT64_MAX : (HsInt)INT32_MAX;
@@ -57,7 +58,10 @@ void spm_chebyshev_transform(
 
 static uint8_t scale_channel(HsInt value, HsInt min_value, HsInt max_value, HsInt low, HsInt high) {
   HsInt range = max_value > min_value ? max_value - min_value : 1;
-  HsInt t = ((value - min_value) * 255) / range;
+  double linear = (double)(value - min_value) / (double)range;
+  double logarithmic = log1p((double)(value - min_value)) / log1p((double)range);
+  double fraction = (linear + logarithmic) * 0.5;
+  HsInt t = (HsInt)(fraction * 255.0);
   if (t < 0) t = 0;
   if (t > 255) t = 255;
   return (uint8_t)(low + ((high - low) * t) / 255);
@@ -76,6 +80,7 @@ void spm_rgba_tile(
   uint8_t *rgba
 ) {
   memset(rgba, 0, 256 * 256 * 4);
+  (void)bank_layer;
   for (HsInt i = 0; i < point_count; i++) {
     HsInt local_x = xs[i] - tile_x * 256;
     HsInt local_y = ys[i] - tile_y * 256;
@@ -83,15 +88,9 @@ void spm_rgba_tile(
     HsInt row = 255 - local_y;
     HsInt base = (row * 256 + local_x) * 4;
     HsInt value = values[i];
-    if (bank_layer) {
-      rgba[base] = scale_channel(value, min_value, max_value, 40, 250);
-      rgba[base + 1] = scale_channel(value, min_value, max_value, 220, 40);
-      rgba[base + 2] = scale_channel(value, min_value, max_value, 110, 20);
-    } else {
-      rgba[base] = scale_channel(value, min_value, max_value, 30, 245);
-      rgba[base + 1] = scale_channel(value, min_value, max_value, 120, 40);
-      rgba[base + 2] = scale_channel(value, min_value, max_value, 250, 30);
-    }
+    rgba[base] = scale_channel(value, min_value, max_value, 40, 250);
+    rgba[base + 1] = scale_channel(value, min_value, max_value, 220, 40);
+    rgba[base + 2] = scale_channel(value, min_value, max_value, 110, 20);
     rgba[base + 3] = 255;
   }
 }
