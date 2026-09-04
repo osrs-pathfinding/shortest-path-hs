@@ -36,6 +36,7 @@ let separatorLayer;
 let doorLayer;
 let heuristicBounds;
 let route = null;
+let reversePath = null;
 let fixtureRoutes = [];
 let routeMarkers = [];
 let heuristicRender = null;
@@ -346,6 +347,7 @@ function render() {
     const componentSummary = mode === "component-bitmap" ? drawComponentBitmap(fillOpacity) : null;
     drawExpandedTiles();
     drawRoute();
+    drawReversePath();
     renderLegend(mode);
     if (heuristicSummary) status.textContent = `Heuristic rendered: ${heuristicSummary.layers} layers.`;
     if (componentSummary) status.textContent = `Component tiles rendered: ${componentSummary.tiles.toLocaleString()} image tiles.`;
@@ -388,6 +390,7 @@ function render() {
   drawDoors();
   drawExpandedTiles();
   drawRoute();
+  drawReversePath();
   renderLegend(mode, heuristicSummary);
   renderStats(component, bins.length, mode, heuristicSummary, componentSummary);
 }
@@ -442,7 +445,7 @@ function drawHeuristic(fillOpacity) {
     tiles: layer.tiles.filter(tile => tile.plane === currentPlane)
   })).filter(layer => layer.tiles.length);
   const layerGroups = visibleLayers.map(layer => {
-    const group = L.layerGroup(layer.tiles.map(tile => rgbaTileOverlay(tile, fillOpacity)));
+    const group = L.layerGroup(layer.tiles.map(tile => rgbaTileOverlay(tile, fillOpacity)).concat(seedMarkers(layer)));
     group.heuristicKey = layer.key;
     return [layer, group];
   });
@@ -474,6 +477,42 @@ function drawHeuristic(fillOpacity) {
     minimum: Math.min(...visibleLayers.map(layer => layer.min)),
     maximum: Math.max(...visibleLayers.map(layer => layer.max))
   };
+}
+
+function seedMarkers(layer) {
+  return (layer.seeds || []).filter(point => point.plane === currentPlane).map(point =>
+    L.circleMarker([point.y + 0.5, point.x + 0.5], {
+      renderer, color: layer.bankPathEnabled ? "#0e7490" : "#92400e",
+      fillColor: layer.bankPathEnabled ? "#22d3ee" : "#facc15",
+      fillOpacity: 0.95, radius: 6, weight: 2
+    }).bindTooltip(`${layer.bankPathEnabled ? "Banked" : "Unbanked"} seed<br>${pointKey(point)}<br>h=${point.value}`)
+      .on("click", event => {
+        L.DomEvent.stop(event.originalEvent);
+        inspectSeed(point);
+      })
+  );
+}
+
+async function inspectSeed(point) {
+  try {
+    const body = {
+      start: { x: point.x, y: point.y, plane: point.plane },
+      target: readRouteInputs("end"),
+      allowTransports: document.getElementById("allow-transports").checked,
+      includeExpandedTiles: false,
+      useHeuristic: true,
+      heuristicWeight: Number(document.getElementById("heuristic-weight").value)
+    };
+    routeStatus.textContent = `Inspecting seed ${pointKey(point)}...`;
+    const response = await fetch("/api/reverse-path", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    reversePath = result;
+    routeStatus.textContent = `Seed inspected: ${pointKey(result.seed)}`;
+    render();
+  } catch (error) {
+    routeStatus.textContent = `Seed inspect error: ${error.message}`;
+  }
 }
 
 function rgbaTileOverlay(tile, opacity) {
@@ -636,6 +675,34 @@ function drawRoute() {
   renderRouteStats();
 }
 
+function drawReversePath() {
+  if (!reversePath) return;
+  const colors = [reversePathColor(false), reversePathColor(true)];
+  const layers = [];
+  (reversePath.states || []).forEach((state, index) => {
+    const color = colors[index];
+    for (const edge of state.path || []) {
+      if (edge.from.plane === currentPlane && edge.to.plane === currentPlane) {
+        layers.push(L.polyline([[edge.from.y + 0.5, edge.from.x + 0.5], [edge.to.y + 0.5, edge.to.x + 0.5]], {
+          color, weight: state.banked ? 3 : 5, opacity: 0.95, dashArray: state.banked ? "3 7" : undefined
+        }).bindTooltip(`${state.banked ? "Banked" : "Unbanked"} ${edge.type}: ${edge.label}<br>${pointKey(edge.from)} ${edge.fromBanked ? "banked" : "unbanked"} -> ${pointKey(edge.to)} ${edge.toBanked ? "banked" : "unbanked"}<br>cost ${edge.cost}, total ${edge.cumulativeCost}`));
+      }
+      if (edge.to.plane === currentPlane) {
+        layers.push(L.circleMarker([edge.to.y + 0.5, edge.to.x + 0.5], { renderer, color, fillColor: "#fff", fillOpacity: 1, radius: 5, weight: 2, interactive: false }));
+      }
+    }
+  });
+  if (reversePath.seed?.plane === currentPlane) {
+    layers.push(L.circleMarker([reversePath.seed.y + 0.5, reversePath.seed.x + 0.5], { renderer, color: "#111827", fillColor: "#f97316", fillOpacity: 1, radius: 9, weight: 3 }).bindTooltip(`Inspected seed<br>${pointKey(reversePath.seed)}`));
+  }
+  routeMarkers.push(...layers.map(layer => layer.addTo(map)));
+  renderReversePathStats();
+}
+
+function reversePathColor(banked) {
+  return banked ? "#0891b2" : "#b45309";
+}
+
 function routeSegments(value, color, weight) {
   const walkSegments = [];
   let previous = value.start;
@@ -672,6 +739,7 @@ function drawRouteEndpoints(value) {
 }
 
 function renderRouteStats() {
+  if (reversePath) { renderReversePathStats(); return; }
   if (!route) { routeStats.replaceChildren(); return; }
   const rows = [["route", route.name || "interactive"], ["cost", route.cost ?? "n/a"], ["expanded states", route.expandedNodes ?? "n/a"], ["expanded tiles", route.expandedTiles?.length ?? 0], ["steps", route.path.length]];
   const config = route.config || {};
@@ -701,6 +769,19 @@ function renderRouteStats() {
   routeStats.replaceChildren(...rows.flatMap(([name, value]) => { const dt = document.createElement("dt"); const dd = document.createElement("dd"); dt.textContent = name; dd.textContent = value; return [dt, dd]; }));
 }
 
+function renderReversePathStats() {
+  const rows = [["seed", pointKey(reversePath.seed)], ["target", pointKey(reversePath.target)]];
+  for (const state of reversePath.states || []) {
+    const name = state.banked ? "banked" : "unbanked";
+    rows.push([`${name} h`, state.heuristic], [`${name} reverse`, state.unreachable ? "unreachable" : state.distance]);
+    for (const edge of state.path || []) rows.push([`${name} edge`, `${pointKey(edge.from)} ${edge.fromBanked ? "B" : "U"} -> ${pointKey(edge.to)} ${edge.toBanked ? "B" : "U"} ${edge.type} ${edge.cost} (${edge.cumulativeCost})`]);
+  }
+  routeStats.replaceChildren(...rows.flatMap(([name, value]) => {
+    const dt = document.createElement("dt"); const dd = document.createElement("dd");
+    dt.textContent = name; dd.textContent = value; return [dt, dd];
+  }));
+}
+
 async function runRoute() {
   try {
     const previous = route;
@@ -719,6 +800,7 @@ async function runRoute() {
     if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
     route = { ...normaliseRoute(result, previous?.name || (body.useHeuristic ? "Tile A*" : "Dijkstra")), start: body.start, target: body.target, config: { ...(previous?.config || {}), allowTransports: body.allowTransports, includeExpandedTiles: body.includeExpandedTiles, search: body.useHeuristic ? "Tile A*" : "Dijkstra" } };
     routeStatus.textContent = "Route loaded from Haskell.";
+    reversePath = null;
     render();
   } catch (error) { routeStatus.textContent = `Route error: ${error.message}`; }
 }

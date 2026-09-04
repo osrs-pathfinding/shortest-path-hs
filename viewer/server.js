@@ -264,6 +264,38 @@ function handleHeuristic(req, res) {
   });
 }
 
+function handleReversePath(req, res) {
+  if (req.method !== "POST") {
+    json(res, 405, { error: "method not allowed" });
+    return;
+  }
+  let size = 0;
+  let tooLarge = false;
+  const chunks = [];
+  req.on("data", chunk => {
+    size += chunk.length;
+    if (size <= maxBodyBytes) chunks.push(chunk);
+    else tooLarge = true;
+  });
+  req.on("end", async () => {
+    if (tooLarge) {
+      json(res, 413, { error: "request body too large" });
+      return;
+    }
+    const parsed = parseRouteRequest(Buffer.concat(chunks).toString("utf8"));
+    if (parsed.error) {
+      json(res, 400, { error: parsed.error });
+      return;
+    }
+    try {
+      json(res, 200, await routeProcess.request({ ...parsed.value, finder: "reverse-path" }));
+    } catch (error) {
+      const status = /timed out/.test(error.message) ? 504 : 503;
+      json(res, status, { error: error.message });
+    }
+  });
+}
+
 async function handleComponents(req, res) {
   try {
     json(res, 200, await routeProcess.request({
@@ -288,6 +320,10 @@ http.createServer((req, res) => {
   }
   if (requestPath === "/api/heuristic") {
     handleHeuristic(req, res);
+    return;
+  }
+  if (requestPath === "/api/reverse-path") {
+    handleReversePath(req, res);
     return;
   }
   if (requestPath === "/api/components") {

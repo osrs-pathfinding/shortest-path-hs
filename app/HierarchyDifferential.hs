@@ -487,6 +487,8 @@ serveRequest world tileAStar hierarchical line =
             "components" -> do
               render <- renderComponentTiles tileAStar componentTileRoot "/out/component-tiles"
               pure (heuristicRenderResponse request render)
+            "reverse-path" ->
+              pure (reversePathResponse request (reversePathDebug tileAStar query))
             "hierarchical" -> do
               case hierarchical of
                 Nothing -> invalid request "hierarchical finder is unavailable in direct mode"
@@ -517,6 +519,29 @@ serveRequest world tileAStar hierarchical line =
   expandedStateJson (tile, banked) =
     let (x, y, plane) = unpackTile tile
      in object ["x" .= x, "y" .= y, "plane" .= plane, "banked" .= banked]
+  debugCoordinateJson tile =
+    let (x, y, plane) = unpackTile tile
+     in object ["x" .= x, "y" .= y, "plane" .= plane]
+  debugStateJson state =
+    object
+      [ "banked" .= reverseStateBanked state
+      , "site" .= fmap debugCoordinateJson (reverseStateTile state)
+      , "distance" .= reverseStateDistance state
+      , "heuristic" .= reverseStateHeuristic state
+      , "unreachable" .= reverseStateUnreachable state
+      , "path" .= map debugEdgeJson (reverseStatePath state)
+      ]
+  debugEdgeJson edge =
+    object
+      [ "from" .= debugCoordinateJson (reverseEdgeFrom edge)
+      , "to" .= debugCoordinateJson (reverseEdgeTo edge)
+      , "fromBanked" .= reverseEdgeFromBanked edge
+      , "toBanked" .= reverseEdgeToBanked edge
+      , "type" .= reverseEdgeType edge
+      , "label" .= reverseEdgeLabel edge
+      , "cost" .= reverseEdgeCost edge
+      , "cumulativeCost" .= reverseEdgeCumulativeCost edge
+      ]
   routeResponse :: ServeRequest -> Route -> [Tile] -> [(Tile, Bool)] -> [(LeafId, Int)] -> [(Tile, Int)] -> Value -> Value
   routeResponse request route expandedTiles expandedStates heuristicRegions heuristicTiles timings =
     object
@@ -541,6 +566,16 @@ serveRequest world tileAStar hierarchical line =
       , "layers" .= map (layerJson (renderTileSize render)) (renderLayers render)
       ]
 
+  reversePathResponse :: ServeRequest -> ReversePathDebug -> Value
+  reversePathResponse request debug =
+    object
+      [ "id" .= requestId request
+      , "ok" .= True
+      , "seed" .= debugCoordinateJson (reverseDebugSeed debug)
+      , "target" .= debugCoordinateJson (reverseDebugTarget debug)
+      , "states" .= map debugStateJson (reverseDebugStates debug)
+      ]
+
   layerJson tileSize layer =
     object
       [ "key" .= layerKey layer
@@ -551,8 +586,12 @@ serveRequest world tileAStar hierarchical line =
       , "heuristicMs" .= layerHeuristicMilliseconds layer
       , "transformMs" .= layerTransformMilliseconds layer
       , "writeMs" .= layerWriteMilliseconds layer
+      , "seeds" .= map seedJson (layerSeeds layer)
       , "tiles" .= map (tileJson tileSize) (layerTiles layer)
       ]
+  seedJson (tile, value) =
+    let (x, y, plane) = unpackTile tile
+     in object ["x" .= x, "y" .= y, "plane" .= plane, "value" .= value]
 
   tileJson tileSize tile =
     object

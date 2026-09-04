@@ -63,6 +63,7 @@ main = do
   assert (routeCost globalRoute == 4)
   assert (routeSteps globalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
   assert (searchGlobalEntryEdges (querySearchCounters globalTimings) == 1)
+  checkReversePathDebug tileAStar tiles
 
 synthetic :: (World, Partition, TerminalRoles, Tiles)
 synthetic =
@@ -121,7 +122,7 @@ synthetic =
     [ (a0, [local "SYNTHETIC_DIRECT" a0 a1 10, local "SYNTHETIC_LONG" a0 d1 20])
     , (b1, [local "SYNTHETIC_BOAT" b1 c0 2])
     , (c1, [local "SYNTHETIC_RETURN" c1 a25 1])
-    , (e0, [local "SYNTHETIC_RING" e0 c0 2])
+    , (e0, [local "SYNTHETIC_RING" e0 c0 2, localReq "SYNTHETIC_BANK_LOCAL" e0 d1 5 (ItemOne (ItemTerm "999" 1))])
     ]
   globals =
     [ global "SYNTHETIC_GLOBAL" d1 4 (Just (ItemOne (ItemTerm "13393" 1)))
@@ -137,6 +138,9 @@ data Tiles = Tiles
 
 local :: String -> Tile -> Tile -> Int -> Transport
 local kind from to cost = Transport kind (Just from) (Just to) cost kind "" False Nothing [] Nothing [] [] [] "synthetic"
+
+localReq :: String -> Tile -> Tile -> Int -> ItemExpr -> Transport
+localReq kind from to cost itemReq = Transport kind (Just from) (Just to) cost kind "" False Nothing [] (Just itemReq) [] [] [] "synthetic"
 
 global :: String -> Tile -> Int -> Maybe ItemExpr -> Transport
 global kind to cost itemReq = Transport kind Nothing (Just to) cost kind "" False Nothing [] itemReq [] [] [] "synthetic"
@@ -217,6 +221,25 @@ checkRoute raw tileAStar hierarchical world (Case name q expectation) = do
       assert (null (routeSteps abstract))
   putStrLn (name <> ": " <> show (routeCost flat) <> " / " <> show (routeCost tile) <> " / " <> show (routeCost abstract))
 
+checkReversePathDebug :: TileAStar -> Tiles -> IO ()
+checkReversePathDebug tileAStar tiles = do
+  let mixed = reversePathDebug tileAStar ((query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_GLOBAL") True) {inventoryItems = Map.empty})
+      (mixedUnbanked, mixedBanked) = twoStates mixed
+  assertMsg ("mixed unbanked value: " <> show mixedUnbanked) (reverseStateDistance mixedUnbanked == reverseStateHeuristic mixedUnbanked)
+  assertMsg ("mixed banked value: " <> show mixedBanked) (reverseStateDistance mixedBanked == reverseStateHeuristic mixedBanked)
+  assertMsg ("mixed unbanked path: " <> show (map reverseEdgeType (reverseStatePath mixedUnbanked))) (map reverseEdgeType (reverseStatePath mixedUnbanked) == ["bank", "transport"])
+  assertMsg ("mixed banked path: " <> show (map reverseEdgeType (reverseStatePath mixedBanked))) (map reverseEdgeType (reverseStatePath mixedBanked) == ["transport"])
+  let oneMissing = reversePathDebug tileAStar ((query (tE0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_LOCAL") False) {inventoryItems = Map.empty})
+      (missingUnbanked, missingBanked) = twoStates oneMissing
+  assertMsg ("missing unbanked: " <> show missingUnbanked) (reverseStateUnreachable missingUnbanked)
+  assertMsg ("missing banked: " <> show missingBanked) (not (reverseStateUnreachable missingBanked))
+  assert (map reverseEdgeType (reverseStatePath missingBanked) == ["transport"])
+ where
+  twoStates debug =
+    case reverseDebugStates debug of
+      [unbanked, banked] -> (unbanked, banked)
+      states -> error ("expected two reverse debug states, got " <> show (length states))
+
 concreteCost :: World -> Query -> [RouteStep] -> Int
 concreteCost world q = snd . foldl step (queryStart q, 0)
  where
@@ -244,3 +267,7 @@ must name = maybe (error name) id
 assert :: Bool -> IO ()
 assert True = pure ()
 assert False = fail "synthetic hierarchy assertion failed"
+
+assertMsg :: String -> Bool -> IO ()
+assertMsg _ True = pure ()
+assertMsg message False = fail message

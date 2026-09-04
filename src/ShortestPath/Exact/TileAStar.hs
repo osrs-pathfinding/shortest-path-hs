@@ -8,6 +8,9 @@ module ShortestPath.Exact.TileAStar
   , TileAStarCounters(..)
   , TileReverseCounters(..)
   , TileAStarTimings(..)
+  , ReversePathDebug(..)
+  , ReversePathState(..)
+  , ReversePathEdge(..)
   , SparseWalkingNetwork(..)
   , buildTileAStar
   , buildSparseWalkingNetwork
@@ -20,6 +23,7 @@ module ShortestPath.Exact.TileAStar
   , findRouteProfiledTileAStar
   , findRouteProfiledTileAStarWithTrace
   , forceTileAStar
+  , reversePathDebug
   , renderComponentTiles
   , renderHeuristicTiles
   , tileStaticStats
@@ -180,6 +184,7 @@ data HeuristicLayer = HeuristicLayer
   , layerHeuristicMilliseconds :: !Double
   , layerTransformMilliseconds :: !Double
   , layerWriteMilliseconds :: !Double
+  , layerSeeds :: [(Tile, Int)]
   , layerTiles :: [HeuristicTile]
   }
   deriving stock (Eq, Show)
@@ -236,6 +241,35 @@ data TileAStarTimings = TileAStarTimings
   , tileTotalMilliseconds :: !Double
   , tileSearchCounters :: !TileAStarCounters
   , tileReverseCounters :: !TileReverseCounters
+  }
+  deriving stock (Eq, Show)
+
+data ReversePathDebug = ReversePathDebug
+  { reverseDebugSeed :: !Tile
+  , reverseDebugTarget :: !Tile
+  , reverseDebugStates :: [ReversePathState]
+  }
+  deriving stock (Eq, Show)
+
+data ReversePathState = ReversePathState
+  { reverseStateBanked :: !Bool
+  , reverseStateTile :: !(Maybe Tile)
+  , reverseStateDistance :: !Int
+  , reverseStateHeuristic :: !Int
+  , reverseStateUnreachable :: !Bool
+  , reverseStatePath :: [ReversePathEdge]
+  }
+  deriving stock (Eq, Show)
+
+data ReversePathEdge = ReversePathEdge
+  { reverseEdgeFrom :: !Tile
+  , reverseEdgeTo :: !Tile
+  , reverseEdgeFromBanked :: !Bool
+  , reverseEdgeToBanked :: !Bool
+  , reverseEdgeType :: String
+  , reverseEdgeLabel :: String
+  , reverseEdgeCost :: !Int
+  , reverseEdgeCumulativeCost :: !Int
   }
   deriving stock (Eq, Show)
 
@@ -614,6 +648,136 @@ buildHeuristic astar@(TileAStar _ components _) q =
     (table, seedMs) <- timedIO forceSeedTable (pure (seedTableFromDistances components graph distances))
     pure (Heuristic table reverseMs seedMs counters)
 
+reversePathDebug :: TileAStar -> Query -> ReversePathDebug
+reversePathDebug astar@(TileAStar _ components _) q =
+  ReversePathDebug (queryStart q) (queryTarget q) (map stateDebug [False, True])
+ where
+  graph = siteGraph astar q
+  distances = reverseDijkstraUncounted graph (targetSeeds graph (queryTarget q))
+  heuristic = Heuristic (seedTableFromDistances components graph distances) 0 0 emptyReverseCounters
+  sourceNode = IntMap.lookup (unTile (queryStart q)) (siteTileIndex graph)
+  stateDebug banked =
+    case sourceNode of
+      Nothing -> ReversePathState banked Nothing maxBound 0 True []
+      Just node ->
+        let sourceState = stateId node banked
+            distance = distances Vector.! sourceState
+            route = forwardPath sourceState
+         in ReversePathState banked (Just (queryStart q)) distance (heuristicAt components heuristic (State (queryStart q) banked)) (distance == maxBound) route
+  forwardPath source = runST $ do
+    best <- Mutable.replicate stateCount maxBound
+    prevState <- Mutable.replicate stateCount maxBound
+    prevEdge <- BoxedMutable.replicate stateCount Nothing
+    queue <- queueNew (max 262144 (stateCount * 16))
+    Mutable.write best source 0
+    queuePush queue 0 source 0
+    let go = do
+          popped <- queuePop queue
+          case popped of
+            Nothing -> pure []
+            Just (_, state, cost) -> do
+              known <- Mutable.read best state
+              if cost /= known
+                then go
+                else if stateIsTarget state
+                  then reconstruct best prevState prevEdge state
+                  else mapM_ (relax best prevState prevEdge queue cost state) (debugNeighbors state) >> go
+    go
+  stateCount = Vector.length (siteTiles graph) * 2
+  stateIsTarget state = siteTiles graph Vector.! (state `div` 2) == unTile (queryTarget q)
+  relax best prevState prevEdge queue cost state edge =
+    case addCost cost (debugEdgeCost edge) of
+      Nothing -> pure ()
+      Just newCost -> do
+        known <- Mutable.read best (debugEdgeToState edge)
+        when (newCost < known) $ do
+          Mutable.write best (debugEdgeToState edge) newCost
+          Mutable.write prevState (debugEdgeToState edge) state
+          BoxedMutable.write prevEdge (debugEdgeToState edge) (Just edge)
+          queuePush queue newCost (debugEdgeToState edge) newCost
+  reconstruct best prevState prevEdge state = reverse <$> collect state
+   where
+    collect current = do
+      edge <- BoxedMutable.read prevEdge current
+      case edge of
+        Nothing -> pure []
+        Just debugEdge -> do
+          total <- Mutable.read best current
+          let public = ReversePathEdge
+                (debugEdgeFromTile debugEdge) (debugEdgeToTile debugEdge)
+                (debugEdgeFromBanked debugEdge) (debugEdgeToBanked debugEdge)
+                (debugEdgeKind debugEdge) (debugEdgeLabel debugEdge)
+                (debugEdgeCost debugEdge) total
+          previous <- Mutable.read prevState current
+          (public :) <$> collect previous
+
+  debugNeighbors state = walkingEdges <> transportEdges <> bankEdges <> initialGlobalEdges <> bankGlobalEdges
+   where
+    node = state `div` 2
+    banked = odd state
+    tile = Tile (siteTiles graph Vector.! node)
+    component = siteComponents graph Vector.! node
+    componentSites
+      | component < 0 = Vector.empty
+      | otherwise = siteComponentSiteIds graph Boxed.! component
+    walkingEdges =
+      [ DebugEdge (stateId other banked) tile (Tile otherTile) banked banked "component-walk" "component walk" (chebyshevPacked (unTile tile) otherTile)
+      | other <- Vector.toList componentSites
+      , other /= node
+      , let otherTile = siteTiles graph Vector.! other
+      ]
+    transportEdges =
+      [ DebugEdge (stateId to banked) tile dst banked banked "transport" (label t) (transportCost t)
+      | allowTransports q
+      , t <- Map.findWithDefault [] tile (worldTransports world)
+      , transportAvailable q banked t
+      , Just _ <- [origin t]
+      , Just dst <- [destination t]
+      , Just to <- [IntMap.lookup (unTile dst) (siteTileIndex graph)]
+      ]
+    bankEdges =
+      [ DebugEdge (stateId node True) tile tile False True "bank" "bank" 0
+      | bankPathEnabled q
+      , not banked
+      , Set.member tile reachableBanks
+      ]
+    initialGlobalEdges =
+      [ DebugEdge (stateId to False) tile dst False False "transport" (label t) (transportCost t)
+      | allowTransports q
+      , not banked
+      , tile == queryStart q
+      , t <- worldGlobalTeleports world
+      , transportAvailable q False t
+      , Just dst <- [destination t]
+      , Just to <- [IntMap.lookup (unTile dst) (siteTileIndex graph)]
+      ]
+    bankGlobalEdges =
+      [ DebugEdge (stateId to True) tile dst True True "transport" (label t) (transportCost t)
+      | allowTransports q
+      , bankPathEnabled q
+      , banked
+      , Set.member tile reachableBanks
+      , t <- worldGlobalTeleports world
+      , transportAvailable q True t
+      , Just dst <- [destination t]
+      , Just to <- [IntMap.lookup (unTile dst) (siteTileIndex graph)]
+      ]
+  transportCost t = duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q)
+  label t = if null (displayInfo t) then transportType t else displayInfo t
+  reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
+  TileAStar world _ _ = astar
+
+data DebugEdge = DebugEdge
+  { debugEdgeToState :: !Int
+  , debugEdgeFromTile :: !Tile
+  , debugEdgeToTile :: !Tile
+  , debugEdgeFromBanked :: !Bool
+  , debugEdgeToBanked :: !Bool
+  , debugEdgeKind :: String
+  , debugEdgeLabel :: String
+  , debugEdgeCost :: !Int
+  }
+
 renderHeuristicTiles :: TileAStar -> Query -> FilePath -> String -> IO HeuristicRender
 renderHeuristicTiles astar@(TileAStar _ components _) q outputRoot urlRoot = do
   createDirectoryIfMissing True outputRoot
@@ -632,9 +796,9 @@ renderHeuristicTiles astar@(TileAStar _ components _) q outputRoot urlRoot = do
     let q' = q {bankPathEnabled = banking}
     (heuristic, heuristicMs) <- timedIO forceHeuristic (buildHeuristic astar q')
     (points, transformMs) <- timedIO forcePointList (pure (layerPoints (transform useCTransform) groups heuristic False))
-    pure (key, title, banking, heuristicMs, transformMs, points, seedPoints heuristic banking)
-  layerPointsPrepared (_, _, _, _, _, points, _) = points
-  layerSeedPointsPrepared (_, _, _, _, _, _, points) = points
+    pure (key, title, banking, heuristicMs, transformMs, points, seedPoints heuristic banking, heuristic)
+  layerPointsPrepared (_, _, _, _, _, points, _, _) = points
+  layerSeedPointsPrepared (_, _, _, _, _, _, points, _) = points
   seedPoints heuristic banking =
     [ (unTile (packTile (x + dx) (y + dy) plane), value)
     | (cid, _) <- Boxed.toList (Boxed.indexed groups)
@@ -643,16 +807,23 @@ renderHeuristicTiles astar@(TileAStar _ components _) q outputRoot urlRoot = do
     , dx <- [-4 .. 4]
     , dy <- [-4 .. 4]
     ]
-  renderPreparedLayers minimumValue maximumValue (key, title, banking, heuristicMs, transformMs, points, seeds) = do
+  renderPreparedLayers minimumValue maximumValue (key, title, banking, heuristicMs, transformMs, points, seeds, heuristic) = do
     normal <- renderLayer minimumValue maximumValue (key, title, banking, heuristicMs, transformMs, points)
-    seedsLayer <- renderLayer minimumValue maximumValue (key <> "-seeds", title <> " seeds", banking, heuristicMs, transformMs, seeds)
+    seedsLayer <- renderLayerWithSeeds minimumValue maximumValue (key <> "-seeds", title <> " seeds", banking, heuristicMs, transformMs, seeds) (actualSeeds heuristic banking)
     pure [normal, seedsLayer]
+  actualSeeds heuristic banking =
+    [ (Tile packed, value)
+    | (cid, _) <- Boxed.toList (Boxed.indexed groups)
+    , (packed, value) <- Vector.toList (heuristicSeeds heuristic Boxed.! seedKey cid banking)
+    ]
   renderLayer minimumValue maximumValue (key, title, banking, heuristicMs, transformMs, points) = do
+    renderLayerWithSeeds minimumValue maximumValue (key, title, banking, heuristicMs, transformMs, points) []
+  renderLayerWithSeeds minimumValue maximumValue (key, title, banking, heuristicMs, transformMs, points) seedsForLayer = do
     let layerDir = outputRoot </> key
         layerUrl = urlRoot <> "/" <> key
     createDirectoryIfMissing True layerDir
     (tiles, writeMs) <- timedIO (evaluate . length) (writeHeuristicImageTiles key minimumValue maximumValue layerDir layerUrl points)
-    pure (HeuristicLayer key title banking minimumValue maximumValue heuristicMs transformMs writeMs tiles)
+    pure (HeuristicLayer key title banking minimumValue maximumValue heuristicMs transformMs writeMs seedsForLayer tiles)
 
 renderComponentTiles :: TileAStar -> FilePath -> String -> IO HeuristicRender
 renderComponentTiles (TileAStar world components _) outputRoot urlRoot = do
@@ -695,14 +866,14 @@ renderComponentTiles (TileAStar world components _) outputRoot urlRoot = do
         layerUrl = urlRoot <> "/" <> key
     createDirectoryIfMissing True layerDir
     (tiles, writeMs) <- timedIO (evaluate . length) (writeComponentImageTiles layerDir layerUrl points)
-    pure (HeuristicLayer key title False (minimumDefault 0 values) (maximumDefault 0 values) 0 0 writeMs tiles)
+    pure (HeuristicLayer key title False (minimumDefault 0 values) (maximumDefault 0 values) 0 0 writeMs [] tiles)
   renderMarkers key title points = do
     let values = map snd points
         layerDir = outputRoot </> key
         layerUrl = urlRoot <> "/" <> key
     createDirectoryIfMissing True layerDir
     (tiles, writeMs) <- timedIO (evaluate . length) (writeMarkerImageTiles layerDir layerUrl points)
-    pure (HeuristicLayer key title False (minimumDefault 0 values) (maximumDefault 0 values) 0 0 writeMs tiles)
+    pure (HeuristicLayer key title False (minimumDefault 0 values) (maximumDefault 0 values) 0 0 writeMs [] tiles)
 
 componentTileGroups :: NaturalComponents -> Boxed.Vector (Vector.Vector Int)
 componentTileGroups components = runST $ do
