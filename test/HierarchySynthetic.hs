@@ -66,6 +66,7 @@ main = do
   assert (routeSteps globalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
   assert (searchGlobalEntryEdges (querySearchCounters globalTimings) == 1)
   checkReversePathDebug tileAStar tiles
+  checkHeuristicPruning tileAStar tiles
 
 synthetic :: (World, Partition, TerminalRoles, Tiles)
 synthetic =
@@ -93,10 +94,11 @@ synthetic =
   d2 = packTile 110 112 0
   d3 = packTile 111 112 0
   e0 = packTile 109 110 0
+  unknown = packTile 200 200 0
   allEdges =
     [(packTile x 100 0, 1) | x <- [100 .. 124]]
       <> [(s0, 0), (s0, 1), (s1, 1), (s2, 1), (b0, 1)]
-      <> [(c0, 1), (c0, 0), (d0, 0), (d1, 0)]
+      <> [(c0, 1), (c0, 0), (e0, 1), (e0, 0), (d0, 0), (d1, 0)]
   collisionBytes = BL.pack [byteAt i | i <- [0 .. 8191]]
   byteAt i = foldr setBitIf 0 [bitIndex | (bit, bitIndex) <- flags, bit `div` 8 == i]
   setBitIf bitIndex byte = setBit byte (bitIndex `mod` 8)
@@ -108,9 +110,9 @@ synthetic =
     [PartitionAssignment 1 tile "a" "leaf" 1 | tile <- a]
       <> [PartitionAssignment 1 s "separator" "separator" 0 | s <- [s0, s1, s2]]
       <> [PartitionAssignment 1 tile "b" "leaf" 1 | tile <- [b0, b1]]
-      <> [PartitionAssignment 1 tile "c" "leaf" 1 | tile <- [c0, c1]]
+      <> [PartitionAssignment 1 tile "c" "leaf" 1 | tile <- [c0, c1, e0]]
       <> [PartitionAssignment 1 tile "d" "leaf" 1 | tile <- [d0, d1, d2, d3]]
-  ownerTiles = a <> [s0, s1, s2, b0, b1, c0, c1, d0, d1, d2, d3]
+  ownerTiles = a <> [s0, s1, s2, b0, b1, c0, c1, e0, d0, d1, d2, d3]
   owner = IntMap.fromList [(unTile tile, 1) | tile <- ownerTiles]
   partition = either (error . ("synthetic partition: " <>)) id
     (partitionFromAssignments owner (IntSet.singleton 1) assignments)
@@ -124,6 +126,7 @@ synthetic =
     [ (a0, [ local "SYNTHETIC_DIRECT" a0 a1 10
            , local "SYNTHETIC_LONG" a0 d1 20
            , localReq "SYNTHETIC_BANK_LOCAL_AT_BANK" a0 d1 5 (ItemOne (ItemTerm "999" 1))
+           , local "SYNTHETIC_UNKNOWN" a0 unknown 1
            ])
     , (b1, [local "SYNTHETIC_BOAT" b1 c0 2])
     , (c1, [local "SYNTHETIC_RETURN" c1 a25 1])
@@ -254,6 +257,18 @@ checkReversePathDebug tileAStar tiles = do
     case reverseDebugStates debug of
       [unbanked, banked] -> (unbanked, banked)
       states -> error ("expected two reverse debug states, got " <> show (length states))
+
+checkHeuristicPruning :: TileAStar -> Tiles -> IO ()
+checkHeuristicPruning tileAStar tiles = do
+  let unknownQuery = (query (tA0 tiles) (tA25 tiles) (Set.singleton "SYNTHETIC_UNKNOWN") False)
+      noSeedQuery = walkingQuery (tA0 tiles) (tD0 tiles)
+  (unknownRoute, unknownTimings, _) <- findRouteProfiledTileAStarWithTrace False tileAStar unknownQuery
+  (_, noSeedTimings, _) <- findRouteProfiledTileAStarWithTrace False tileAStar noSeedQuery
+  let unknownCounters = tileSearchCounters unknownTimings
+      noSeedCounters = tileSearchCounters noSeedTimings
+  assert (routeCost unknownRoute == 25)
+  assert (tileUnknownComponentPrunes unknownCounters > 0)
+  assert (tileNoReverseSeedPrunes noSeedCounters > 0)
 
 concreteCost :: World -> Query -> [RouteStep] -> Int
 concreteCost world q = snd . foldl step (queryStart q, 0)

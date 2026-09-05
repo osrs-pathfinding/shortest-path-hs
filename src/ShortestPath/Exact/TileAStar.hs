@@ -217,6 +217,9 @@ data TileAStarCounters = TileAStarCounters
   , tileWalkingRelaxations :: !Int
   , tileTransportRelaxations :: !Int
   , tileHeuristicEvaluations :: !Int
+  , tileHeuristicUnreachable :: !Int
+  , tileUnknownComponentPrunes :: !Int
+  , tileNoReverseSeedPrunes :: !Int
   }
   deriving stock (Eq, Show)
 
@@ -349,14 +352,18 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
         known <- Mutable.read best state
         if cost >= known
           then pure counters
-          else do
+          else enqueue counters state cost step known
+      enqueue counters state cost step known =
+        case heuristicAt components heuristic (State (stateTile state) (stateBanked state)) of
+          Nothing -> pure (countHeuristicPrune (stateTile state) counters)
+          Just h -> do
             Mutable.write best state cost
             case step of
               Nothing -> pure ()
               Just value -> do
                 Mutable.write prevState state startState
                 BoxedMutable.write prevStep state (Just value)
-            queuePush queue (addCostDefault maxBound cost (priorityH (stateTile state) False)) state cost
+            queuePush queue (addCostDefault maxBound cost (weightedHeuristic h)) state cost
             pure counters
               { tilePqPushes = tilePqPushes counters + 1
               , tileUniqueStatesReached = tileUniqueStatesReached counters + if known == maxBound then 1 else 0
@@ -430,26 +437,31 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
         known <- Mutable.read best next
         if newCost >= known
           then pure (countKind kind counters)
-          else do
-            Mutable.write best next newCost
-            Mutable.write prevState next state
-            BoxedMutable.write prevStep next (Just step)
-            let priority = addCostDefault maxBound newCost (priorityH (stateTile next) (stateBanked next))
-                counted = countKind kind counters
-                counters' = counted
-                  { tilePqPushes = tilePqPushes counted + 1
-                  , tileUniqueStatesReached = tileUniqueStatesReached counted + if known == maxBound then 1 else 0
-                  , tileHeuristicEvaluations = tileHeuristicEvaluations counted + 1
-                  }
-            queuePush queue priority next newCost
-            pure counters'
+          else case heuristicAt components heuristic (State (stateTile next) (stateBanked next)) of
+            Nothing -> pure (countKind kind (countHeuristicPrune (stateTile next) counters))
+            Just h -> do
+              Mutable.write best next newCost
+              Mutable.write prevState next state
+              BoxedMutable.write prevStep next (Just step)
+              let counted = countKind kind counters
+                  counters' = counted
+                    { tilePqPushes = tilePqPushes counted + 1
+                    , tileUniqueStatesReached = tileUniqueStatesReached counted + if known == maxBound then 1 else 0
+                    , tileHeuristicEvaluations = tileHeuristicEvaluations counted + 1
+                    }
+              queuePush queue (addCostDefault maxBound newCost (weightedHeuristic h)) next newCost
+              pure counters'
 
   countKind WalkingEdge counters = counters {tileWalkingRelaxations = tileWalkingRelaxations counters + 1}
   countKind TransportEdge counters = counters {tileTransportRelaxations = tileTransportRelaxations counters + 1}
 
-  evalH tile banked = heuristicAt components heuristic (State tile banked)
-  priorityH tile banked = weightedHeuristic (evalH tile banked)
   weightedHeuristic value = min maxBound (round (heuristicWeight q * fromIntegral value))
+  countHeuristicPrune tile counters =
+    counters
+      { tileHeuristicUnreachable = tileHeuristicUnreachable counters + 1
+      , tileUnknownComponentPrunes = tileUnknownComponentPrunes counters + if componentOf components tile == Nothing then 1 else 0
+      , tileNoReverseSeedPrunes = tileNoReverseSeedPrunes counters + if componentOf components tile == Nothing then 0 else 1
+      }
 
   neighbors state =
     walk <> bank <> localTransports <> bankGlobalTransports
@@ -516,7 +528,7 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
 data EdgeKind = WalkingEdge | TransportEdge
 
 emptyCounters :: TileAStarCounters
-emptyCounters = TileAStarCounters 0 0 0 0 0 0 0
+emptyCounters = TileAStarCounters 0 0 0 0 0 0 0 0 0 0
 
 emptyReverseCounters :: TileReverseCounters
 emptyReverseCounters = TileReverseCounters 0 0 0 0 0 0 0 0 0
@@ -680,7 +692,7 @@ reversePathDebug astar@(TileAStar _ components _) q =
         let sourceState = stateId node banked
             distance = distances Vector.! sourceState
             route = forwardPath sourceState
-         in ReversePathState banked (Just (queryStart q)) distance (heuristicAt components heuristic (State (queryStart q) banked)) (distance == maxBound) route
+         in ReversePathState banked (Just (queryStart q)) distance (maybe 0 id (heuristicAt components heuristic (State (queryStart q) banked))) (distance == maxBound) route
   forwardPath source = runST $ do
     best <- Mutable.replicate stateCount maxBound
     prevState <- Mutable.replicate stateCount maxBound
@@ -1225,15 +1237,13 @@ decodeImageTileKey encoded = (encoded `shiftR` 58, (encoded `shiftR` 29) .&. til
 tileCoordMask :: Int
 tileCoordMask = (1 `shiftL` 29) - 1
 
-heuristicAt :: NaturalComponents -> Heuristic -> State -> Int
+heuristicAt :: NaturalComponents -> Heuristic -> State -> Maybe Int
 heuristicAt components heuristic (State tile banked) =
   case componentOf components tile of
-    Nothing -> 0
+    Nothing -> Nothing
     Just cid ->
       let seeds = heuristicSeeds heuristic Boxed.! seedKey cid banked
-       in if Vector.null seeds
-            then 0
-            else finite (Vector.minimum (Vector.map seedDistance seeds))
+       in if Vector.null seeds then Nothing else Just (Vector.minimum (Vector.map seedDistance seeds))
  where
   seedDistance (packed, cost) = addCostDefault maxBound cost (chebyshevPacked (unTile tile) packed)
 
@@ -1748,11 +1758,6 @@ offset box tile =
 stateId :: Int -> Bool -> Int
 stateId node banked = node * 2 + if banked then 1 else 0
 
-finite :: Int -> Int
-finite value
-  | value == maxBound = 0
-  | otherwise = value
-
 addCost :: Int -> Int -> Maybe Int
 addCost a b
   | a == maxBound || b == maxBound || b < 0 || a > maxBound - b = Nothing
@@ -1815,6 +1820,9 @@ forceSearch (route, counters, explored) =
         + tileWalkingRelaxations counters
         + tileTransportRelaxations counters
         + tileHeuristicEvaluations counters
+        + tileHeuristicUnreachable counters
+        + tileUnknownComponentPrunes counters
+        + tileNoReverseSeedPrunes counters
     )
 
 forcePointList :: [(Int, Int)] -> IO Int

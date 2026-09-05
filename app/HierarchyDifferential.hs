@@ -658,6 +658,9 @@ tileCountersJson counters = object
   , "walkingRelaxations" .= tileWalkingRelaxations counters
   , "transportRelaxations" .= tileTransportRelaxations counters
   , "heuristicEvaluations" .= tileHeuristicEvaluations counters
+  , "heuristicUnreachable" .= tileHeuristicUnreachable counters
+  , "unknownComponentPrunes" .= tileUnknownComponentPrunes counters
+  , "noReverseSeedPrunes" .= tileNoReverseSeedPrunes counters
   ]
 
 tileReverseCountersJson :: TileReverseCounters -> Value
