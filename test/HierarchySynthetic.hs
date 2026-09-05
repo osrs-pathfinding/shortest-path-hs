@@ -58,8 +58,10 @@ main = do
   assert (null noHeuristicTiles)
   let globalQuery = query (tA3 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
       rawGlobalRoute = findRoute raw globalQuery
+      tileGlobalRoute = findRoute tileAStar globalQuery
   (globalRoute, globalTimings) <- findRouteProfiled hierarchical globalQuery
   assert (routeSteps rawGlobalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
+  assert (routeSteps tileGlobalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
   assert (routeCost globalRoute == 4)
   assert (routeSteps globalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
   assert (searchGlobalEntryEdges (querySearchCounters globalTimings) == 1)
@@ -119,7 +121,10 @@ synthetic =
     , roleGlobalDestinations = Set.singleton d1
     }
   transports = Map.fromListWith (<>)
-    [ (a0, [local "SYNTHETIC_DIRECT" a0 a1 10, local "SYNTHETIC_LONG" a0 d1 20])
+    [ (a0, [ local "SYNTHETIC_DIRECT" a0 a1 10
+           , local "SYNTHETIC_LONG" a0 d1 20
+           , localReq "SYNTHETIC_BANK_LOCAL_AT_BANK" a0 d1 5 (ItemOne (ItemTerm "999" 1))
+           ])
     , (b1, [local "SYNTHETIC_BOAT" b1 c0 2])
     , (c1, [local "SYNTHETIC_RETURN" c1 a25 1])
     , (e0, [local "SYNTHETIC_RING" e0 c0 2, localReq "SYNTHETIC_BANK_LOCAL" e0 d1 5 (ItemOne (ItemTerm "999" 1))])
@@ -223,18 +228,28 @@ checkRoute raw tileAStar hierarchical world (Case name q expectation) = do
 
 checkReversePathDebug :: TileAStar -> Tiles -> IO ()
 checkReversePathDebug tileAStar tiles = do
+  let initialQuery = query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
+      initialDebug = reversePathDebug tileAStar initialQuery
+  assertMsg ("initial global leaked: " <> show initialDebug) (all ((/= "SYNTHETIC_GLOBAL") . reverseEdgeLabel) (concatMap reverseStatePath (reverseDebugStates initialDebug)))
+  let decline = reversePathDebug tileAStar ((query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_LOCAL_AT_BANK") True) {inventoryItems = Map.empty})
+      (declineUnbanked, declineBanked) = twoStates decline
+  assertMsg ("decline unbanked: " <> show declineUnbanked) (map reverseEdgeType (reverseStatePath declineUnbanked) == ["bank", "transport"])
+  assertMsg ("decline transitions: " <> show (reverseStatePath declineUnbanked)) (map transition (reverseStatePath declineUnbanked) == [(False, True), (True, True)])
+  assertMsg ("decline banked: " <> show declineBanked) (map reverseEdgeType (reverseStatePath declineBanked) == ["transport"])
+  assert (map transition (reverseStatePath declineBanked) == [(True, True)])
   let mixed = reversePathDebug tileAStar ((query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_GLOBAL") True) {inventoryItems = Map.empty})
       (mixedUnbanked, mixedBanked) = twoStates mixed
   assertMsg ("mixed unbanked value: " <> show mixedUnbanked) (reverseStateDistance mixedUnbanked == reverseStateHeuristic mixedUnbanked)
-  assertMsg ("mixed banked value: " <> show mixedBanked) (reverseStateDistance mixedBanked == reverseStateHeuristic mixedBanked)
-  assertMsg ("mixed unbanked path: " <> show (map reverseEdgeType (reverseStatePath mixedUnbanked))) (map reverseEdgeType (reverseStatePath mixedUnbanked) == ["bank", "transport"])
-  assertMsg ("mixed banked path: " <> show (map reverseEdgeType (reverseStatePath mixedBanked))) (map reverseEdgeType (reverseStatePath mixedBanked) == ["transport"])
+  assertMsg ("mixed banked: " <> show mixedBanked) (reverseStateUnreachable mixedBanked)
+  assertMsg ("mixed unbanked path: " <> show (reverseStatePath mixedUnbanked)) (map reverseEdgeType (reverseStatePath mixedUnbanked) == ["transport"])
+  assertMsg ("mixed transitions: " <> show (reverseStatePath mixedUnbanked)) (map transition (reverseStatePath mixedUnbanked) == [(False, True)])
   let oneMissing = reversePathDebug tileAStar ((query (tE0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_LOCAL") False) {inventoryItems = Map.empty})
       (missingUnbanked, missingBanked) = twoStates oneMissing
   assertMsg ("missing unbanked: " <> show missingUnbanked) (reverseStateUnreachable missingUnbanked)
   assertMsg ("missing banked: " <> show missingBanked) (not (reverseStateUnreachable missingBanked))
   assert (map reverseEdgeType (reverseStatePath missingBanked) == ["transport"])
  where
+  transition edge = (reverseEdgeFromBanked edge, reverseEdgeToBanked edge)
   twoStates debug =
     case reverseDebugStates debug of
       [unbanked, banked] -> (unbanked, banked)

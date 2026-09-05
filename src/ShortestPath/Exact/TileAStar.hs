@@ -345,9 +345,25 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
   exploredRef <- newSTRef []
   -- ponytail: fixed initial heap cap; switch to a growable heap when benchmark routes exceed it.
   queue <- queueNew (min stateCount 262144)
-  Mutable.write best startState 0
-  queuePush queue (priorityH (queryStart q) False) startState 0
-  go exploredRef best prevState prevStep queue emptyCounters {tilePqPushes = 1, tileUniqueStatesReached = 1, tileHeuristicEvaluations = 1}
+  let seedInitial counters (state, cost, step) = do
+        known <- Mutable.read best state
+        if cost >= known
+          then pure counters
+          else do
+            Mutable.write best state cost
+            case step of
+              Nothing -> pure ()
+              Just value -> do
+                Mutable.write prevState state startState
+                BoxedMutable.write prevStep state (Just value)
+            queuePush queue (addCostDefault maxBound cost (priorityH (stateTile state) False)) state cost
+            pure counters
+              { tilePqPushes = tilePqPushes counters + 1
+              , tileUniqueStatesReached = tileUniqueStatesReached counters + if known == maxBound then 1 else 0
+              , tileHeuristicEvaluations = tileHeuristicEvaluations counters + 1
+              }
+  counters <- foldM seedInitial emptyCounters initialStates
+  go exploredRef best prevState prevStep queue counters
  where
   space = searchSpace astar q
   stateCount = searchSize space * 2
@@ -355,6 +371,14 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
   startState = stateId startNode False
   target = queryTarget q
   reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
+  initialStates = (startState, 0, Nothing) :
+    [ (next, transportCost t, Just (UseTransport (label t) dst))
+    | allowTransports q
+    , t <- worldGlobalTeleports world
+    , transportAvailable q False t
+    , Just dst <- [destination t]
+    , Just next <- [stateFor dst False]
+    ]
 
   go ::
     STRef s [(Tile, Bool)] ->
@@ -428,7 +452,7 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
   weightedHeuristic value = min maxBound (round (heuristicWeight q * fromIntegral value))
 
   neighbors state =
-    walk <> bank <> localTransports <> initialGlobalTransports <> bankGlobalTransports
+    walk <> bank <> localTransports <> bankGlobalTransports
    where
     tile = stateTile state
     banked = stateBanked state
@@ -449,13 +473,6 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
       if allowTransports q
         then transportEdges banked (filter ((/= "VIRTUAL_WALL") . transportType) (Map.findWithDefault [] tile (worldTransports world)))
         else []
-    initialGlobalTransports =
-      [ edge
-      | allowTransports q
-      , not banked
-      , tile == queryStart q
-      , edge <- transportEdges False (worldGlobalTeleports world)
-      ]
     bankGlobalTransports =
       [ (next, stepCost, step, TransportEdge)
       | allowTransports q
@@ -711,7 +728,7 @@ reversePathDebug astar@(TileAStar _ components _) q =
           previous <- Mutable.read prevState current
           (public :) <$> collect previous
 
-  debugNeighbors state = walkingEdges <> transportEdges <> bankEdges <> initialGlobalEdges <> bankGlobalEdges
+  debugNeighbors state = walkingEdges <> transportEdges <> bankEdges <> bankGlobalEdges
    where
     node = state `div` 2
     banked = odd state
@@ -741,21 +758,11 @@ reversePathDebug astar@(TileAStar _ components _) q =
       , not banked
       , Set.member tile reachableBanks
       ]
-    initialGlobalEdges =
-      [ DebugEdge (stateId to False) tile dst False False "transport" (label t) (transportCost t)
-      | allowTransports q
-      , not banked
-      , tile == queryStart q
-      , t <- worldGlobalTeleports world
-      , transportAvailable q False t
-      , Just dst <- [destination t]
-      , Just to <- [IntMap.lookup (unTile dst) (siteTileIndex graph)]
-      ]
     bankGlobalEdges =
-      [ DebugEdge (stateId to True) tile dst True True "transport" (label t) (transportCost t)
+      [ DebugEdge (stateId to True) tile dst False True "transport" (label t) (transportCost t)
       | allowTransports q
       , bankPathEnabled q
-      , banked
+      , not banked
       , Set.member tile reachableBanks
       , t <- worldGlobalTeleports world
       , transportAvailable q True t
@@ -1266,7 +1273,7 @@ siteGraph (TileAStar world components static) q =
   comps = staticComponents static <> extraComps
   componentSites = siteComponentGroups (maxComponentId components) comps
   nodeCount = Vector.length tiles
-  edges = localEdges <> bankEdges <> initialGlobalEdges <> bankGlobalEdges
+  edges = localEdges <> bankEdges <> bankGlobalEdges
   reverseEdges = reverseAdjacency (nodeCount * 2) edges
   reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
 
@@ -1288,16 +1295,6 @@ siteGraph (TileAStar world components static) q =
     | bankPathEnabled q
     , tile <- Set.toList reachableBanks
     , Just node <- [nodeFor tile]
-    ]
-
-  initialGlobalEdges =
-    [ (stateId from False, stateId to False, transportCost t)
-    | allowTransports q
-    , t <- worldGlobalTeleports world
-    , transportAvailable q False t
-    , Just from <- [nodeFor (queryStart q)]
-    , Just destinationTile <- [destination t]
-    , Just to <- [nodeFor destinationTile]
     ]
 
   bankGlobalEdges =
