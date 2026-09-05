@@ -98,7 +98,7 @@ synthetic =
   allEdges =
     [(packTile x 100 0, 1) | x <- [100 .. 124]]
       <> [(s0, 0), (s0, 1), (s1, 1), (s2, 1), (b0, 1)]
-      <> [(c0, 1), (c0, 0), (e0, 1), (e0, 0), (d0, 0), (d1, 0)]
+      <> [(c0, 1), (c0, 0), (d0, 0), (d1, 0)]
   collisionBytes = BL.pack [byteAt i | i <- [0 .. 8191]]
   byteAt i = foldr setBitIf 0 [bitIndex | (bit, bitIndex) <- flags, bit `div` 8 == i]
   setBitIf bitIndex byte = setBit byte (bitIndex `mod` 8)
@@ -110,9 +110,9 @@ synthetic =
     [PartitionAssignment 1 tile "a" "leaf" 1 | tile <- a]
       <> [PartitionAssignment 1 s "separator" "separator" 0 | s <- [s0, s1, s2]]
       <> [PartitionAssignment 1 tile "b" "leaf" 1 | tile <- [b0, b1]]
-      <> [PartitionAssignment 1 tile "c" "leaf" 1 | tile <- [c0, c1, e0]]
+      <> [PartitionAssignment 1 tile "c" "leaf" 1 | tile <- [c0, c1]]
       <> [PartitionAssignment 1 tile "d" "leaf" 1 | tile <- [d0, d1, d2, d3]]
-  ownerTiles = a <> [s0, s1, s2, b0, b1, c0, c1, e0, d0, d1, d2, d3]
+  ownerTiles = a <> [s0, s1, s2, b0, b1, c0, c1, d0, d1, d2, d3]
   owner = IntMap.fromList [(unTile tile, 1) | tile <- ownerTiles]
   partition = either (error . ("synthetic partition: " <>)) id
     (partitionFromAssignments owner (IntSet.singleton 1) assignments)

@@ -834,7 +834,7 @@ regionTableVersion :: Word64
 regionTableVersion = 2
 
 tileComponentCacheVersion :: Word64
-tileComponentCacheVersion = 4
+tileComponentCacheVersion = 5
 
 cachePath, partitionPath, regionTablePath, tileComponentCachePath, heuristicTileRoot, componentTileRoot :: FilePath
 cachePath = "out/hierarchy-cache.bin"

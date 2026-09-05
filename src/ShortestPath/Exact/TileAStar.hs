@@ -354,7 +354,7 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
           then pure counters
           else enqueue counters state cost step known
       enqueue counters state cost step known =
-        case heuristicAt components heuristic (State (stateTile state) (stateBanked state)) of
+        case heuristicAt world components heuristic (State (stateTile state) (stateBanked state)) of
           Nothing -> pure (countHeuristicPrune (stateTile state) counters)
           Just h -> do
             Mutable.write best state cost
@@ -437,7 +437,7 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
         known <- Mutable.read best next
         if newCost >= known
           then pure (countKind kind counters)
-          else case heuristicAt components heuristic (State (stateTile next) (stateBanked next)) of
+          else case heuristicAt world components heuristic (State (stateTile next) (stateBanked next)) of
             Nothing -> pure (countKind kind (countHeuristicPrune (stateTile next) counters))
             Just h -> do
               Mutable.write best next newCost
@@ -459,8 +459,8 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
   countHeuristicPrune tile counters =
     counters
       { tileHeuristicUnreachable = tileHeuristicUnreachable counters + 1
-      , tileUnknownComponentPrunes = tileUnknownComponentPrunes counters + if componentOf components tile == Nothing then 1 else 0
-      , tileNoReverseSeedPrunes = tileNoReverseSeedPrunes counters + if componentOf components tile == Nothing then 0 else 1
+      , tileUnknownComponentPrunes = tileUnknownComponentPrunes counters + if heuristicComponent world components tile == Nothing then 1 else 0
+      , tileNoReverseSeedPrunes = tileNoReverseSeedPrunes counters + if heuristicComponent world components tile == Nothing then 0 else 1
       }
 
   neighbors state =
@@ -678,7 +678,7 @@ buildHeuristic astar@(TileAStar _ components _) q =
     pure (Heuristic table reverseMs seedMs counters)
 
 reversePathDebug :: TileAStar -> Query -> ReversePathDebug
-reversePathDebug astar@(TileAStar _ components _) q =
+reversePathDebug astar@(TileAStar world components _) q =
   ReversePathDebug (queryStart q) (queryTarget q) (map stateDebug [False, True])
  where
   graph = siteGraph astar q
@@ -692,7 +692,7 @@ reversePathDebug astar@(TileAStar _ components _) q =
         let sourceState = stateId node banked
             distance = distances Vector.! sourceState
             route = forwardPath sourceState
-         in ReversePathState banked (Just (queryStart q)) distance (maybe 0 id (heuristicAt components heuristic (State (queryStart q) banked))) (distance == maxBound) route
+         in ReversePathState banked (Just (queryStart q)) distance (maybe 0 id (heuristicAt world components heuristic (State (queryStart q) banked))) (distance == maxBound) route
   forwardPath source = runST $ do
     best <- Mutable.replicate stateCount maxBound
     prevState <- Mutable.replicate stateCount maxBound
@@ -784,7 +784,6 @@ reversePathDebug astar@(TileAStar _ components _) q =
   transportCost t = duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q)
   label t = if null (displayInfo t) then transportType t else displayInfo t
   reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
-  TileAStar world _ _ = astar
 
 data DebugEdge = DebugEdge
   { debugEdgeToState :: !Int
@@ -925,7 +924,7 @@ buildTileStatic world components =
     , Just tile <- [origin t] <> [destination t]
     ]
   tiles = Vector.fromList (map unTile sites)
-  comps = Vector.map (\packed -> maybe (-1) id (componentOf components (Tile packed))) tiles
+  comps = Vector.map (\packed -> maybe (-1) id (heuristicComponent world components (Tile packed))) tiles
   network = buildSparseWalkingNetworkComponents (Vector.length tiles) [(comps Vector.! ix, ix, Tile packed) | (ix, packed) <- Vector.toList (Vector.indexed tiles), comps Vector.! ix >= 0]
 
 data ManhattanPoint = ManhattanPoint
@@ -1237,9 +1236,9 @@ decodeImageTileKey encoded = (encoded `shiftR` 58, (encoded `shiftR` 29) .&. til
 tileCoordMask :: Int
 tileCoordMask = (1 `shiftL` 29) - 1
 
-heuristicAt :: NaturalComponents -> Heuristic -> State -> Maybe Int
-heuristicAt components heuristic (State tile banked) =
-  case componentOf components tile of
+heuristicAt :: World -> NaturalComponents -> Heuristic -> State -> Maybe Int
+heuristicAt world components heuristic (State tile banked) =
+  case heuristicComponent world components tile of
     Nothing -> Nothing
     Just cid ->
       let seeds = heuristicSeeds heuristic Boxed.! seedKey cid banked
@@ -1279,7 +1278,7 @@ siteGraph (TileAStar world components static) q =
     ]
   tiles = staticTiles static <> Vector.fromList queryExtras
   tileIndex = IntMap.fromList [(packed, ix) | (ix, packed) <- Vector.toList (Vector.indexed tiles)]
-  extraComps = Vector.fromList [maybe (-1) id (componentOf components (Tile packed)) | packed <- queryExtras]
+  extraComps = Vector.fromList [maybe (-1) id (heuristicComponent world components (Tile packed)) | packed <- queryExtras]
   comps = staticComponents static <> extraComps
   componentSites = siteComponentGroups (maxComponentId components) comps
   nodeCount = Vector.length tiles
@@ -1746,6 +1745,19 @@ reachableComponents world owner =
 
 componentOf :: NaturalComponents -> Tile -> Maybe Int
 componentOf components tile = (componentOwnerIds components Vector.!?) =<< binarySearch (unTile tile) (componentOwnerTiles components)
+
+-- A blocked transport origin is reachable from an adjacent natural tile.
+heuristicComponent :: World -> NaturalComponents -> Tile -> Maybe Int
+heuristicComponent world components tile =
+  case componentOf components tile of
+    Just cid -> Just cid
+    Nothing -> firstComponent (walkingNeighborsRaw world tile)
+ where
+  firstComponent [] = Nothing
+  firstComponent (next:rest) =
+    case componentOf components next of
+      Just cid -> Just cid
+      Nothing -> firstComponent rest
 
 offset :: Box -> Tile -> Maybe Int
 offset box tile =
