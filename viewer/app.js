@@ -6,6 +6,7 @@ const componentSelect = document.getElementById("component-select");
 const planeSelect = document.getElementById("plane-select");
 const opacityInput = document.getElementById("opacity");
 const showDoorsInput = document.getElementById("show-doors");
+const showBenchmarkCoverageInput = document.getElementById("show-benchmark-coverage");
 const fitButton = document.getElementById("fit");
 const status = document.getElementById("status");
 const legend = document.getElementById("legend");
@@ -34,10 +35,12 @@ let heuristicLayerControl;
 let cutLayer;
 let separatorLayer;
 let doorLayer;
+let benchmarkCoverageLayer;
 let heuristicBounds;
 let route = null;
 let reversePath = null;
 let fixtureRoutes = [];
+let benchmarkRoutes = [];
 let routeMarkers = [];
 let heuristicRender = null;
 let heuristicRequestKey = "";
@@ -245,7 +248,11 @@ fetchJson("../out/leak-route.json", json => { route = normaliseRoute(json, "leak
 fetchJson("../out/length-mismatch-routes.json", json => addFixtureRoutes("Mismatch", json), () => {});
 fetchJson("../out/hierarchy-test-routes.json", json => addFixtureRoutes("Fixture", json), () => {});
 fetchJson("../benchmarks/routes.json", json => addFixtureRoutes("Seed", json), message => { routeStatus.textContent = message; });
-fetchJson("../benchmarks/corpus/routes-v1.json", json => addFixtureRoutes("Benchmark", json), () => {});
+fetchJson("../benchmarks/corpus/routes-v1.json", json => {
+  benchmarkRoutes = Array.isArray(json) ? json : (json.routes || []);
+  addFixtureRoutes("Benchmark", benchmarkRoutes);
+  render();
+}, () => {});
 fetch("../out/route-benchmark.jsonl").then(response => {
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
@@ -285,6 +292,7 @@ fetch("/door_transports.tsv").then(response => {
 componentSelect.addEventListener("change", render);
 modeSelect.addEventListener("change", render);
 showDoorsInput.addEventListener("change", render);
+showBenchmarkCoverageInput.addEventListener("change", render);
 planeSelect.addEventListener("change", () => {
   currentPlane = Number(planeSelect.value);
   map.eachLayer(layer => layer.redraw?.());
@@ -333,7 +341,7 @@ function componentColor(id) {
 
 function removeLayers() {
   removingLayers = true;
-  [shapeLayer, bboxLayer, routeLayer, comparisonRouteLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, ...expandedStateLayers, ...heuristicImageLayers, ...routeMarkers].forEach(layer => {
+  [shapeLayer, bboxLayer, routeLayer, comparisonRouteLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, benchmarkCoverageLayer, ...expandedStateLayers, ...heuristicImageLayers, ...routeMarkers].forEach(layer => {
     if (layer) map.removeLayer(layer);
   });
   if (heuristicLayerControl) {
@@ -357,6 +365,7 @@ function render() {
     const fillOpacity = Number(opacityInput.value);
     const heuristicSummary = mode === "heuristic" ? drawHeuristic(fillOpacity) : null;
     const componentSummary = mode === "component-bitmap" ? drawComponentBitmap(fillOpacity) : null;
+    drawBenchmarkCoverage();
     drawExpandedTiles();
     drawRoute();
     drawReversePath();
@@ -400,6 +409,7 @@ function render() {
     drawSeparators(selectedTiles(kahipPartitions.filter(point => point.kind === "separator"), component));
   }
   drawDoors();
+  drawBenchmarkCoverage();
   drawExpandedTiles();
   drawRoute();
   drawReversePath();
@@ -650,6 +660,20 @@ function drawLegacyHeuristic(fillOpacity) {
     heuristicBounds = [[Math.min(...south), Math.min(...west)], [Math.max(...north), Math.max(...east)]];
   }
   return { bins: bins.size, regions: regions.size, samples: samples.length, minimum, maximum };
+}
+
+function drawBenchmarkCoverage() {
+  if (!showBenchmarkCoverageInput.checked) return;
+  const colors = { start: "#16a34a", target: "#c026d3" };
+  benchmarkCoverageLayer = L.layerGroup(benchmarkRoutes.flatMap(item => ["start", "target"].map(kind => {
+    const point = coordinate(item[kind]);
+    if (point.plane !== currentPlane) return null;
+    const place = item[`${kind}Name`] || pointKey(point);
+    return L.circleMarker([point.y + 0.5, point.x + 0.5], {
+      renderer, color: "#fff", fillColor: colors[kind], fillOpacity: 0.75,
+      radius: 3, weight: 1
+    }).bindTooltip(`${kind === "start" ? "Start" : "End"}: ${place}<br>${item.id}: ${item.name}`);
+  })).filter(Boolean)).addTo(map);
 }
 
 function drawExpandedTiles() {
@@ -916,6 +940,7 @@ function renderLegend(mode, heuristicSummary) {
   if (route?.expandedStates?.length) items.push(["#fde047", "A* explored", ""], ["#06b6d4", "A* explored (banked)", ""]);
   if (route?.comparisonRoutes?.length) items.push(["#dc2626", "Raw Dijkstra", "legend-line"], ["#2563eb", "Tile A*", "legend-line"]);
   if (showDoorsInput.checked) items.push(["#10b981", "Door transports", ""]);
+  if (showBenchmarkCoverageInput.checked) items.push(["#16a34a", "Benchmark starts", ""], ["#c026d3", "Benchmark ends", ""]);
   const legendItems = items.map(([color, label, className]) => {
     const item = document.createElement("div"); item.className = "legend-item";
     const swatch = document.createElement("span"); swatch.className = `legend-swatch ${className}`;
@@ -976,6 +1001,7 @@ function renderStats(component, visibleBins, mode, heuristicSummary, componentSu
   }
   if (mode === "difference") rows.push(["METIS cut edges", selectedCuts.length.toLocaleString()], ["KaHIP separators", selectedSeparators.length.toLocaleString()]);
   if (showDoorsInput.checked) rows.push(["visible doors", visibleDoorCount().toLocaleString()]);
+  if (showBenchmarkCoverageInput.checked) rows.push(["benchmark endpoints", benchmarkRoutes.reduce((count, item) => count + [item.start, item.target].filter(value => coordinate(value).plane === currentPlane).length, 0).toLocaleString()]);
   stats.replaceChildren(...rows.flatMap(([name, value]) => {
     const dt = document.createElement("dt"); const dd = document.createElement("dd");
     dt.textContent = name; dd.textContent = value; return [dt, dd];
