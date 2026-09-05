@@ -6,40 +6,40 @@
 measure viewer or HTTP overhead), applies all four account profiles, and writes
 one JSON object per route/profile/repetition to a JSONL file.
 
-### Before the v1 corpus exists
+The checked-in v1 corpus contains 750 fixed routes: 20 smoke routes, 140
+standard routes, and 750 full routes. It includes GPS, quest, clue, walking,
+transport, Wilderness, geographic, and regression cases. The 40 entries in
+`benchmarks/corpus/sentinels-v1.json` are the individually tracked cases.
+Unreachable or otherwise failing routes are retained deliberately as useful
+transport/model regression fixtures.
 
-The checked-in v1 corpus is deliberately empty until route selection is done.
-Use one existing route only to confirm the machine can run benchmarks. These
-commands write temporary files, not benchmark data to commit:
+### Validate and smoke-test the v1 corpus
+
+Validate the route schema first:
 
 ```sh
-nix-shell --run 'cabal run route-bench -- --seed --limit 1 --oracle /tmp/route-bench-oracle.json --write-oracle'
-nix-shell --run 'cabal run route-bench -- --seed --limit 1 --oracle /tmp/route-bench-oracle.json --output /tmp/route-benchmark.jsonl --runs 3'
+node benchmarks/validate-corpus.js
 ```
 
-### Run a selected corpus
+Generate a smoke-tier exact oracle and run the smoke benchmark. Temporary paths
+keep generated benchmark data out of the corpus commit:
 
-1. Populate `benchmarks/corpus/routes-v1.json`. Each route needs the fields in
-   `benchmarks/corpus/README.md`, including raw/resolved endpoints, provenance,
-   a stable ID, and a `tiers` list containing `full`.
-2. Validate it:
+```sh
+nix-shell --run 'cabal run route-bench -- --tier smoke --oracle /tmp/route-bench-smoke-oracle.json --write-oracle'
+nix-shell --run 'cabal run route-bench -- --tier smoke --oracle /tmp/route-bench-smoke-oracle.json --output /tmp/route-benchmark-smoke.jsonl --runs 3'
+```
 
-   ```sh
-   node benchmarks/validate-corpus.js
-   ```
-3. Generate the exact oracle once whenever collision, transport, requirement,
-   or cost semantics change. It uses raw Dijkstra, so a full corpus can be slow:
+### Run standard or full
 
-   ```sh
-   nix-shell --run 'cabal run route-bench -- --write-oracle'
-   ```
-4. Start with smoke, then standard. Use full for serious comparisons:
+For a serious comparison, generate the exact oracle after any collision,
+transport, requirement, or cost-semantics change. It uses raw Dijkstra and the
+full corpus can be slow:
 
-   ```sh
-   nix-shell --run 'cabal run route-bench -- --tier smoke --runs 5'
-   nix-shell --run 'cabal run route-bench -- --tier standard --runs 5'
-   nix-shell --run 'cabal run route-bench -- --tier full --runs 3'
-   ```
+```sh
+nix-shell --run 'cabal run route-bench -- --write-oracle'
+nix-shell --run 'cabal run route-bench -- --tier standard --runs 5'
+nix-shell --run 'cabal run route-bench -- --tier full --runs 3'
+```
 
 Normal runs validate every result against the oracle and write
 `out/route-benchmark.jsonl`. `--diagnostic` additionally runs raw Dijkstra for
