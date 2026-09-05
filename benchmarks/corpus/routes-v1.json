@@ -29,6 +29,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations-curated.tsv:33",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -62,6 +63,8 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations-curated.tsv:50",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -227,6 +230,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:339",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -458,6 +462,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:724",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -689,6 +694,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:843",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -887,6 +893,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2290",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -1118,6 +1125,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2574",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -1349,6 +1357,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2693",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -1547,6 +1556,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2795",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -1778,6 +1788,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2914",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -2009,6 +2020,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3033",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -2207,6 +2219,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3135",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -2240,6 +2253,8 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3152",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -2438,6 +2453,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3254",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -2669,6 +2685,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3373",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -2867,6 +2884,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:299",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -3098,6 +3116,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:418",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -3329,6 +3348,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:803",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -3527,6 +3547,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2250",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -3758,6 +3779,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2534",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -3989,6 +4011,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2653",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -4187,6 +4210,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2755",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -4418,6 +4442,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2874",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -4451,6 +4476,8 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2891",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -4649,6 +4676,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2993",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -4847,6 +4875,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3095",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -5078,6 +5107,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3214",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -5309,6 +5339,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3333",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -5507,6 +5538,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -5738,6 +5770,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:378",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -5969,6 +6002,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:763",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -6167,6 +6201,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:865",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -6398,6 +6433,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2494",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -6629,6 +6665,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/AnagramClue.java:175",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -6662,6 +6699,8 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/AnagramClue.java:345",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -6794,6 +6833,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CipherClue.java:68",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -6959,6 +6999,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CoordinateClue.java:484",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -7124,6 +7165,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:105",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -7289,6 +7331,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:796",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -7454,6 +7497,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:1500",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -7487,6 +7531,8 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:1644",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -7619,6 +7665,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/MapClue.java:88",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -7784,6 +7831,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/emote/STASHUnit.java:142",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -7949,6 +7997,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/hotcold/HotColdLocation.java:167",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -8114,6 +8163,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/AnagramClue.java:729",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -8279,6 +8329,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/atasteofhope/ATasteOfHope.java:418",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -8312,6 +8363,8 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/betweenarock/BetweenARock.java:269",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -8477,6 +8530,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/dreammentor/DreamMentor.java:258",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -8675,6 +8729,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/icthlarinslittlehelper/IcthlarinsLittleHelper.java:328",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -8873,6 +8928,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/priestinperil/PriestInPeril.java:138",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -9104,6 +9160,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/thedepthsofdespair/TheDepthsOfDespair.java:148",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -9302,6 +9359,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/clocktower/ClockTower.java:257",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -9500,6 +9558,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/bonevoyage/BoneVoyage.java:235",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -9698,6 +9757,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/observatoryquest/ObservatoryQuest.java:170",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -9929,6 +9989,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/merlinscrystal/MerlinsCrystal.java:240",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -9962,6 +10023,8 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/thefremennikisles/TheFremennikIsles.java:433",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -10127,6 +10190,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/seaslug/SeaSlug.java:188",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -10325,6 +10389,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/miniquests/thegeneralsshadow/TheGeneralsShadow.java:201",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -10523,6 +10588,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/whileguthixsleeps/WhileGuthixSleeps.java:1221",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -10754,6 +10820,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/regicide/Regicide.java:536",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -10952,6 +11019,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/grimtales/GrimTales.java:317",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -11150,6 +11218,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/zogreflesheaters/ZogreFleshEaters.java:286",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -11348,6 +11417,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/miniquests/skippyandthemogres/SkippyAndTheMogres.java:97",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -11579,6 +11649,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/theslugmenace/TheSlugMenace.java:320",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -11612,6 +11683,8 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/tribaltotem/TribalTotem.java:146",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -11777,6 +11850,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/bearyoursoul/BearYourSoul.java:91",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -11975,6 +12049,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/dwarfcannon/DwarfCannon.java:219",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -12173,6 +12248,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/inaidofthemyreque/InAidOfTheMyreque.java:445",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -12404,6 +12480,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/romeoandjuliet/RomeoAndJuliet.java:103",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -12602,6 +12679,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/monkeymadnessi/MonkeyMadnessI.java:653",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -12800,6 +12878,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/undergroundpass/UndergroundPass.java:249",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -12998,6 +13077,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/therestlessghost/TheRestlessGhost.java:130",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -13229,6 +13309,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations-curated.tsv:3",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -13262,6 +13343,8 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2001",
     "allowTransports": false,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -13427,6 +13510,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:1642",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -13625,6 +13709,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:402",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -13823,6 +13908,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3027",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -14054,6 +14140,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:1900",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -14252,6 +14339,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3287",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -14351,6 +14439,8 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/hotcold/HotColdLocation.java:122",
     "allowTransports": false,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -14450,6 +14540,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2106",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -14648,6 +14739,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3140",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -14879,6 +14971,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:1751",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -15077,6 +15170,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3246",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -15275,6 +15369,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:1949",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -15440,6 +15535,8 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/emote/STASHUnit.java:126",
     "allowTransports": false,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -15473,6 +15570,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/hotcold/HotColdLocation.java:65",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -15704,6 +15802,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:972",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -15902,6 +16001,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2554",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -16100,6 +16200,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2161",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -16298,6 +16399,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:1726",
     "allowTransports": false,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -16529,6 +16631,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/fairy_rings.tsv:3",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -16562,6 +16665,8 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/spirit_trees.tsv:17",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -16727,6 +16832,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/agility_shortcuts.tsv:196",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -16925,6 +17031,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/wilderness_obelisks.tsv:41",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -17123,6 +17230,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/minecarts.tsv:36",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -17354,6 +17462,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/boats.tsv:126",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -17387,6 +17496,8 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/sailing.tsv:176",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -17552,6 +17663,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/gnome_gliders.tsv:6",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -17750,6 +17862,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/quetzals.tsv:17",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -17948,6 +18061,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/hot_air_balloons.tsv:17",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -18179,6 +18293,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/teleportation_items.tsv:152",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -18212,6 +18327,8 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/teleportation_spells.tsv:236",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -18377,6 +18494,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/wilderness_obelisks.tsv:14",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -18575,6 +18693,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/minecarts.tsv:58",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -18773,6 +18892,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/boats.tsv:124",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -19004,6 +19124,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:389",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -19037,6 +19158,8 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:641",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -19202,6 +19325,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:1082",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -19400,6 +19524,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:6731",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -19598,6 +19723,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2558",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -19829,6 +19955,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CoordinateClue.java:967",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -19862,6 +19989,8 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:1817",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -20027,6 +20156,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CoordinateClue.java:520",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -20225,6 +20355,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:6732",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -20423,6 +20554,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3091",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -20654,6 +20786,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2599",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -20687,6 +20820,8 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/goblindiplomacy/GoblinDiplomacy.java:128",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -20885,6 +21020,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:1110",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -21149,6 +21285,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3266",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -21380,6 +21517,7 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/MapClue.java:85",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -21644,6 +21782,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2859",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -21875,6 +22014,7 @@
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/shadowofthestorm/ShadowOfTheStorm.java:293",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -21908,6 +22048,8 @@
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:1745",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -22139,6 +22281,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2258",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -22370,6 +22513,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:883",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -22634,6 +22778,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:4573",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -22865,6 +23010,7 @@
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3259",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -23129,6 +23275,7 @@
     "targetSource": "shortest-path-model seed route 1: RuneLite clue locations",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -23162,6 +23309,8 @@
     "targetSource": "shortest-path-model seed route 2: RuneLite clue locations",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -23294,6 +23443,7 @@
     "targetSource": "shortest-path-model seed route 6: RuneLite clue locations",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -23459,6 +23609,7 @@
     "targetSource": "shortest-path-model seed route 11: RuneLite clue locations",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -23624,6 +23775,7 @@
     "targetSource": "shortest-path-model seed route 16: RuneLite clue locations",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -23789,6 +23941,7 @@
     "targetSource": "shortest-path-model seed route 21: RuneLite clue locations",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -23954,6 +24107,7 @@
     "targetSource": "shortest-path-model seed route 26: RuneLite clue locations",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -23987,6 +24141,8 @@
     "targetSource": "shortest-path-model seed route 27: RuneLite clue locations",
     "allowTransports": true,
     "tiers": [
+      "smoke",
+      "standard",
       "full"
     ]
   },
@@ -24119,6 +24275,7 @@
     "targetSource": "shortest-path-model seed route 31: RuneLite clue locations",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -24284,6 +24441,7 @@
     "targetSource": "shortest-path-model seed route 36: RuneLite clue locations",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -24449,6 +24607,7 @@
     "targetSource": "shortest-path-model seed route 41: RuneLite clue locations",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
@@ -24614,6 +24773,7 @@
     "targetSource": "shortest-path-model seed route 46: interactive performance regression",
     "allowTransports": true,
     "tiers": [
+      "standard",
       "full"
     ]
   },
