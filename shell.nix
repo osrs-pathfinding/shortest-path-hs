@@ -2,6 +2,7 @@
 
 pkgs.mkShell {
   packages = [
+    pkgs.duckdb
     pkgs.metis
     pkgs.kahip
     pkgs.cabal-install
