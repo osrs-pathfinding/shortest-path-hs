@@ -13,6 +13,20 @@ transport, Wilderness, geographic, and regression cases. The 40 entries in
 Unreachable or otherwise failing routes are retained deliberately as useful
 transport/model regression fixtures.
 
+Regenerate the natural-route selection from the sibling `runelite-gps-plugin`,
+`quest-helper`, and `shortest-path` clones, then inspect its endpoint-diversity
+report:
+
+```sh
+node benchmarks/refine-corpus.js
+node benchmarks/validate-corpus.js
+less benchmarks/corpus/coverage-v1.txt
+```
+
+The pinned OSRS Wiki monster-location snapshots used by the generator are stored
+in `benchmarks/corpus/wiki-places-v1.json`; generation does not require network
+access.
+
 ### Validate and smoke-test the v1 corpus
 
 Validate the route schema first:
@@ -25,7 +39,7 @@ Generate a smoke-tier exact oracle and run the smoke benchmark. Temporary paths
 keep generated benchmark data out of the corpus commit:
 
 ```sh
-nix-shell --run 'cabal run route-bench -- --tier smoke --oracle /tmp/route-bench-smoke-oracle.json --write-oracle'
+nix-shell --run 'cabal run route-bench -- --tier smoke --oracle /tmp/route-bench-smoke-oracle.json --write-oracle --jobs 4'
 nix-shell --run 'cabal run route-bench -- --tier smoke --oracle /tmp/route-bench-smoke-oracle.json --output /tmp/route-benchmark-smoke.jsonl --runs 3'
 ```
 
@@ -36,7 +50,7 @@ transport, requirement, or cost-semantics change. It uses raw Dijkstra and the
 full corpus can be slow:
 
 ```sh
-nix-shell --run 'cabal run route-bench -- --write-oracle'
+nix-shell --run 'cabal run route-bench -- --write-oracle --jobs 4'
 nix-shell --run 'cabal run route-bench -- --tier standard --runs 5'
 nix-shell --run 'cabal run route-bench -- --tier full --runs 3'
 ```
