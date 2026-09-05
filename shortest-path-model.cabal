@@ -74,6 +74,17 @@ executable graph-census
     vector
   default-language: GHC2024
 
+executable account-profile
+  import: warnings
+  main-is: AccountProfile.hs
+  hs-source-dirs: app
+  build-depends:
+    aeson,
+    base,
+    containers,
+    shortest-path-model
+  default-language: GHC2024
+
 executable metis-partition
   import: warnings
   main-is: MetisPartition.hs

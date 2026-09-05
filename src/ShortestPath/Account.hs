@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+
 module ShortestPath.Account
   ( ItemCounts
   , AccountBuild(..)
@@ -13,8 +16,10 @@ module ShortestPath.Account
   ) where
 
 import Data.Bits ((.&.))
+import Data.Aeson (FromJSON, ToJSON)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import GHC.Generics (Generic)
 
 import ShortestPath.Requirements
 import ShortestPath.Transport (Transport(..))
@@ -31,7 +36,8 @@ data AccountBuild = AccountBuild
   , accountRunePouch :: ItemCounts
   , accountBank :: ItemCounts
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
 
 data ItemAccess = CarriedOnly | CarriedAndBank
   deriving stock (Eq, Ord, Show)
