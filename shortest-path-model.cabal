@@ -118,6 +118,23 @@ executable hierarchy-differential
     vector
   default-language: GHC2024
 
+executable route-bench
+  import: warnings
+  main-is: RouteBench.hs
+  hs-source-dirs: app
+  build-depends:
+    aeson,
+    base,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    process,
+    shortest-path-model,
+    text,
+    time
+  default-language: GHC2024
+
 test-suite smoke
   import: warnings
   type: exitcode-stdio-1.0

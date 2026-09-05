@@ -111,7 +111,7 @@ function normaliseRoute(value, name = "") {
     startRegion: value.startRegion,
     targetRegion: value.targetRegion,
     enabledTransportTypes: value.enabledTransportTypes || value.enabledTypes || value.transportTypes
-    , heuristicWeight: value.heuristicWeight
+    , heuristicWeight: value.heuristicWeight, accountProfile: value.accountProfile
   };
   const normalised = {
     name: value.name || name, cost: value.cost ?? value.hierarchicalCost ?? value.rawCost, expandedNodes: value.expandedNodes,
@@ -155,6 +155,7 @@ function loadFixtureRoute(index, fit = false) {
   route = normaliseRoute(selected, selected.name);
   setRouteInputs("start", route.start); setRouteInputs("end", route.target);
   if (typeof route.config.allowTransports === "boolean") document.getElementById("allow-transports").checked = route.config.allowTransports;
+  if (route.config.accountProfile) document.getElementById("account-profile").value = route.config.accountProfile;
   if (Number.isFinite(route.config.heuristicWeight)) document.getElementById("heuristic-weight").value = route.config.heuristicWeight;
   routeStatus.textContent = `Fixture loaded: ${route.name}`;
   render();
@@ -243,7 +244,18 @@ shapeSourceSelect.addEventListener("change", () => {
 fetchJson("../out/leak-route.json", json => { route = normaliseRoute(json, "leak route"); render(); }, message => { routeStatus.textContent = message; });
 fetchJson("../out/length-mismatch-routes.json", json => addFixtureRoutes("Mismatch", json), () => {});
 fetchJson("../out/hierarchy-test-routes.json", json => addFixtureRoutes("Fixture", json), () => {});
-fetchJson("../benchmarks/routes.json", json => addFixtureRoutes("Clue", json), message => { routeStatus.textContent = message; });
+fetchJson("../benchmarks/routes.json", json => addFixtureRoutes("Seed", json), message => { routeStatus.textContent = message; });
+fetchJson("../benchmarks/corpus/routes-v1.json", json => addFixtureRoutes("Benchmark", json), () => {});
+fetch("../out/route-benchmark.jsonl").then(response => {
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.text();
+}).then(text => {
+  const seen = new Set();
+  const results = text.trim().split(/\r?\n/).filter(Boolean).map(JSON.parse).filter(result => result.routeId && !seen.has(`${result.routeId}/${result.accountProfile}`) && seen.add(`${result.routeId}/${result.accountProfile}`)).map(result => ({
+    ...result, name: `${result.routeId} (${result.accountProfile})`, allowTransports: true
+  }));
+  addFixtureRoutes("Benchmark result", results);
+}, () => {});
 fetchCsv("../out/metis/partitions.csv", "metis", rows => { partitions = rows.map(tile); });
 fetchCsv("../out/metis/kahip-partitions.csv", "kahip", rows => { kahipPartitions = rows.map(tile); });
 fetchCsv("../out/metis/cut-edges.csv", "cuts", rows => {
