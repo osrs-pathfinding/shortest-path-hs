@@ -2,8 +2,10 @@
 
 module Main (main) where
 
-import Control.Exception (evaluate)
-import Control.Monad (forM_, when)
+import Control.Concurrent (forkIO, setNumCapabilities)
+import Control.Concurrent.Chan (newChan, readChan, writeChan)
+import Control.Exception (SomeException, evaluate, throwIO, try)
+import Control.Monad (forM, forM_, replicateM_, when)
 import Data.Aeson (FromJSON(..), ToJSON(..), Value, eitherDecodeFileStrict', encode, object, withObject, (.:), (.:?), (.!=), (.=))
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map.Strict as Map
@@ -59,10 +61,11 @@ data Options = Options
   , diagnostic :: Bool
   , routeLimit :: Maybe Int
   , benchmarkTier :: String
+  , oracleJobs :: Int
   }
 
 defaultOptions :: Options
-defaultOptions = Options "benchmarks/corpus/routes-v1.json" "benchmarks/corpus/oracle-v1.json" "out/route-benchmark.jsonl" 3 False False False Nothing "full"
+defaultOptions = Options "benchmarks/corpus/routes-v1.json" "benchmarks/corpus/oracle-v1.json" "out/route-benchmark.jsonl" 3 False False False Nothing "full" 4
 
 main :: IO ()
 main = do
@@ -70,10 +73,9 @@ main = do
   cases <- maybe id take (routeLimit options) . filterTier (benchmarkTier options) <$> loadCases options
   when (null cases) (die "no benchmark routes; select routes for benchmarks/corpus/routes-v1.json first")
   world <- loadWorld defaultSourcePaths
-  astar <- buildTileAStar world >>= forceTileAStar
   if writeOracle options
     then writeOracles options world cases
-    else runBench options world astar cases
+    else buildTileAStar world >>= forceTileAStar >>= \astar -> runBench options world astar cases
 
 parseOptions :: [String] -> IO Options
 parseOptions = go defaultOptions
@@ -93,8 +95,11 @@ parseOptions = go defaultOptions
     | tier `elem` ["smoke", "standard", "full"] = go (options {benchmarkTier = tier}) rest
     | otherwise = die "--tier must be smoke, standard, or full"
   go options ("--write-oracle":rest) = go (options {writeOracle = True}) rest
+  go options ("--jobs":count:rest) = case reads count of
+    [(n, "")] | n > 0 -> go (options {oracleJobs = n}) rest
+    _ -> die "--jobs must be a positive integer"
   go options ("--diagnostic":rest) = go (options {diagnostic = True}) rest
-  go _ _ = die "usage: route-bench [--seed] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--diagnostic]"
+  go _ _ = die "usage: route-bench [--seed] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic]"
 
 loadCases :: Options -> IO [RouteCase]
 loadCases options = do
@@ -114,21 +119,45 @@ writeOracles options world cases = do
   let profiles = [(name, benchmarkAccount name (allTransports world)) | name <- benchmarkProfileNames]
       work = [(route, name, profile) | route <- indexed cases, (name, profile) <- profiles]
       total = length work
-  putProgress ("oracle: 0/" <> show total)
-  entries <- go total (0 :: Int) Map.empty work
+      jobs = min total (oracleJobs options)
+  setNumCapabilities jobs
+  workQueue <- newChan
+  resultQueue <- newChan
+  mapM_ (writeChan workQueue . Just) work
+  replicateM_ jobs (writeChan workQueue Nothing)
+  replicateM_ jobs (forkIO (worker workQueue resultQueue) >> pure ())
+  putProgress ("oracle: 0/" <> show total <> " jobs=" <> show jobs)
+  results <- forM [1 .. total] $ \completed -> do
+    outcome <- readChan resultQueue
+    case outcome of
+      Left exception -> throwIO exception
+      Right (route, name, oracle, elapsed) -> do
+        putProgress ("oracle: " <> show completed <> "/" <> show total <> " " <> stableId route <> " " <> name <> " dijkstraMs=" <> show elapsed <> " reachable=" <> show (oracleReachable oracle))
+        pure (key route name, oracle)
+  let entries = Map.fromList results
+      reachableCount = length (filter (oracleReachable . snd) results)
   createDirectoryIfMissing True (takeDirectory (oraclePath options))
   LBS.writeFile (oraclePath options) (encode entries)
-  putStrLn ("wrote " <> oraclePath options)
+  putStrLn ("oracle summary: " <> show reachableCount <> " reachable, " <> show (total - reachableCount) <> " unreachable; wrote " <> oraclePath options)
  where
-  go _ _ entries [] = pure entries
-  go total n entries ((route, name, profile):rest) = do
+  worker workQueue resultQueue = do
+    job <- readChan workQueue
+    case job of
+      Nothing -> pure ()
+      Just (route, name, profile) -> do
+        outcome <- try (oracleFor route profile) :: IO (Either SomeException (Oracle, Double))
+        writeChan resultQueue (fmap (\(oracle, elapsed) -> (route, name, oracle, elapsed)) outcome)
+        worker workQueue resultQueue
+
+  oracleFor route profile = do
+    started <- getMonotonicTimeNSec
     let result = findRoute (RawDijkstra world) (query route profile)
         cost = routeCost result
     resolvedCost <- evaluate cost
+    finished <- getMonotonicTimeNSec
     let reachable = resolvedCost /= maxBound
         oracle = Oracle reachable (if reachable then Just resolvedCost else Nothing)
-    putProgress ("oracle: " <> show (n + 1) <> "/" <> show total <> " " <> stableId route <> " " <> name)
-    go total (n + 1) (Map.insert (key route name) oracle entries) rest
+    pure (oracle, milliseconds started finished)
 
 runBench :: Options -> World -> TileAStar -> [RouteCase] -> IO ()
 runBench options world astar cases = do
@@ -150,6 +179,7 @@ runBench options world astar cases = do
     forM_ [1 .. repetitions options] $ \repetition -> do
       (result, timings) <- findRouteProfiledTileAStar astar (query route profile)
       let reachable = routeCost result /= maxBound
+      putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName <> " repetition=" <> show repetition <> " tileAStarMs=" <> show (tileTotalMilliseconds timings) <> " reachable=" <> show reachable)
       when (reachable /= oracleReachable expected || (reachable && Just (routeCost result) /= oracleCost expected)) $
         die ("oracle mismatch for " <> key route profileName)
       append (outputPath options) options $ object

@@ -120,6 +120,7 @@ executable hierarchy-differential
 
 executable route-bench
   import: warnings
+  ghc-options: -threaded
   main-is: RouteBench.hs
   hs-source-dirs: app
   build-depends:
