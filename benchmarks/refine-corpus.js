@@ -108,7 +108,10 @@ const npcPlaces = [
   ["Duradel", [2869,2982,1], "src/main/java/com/questhelper/helpers/achievementdiaries/karamja/KaramjaHard.java:290"],
 ].map(([name, raw, source]) => place(`${name} — Slayer master`, raw, snap(raw), source, "npc"));
 for (const npc of npcPlaces) npc.source = `quest-helper@${questRevision.slice(0, 12)}:${npc.source}`;
-const wikiPlaces = wiki.places.map(entry => place(entry.name, entry.coordinate, snap(entry.coordinate), `oldschool-wiki:Lesser_demon@${wiki.source.revision}#Locations`, "monster"));
+const wikiPlaces = wiki.places.map(entry => {
+  const source = wiki.sources[entry.source];
+  return place(`${entry.monster} — ${entry.location}`, entry.coordinate, snap(entry.coordinate), `oldschool-wiki:${source.page}@${source.revision}#Locations`, "monster");
+});
 const ordinary = cluster([...gpsPlaces, ...questPlaces, ...cluePlaces, ...npcPlaces, ...wikiPlaces])
   .filter(point => !/bank/i.test(point.name) && !transportCoordinates.has(point.resolved.join()));
 const gpsNatural = ordinary.filter(point => !["quest-natural", "clue-natural"].includes(point.kind));
