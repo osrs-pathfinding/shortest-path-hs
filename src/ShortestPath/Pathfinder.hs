@@ -1,6 +1,8 @@
 module ShortestPath.Pathfinder
   ( Query(..)
+  , QueryTransportAvailability(..)
   , queryRequirementContext
+  , prepareQueryTransports
   , Route(..)
   , RouteStep(..)
   , RouteFinder(..)
@@ -15,6 +17,7 @@ import qualified Data.Set as Set
 import ShortestPath.Account
 import ShortestPath.Tile
 import ShortestPath.Transport (Transport(..), TransportType(..), transportTypes)
+import ShortestPath.World (World(..))
 
 data Query = Query
   { queryStart :: Tile
@@ -28,6 +31,14 @@ data Query = Query
   , queryNowMinutes :: Int
   }
   deriving stock (Eq, Show)
+
+data QueryTransportAvailability = QueryTransportAvailability
+  { carriedLocalTransports :: Map.Map Tile [Transport]
+  , bankedLocalTransports :: Map.Map Tile [Transport]
+  , carriedGlobalTransports :: [Transport]
+  , bankedGlobalTransports :: [Transport]
+  }
+  deriving stock (Show)
 
 data RouteStep = Walk Tile | UseTransport String Tile
   deriving stock (Eq, Show)
@@ -60,6 +71,17 @@ defaultQuery start target =
     , requirementMode = IgnoreRequirements
     , queryNowMinutes = 0
     }
+
+prepareQueryTransports :: World -> Query -> QueryTransportAvailability
+prepareQueryTransports world query =
+  QueryTransportAvailability
+    (filterLocals False)
+    (filterLocals True)
+    (filterAvailable False (worldGlobalTeleports world))
+    (filterAvailable True (worldGlobalTeleports world))
+ where
+  filterLocals banked = Map.map (filterAvailable banked) (worldTransports world)
+  filterAvailable banked = filter (transportAvailable query banked)
 
 transportAvailable :: Query -> Bool -> Transport -> Bool
 transportAvailable query banked = (== Available) . transportExplanation query banked

@@ -38,6 +38,9 @@ import ShortestPath.World
 
 data Hierarchical = Hierarchical World Hierarchy (Maybe RegionGraph) (Maybe RegionTable)
 
+hierarchyWorld :: Hierarchical -> World
+hierarchyWorld (Hierarchical world _ _ _) = world
+
 data QueryHeuristic
   = DetailedHeuristic RegionValues
   | TableHeuristic RegionTable [LeafId]
@@ -120,10 +123,11 @@ instance RouteFinder Hierarchical where
   findRoute hierarchical query =
     finishSearch hierarchical result
    where
+    availability = prepareQueryTransports (hierarchyWorld hierarchical) query
     index = denseIndex hierarchical query
     targetDistances = targetDistanceMap hierarchical query
     heuristic = queryHeuristic hierarchical query targetDistances
-    result = searchHierarchy False heuristic hierarchical query index (sourceAttachmentList hierarchical query) targetDistances
+    result = searchHierarchy False heuristic hierarchical query availability index (sourceAttachmentList hierarchical query) targetDistances
 
 findRouteProfiled :: Hierarchical -> Query -> IO (Route, QueryTimings)
 findRouteProfiled hierarchical query = do
@@ -158,7 +162,8 @@ findRouteProfiledWithOptions includeTrace useHeuristic hierarchical query = do
         pure (Just values, elapsed)
       _ -> pure (Nothing, 0)
   let index = denseIndex hierarchical query
-  (result, searchMs) <- timed evaluate $ searchHierarchy includeTrace heuristic hierarchical query index sourceAttachments targetDistances
+      availability = prepareQueryTransports (hierarchyWorld hierarchical) query
+  (result, searchMs) <- timed evaluate $ searchHierarchy includeTrace heuristic hierarchical query availability index sourceAttachments targetDistances
   (route, reconstructionMs) <- timed
     (\value -> evaluate (routeCost value + routeExpandedNodes value + length (routeSteps value)) >> pure value)
     (finishSearch hierarchical result)
@@ -186,11 +191,12 @@ searchHierarchy
   -> Maybe QueryHeuristic
   -> Hierarchical
   -> Query
+  -> QueryTransportAvailability
   -> DenseIndex
   -> [(Tile, Int)]
   -> Map.Map Tile Int
   -> SearchResult
-searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hierarchy _ _) query index sourceAttachments targetDistances = runST $ do
+searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hierarchy _ _) query availability index sourceAttachments targetDistances = runST $ do
     distances <- Mutable.replicate stateCount maxBound
     parents <- Mutable.replicate stateCount (-1)
     previous <- BoxedMutable.replicate stateCount Nothing
@@ -401,9 +407,8 @@ searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hi
       | otherwise =
           [ (stateId destinationNode banked, transportCost transport, EdgeTransport (transportCost transport) (label transport) destination)
           | Just tile <- [tileForNode node]
-          , transport <- Map.findWithDefault [] tile (worldTransports world)
+          , transport <- localAt banked tile
           , transportType transport /= "VIRTUAL_WALL"
-          , transportAvailable query banked transport
           , Just destination <- [destination transport]
           , Just destinationNode <- [nodeForTileMaybe destination]
           ]
@@ -415,8 +420,7 @@ searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hi
 
     globalEdges GlobalTeleportHub banked =
       [ (stateId destinationNode banked, transportCost transport, EdgeTransport (transportCost transport) (label transport) destination)
-      | transport <- worldGlobalTeleports world
-      , transportAvailable query banked transport
+      | transport <- globalAt banked
       , Just destination <- [destination transport]
       , Just destinationNode <- [nodeForTileMaybe destination]
       ]
@@ -458,7 +462,9 @@ searchHierarchy includeTrace regionHeuristic hierarchical@(Hierarchical world hi
     nodeTile (Separator tile) = Just tile
     nodeTile _ = Nothing
 
-    usableOrigin banked tile = allowTransports query && any (transportAvailable query banked) (Map.findWithDefault [] tile (worldTransports world))
+    localAt banked tile = Map.findWithDefault [] tile (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
+    globalAt banked = if banked then bankedGlobalTransports availability else carriedGlobalTransports availability
+    usableOrigin banked tile = allowTransports query && not (null (localAt banked tile))
     penalty transport = Map.findWithDefault 0 (transportType transport) (transportPenalties query)
     transportCost transport = duration transport + penalty transport
     label transport = if null (displayInfo transport) then transportType transport else displayInfo transport

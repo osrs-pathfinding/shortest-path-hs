@@ -77,6 +77,9 @@ foreign import ccall unsafe "spm_rgba_tile"
 
 data TileAStar = TileAStar World NaturalComponents TileStatic
 
+tileWorld :: TileAStar -> World
+tileWorld (TileAStar world _ _) = world
+
 data NaturalComponents = NaturalComponents
   { componentOwnerTiles :: Vector.Vector Int
   , componentOwnerIds :: Vector.Vector Int
@@ -329,8 +332,9 @@ findRouteProfiledTileAStar astar query = do
 findRouteProfiledTileAStarWithTrace :: Bool -> TileAStar -> Query -> IO (Route, TileAStarTimings, [(Tile, Bool)])
 findRouteProfiledTileAStarWithTrace trace astar@(TileAStar _ _ _) query =
   do
-    (heuristic, setupMs) <- timedIO forceHeuristic (buildHeuristic astar query)
-    ((route, counters, explored), searchMs) <- timedIO forceSearch (pure (search trace astar query heuristic))
+    let availability = prepareQueryTransports (tileWorld astar) query
+    (heuristic, setupMs) <- timedIO forceHeuristic (buildHeuristic astar query availability)
+    ((route, counters, explored), searchMs) <- timedIO forceSearch (pure (search trace astar query availability heuristic))
     let totalMs = setupMs + searchMs
     pure
       ( route
@@ -345,8 +349,8 @@ findRouteProfiledTileAStarWithTrace trace astar@(TileAStar _ _ _) query =
       , explored
       )
 
-search :: Bool -> TileAStar -> Query -> Heuristic -> (Route, TileAStarCounters, [(Tile, Bool)])
-search trace astar@(TileAStar world components _) q heuristic = runST $ do
+search :: Bool -> TileAStar -> Query -> QueryTransportAvailability -> Heuristic -> (Route, TileAStarCounters, [(Tile, Bool)])
+search trace astar@(TileAStar world components _) q availability heuristic = runST $ do
   best <- Mutable.replicate stateCount maxBound
   prevState <- Mutable.replicate stateCount maxBound
   prevStep <- BoxedMutable.replicate stateCount Nothing
@@ -392,8 +396,7 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
   initialStates = (startState, 0, Nothing) :
     [ (next, transportCost t, Just (UseTransport (label t) dst))
     | allowTransports q
-    , t <- worldGlobalTeleports world
-    , transportAvailable q False t
+    , t <- carriedGlobalTransports availability
     , Just dst <- [destination t]
     , Just next <- [stateFor dst False]
     ]
@@ -523,7 +526,7 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
       ]
     localTransports =
       if allowTransports q
-        then transportEdges banked (filter ((/= "VIRTUAL_WALL") . transportType) (Map.findWithDefault [] tile (worldTransports world)))
+        then transportEdges banked (filter ((/= "VIRTUAL_WALL") . transportType) (localAt banked tile))
         else []
     bankGlobalTransports =
       if dominatedBankGlobal then [] else suppressedBankGlobals
@@ -533,7 +536,7 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
       , bankPathEnabled q
       , not banked
       , Set.member tile reachableBanks
-      , (next, stepCost, step, _) <- transportEdges True (worldGlobalTeleports world)
+      , (next, stepCost, step, _) <- transportEdges True (bankedGlobalTransports availability)
       ]
     -- Keep equal-cost bank globals so the path establishing the bound remains materialized.
     dominatedBankGlobal = not banked && Set.member tile reachableBanks && cost > bestBank
@@ -541,12 +544,12 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
   transportEdges banked transports =
     [ (next, transportCost t, UseTransport (label t) dst, TransportEdge)
     | t <- transports
-    , transportAvailable q banked t
     , Just dst <- [destination t]
     , Just next <- [stateFor dst banked]
     ]
 
-  usableOrigin banked tile = allowTransports q && any (transportAvailable q banked) (Map.findWithDefault [] tile (worldTransports world))
+  localAt banked tile = Map.findWithDefault [] tile (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
+  usableOrigin banked tile = allowTransports q && not (null (localAt banked tile))
   transportCost t = duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q)
   label t = if null (displayInfo t) then transportType t else displayInfo t
 
@@ -699,13 +702,13 @@ writeQueueEntry queue ix (priority, state, cost) = do
   Mutable.write (queueStates queue) ix state
   Mutable.write (queueCosts queue) ix cost
 
-buildHeuristic :: TileAStar -> Query -> IO Heuristic
-buildHeuristic astar@(TileAStar _ components _) q =
+buildHeuristic :: TileAStar -> Query -> QueryTransportAvailability -> IO Heuristic
+buildHeuristic astar@(TileAStar _ components _) q availability =
   transportAware
  where
   target = queryTarget q
   transportAware = do
-    let graph = siteGraph astar q
+    let graph = siteGraph astar q availability
     countReverse <- (== Just "1") <$> lookupEnv "SPM_TILE_REVERSE_COUNTERS"
     useManhattan <- (== Just "manhattan") <$> lookupEnv "SPM_TILE_REVERSE_IMPL"
     compareReverse <- (== Just "1") <$> lookupEnv "SPM_TILE_COMPARE_REVERSE"
@@ -725,7 +728,8 @@ reversePathDebug :: TileAStar -> Query -> ReversePathDebug
 reversePathDebug astar@(TileAStar world components _) q =
   ReversePathDebug (queryStart q) (queryTarget q) (map stateDebug [False, True])
  where
-  graph = siteGraph astar q
+  availability = prepareQueryTransports world q
+  graph = siteGraph astar q availability
   distances = reverseDijkstraUncounted graph (targetSeeds graph (queryTarget q))
   heuristic = Heuristic (seedTableFromDistances components graph distances) 0 0 emptyReverseCounters
   sourceNode = IntMap.lookup (unTile (queryStart q)) (siteTileIndex graph)
@@ -802,8 +806,7 @@ reversePathDebug astar@(TileAStar world components _) q =
     transportEdges =
       [ DebugEdge (stateId to banked) tile dst banked banked "transport" (label t) (transportCost t)
       | allowTransports q
-      , t <- Map.findWithDefault [] tile (worldTransports world)
-      , transportAvailable q banked t
+      , t <- localAt banked tile
       , Just _ <- [origin t]
       , Just dst <- [destination t]
       , Just to <- [IntMap.lookup (unTile dst) (siteTileIndex graph)]
@@ -820,13 +823,13 @@ reversePathDebug astar@(TileAStar world components _) q =
       , bankPathEnabled q
       , not banked
       , Set.member tile reachableBanks
-      , t <- worldGlobalTeleports world
-      , transportAvailable q True t
+      , t <- bankedGlobalTransports availability
       , Just dst <- [destination t]
       , Just to <- [IntMap.lookup (unTile dst) (siteTileIndex graph)]
       ]
   transportCost t = duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q)
   label t = if null (displayInfo t) then transportType t else displayInfo t
+  localAt banked tile = Map.findWithDefault [] tile (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
   reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
 
 data DebugEdge = DebugEdge
@@ -856,7 +859,7 @@ renderHeuristicTiles astar@(TileAStar _ components _) q outputRoot urlRoot = do
     (if useCTransform then chebyshevTransformC else chebyshevTransform) box seeds
   prepareLayer useCTransform (key, title, banking) = do
     let q' = q {bankPathEnabled = banking}
-    (heuristic, heuristicMs) <- timedIO forceHeuristic (buildHeuristic astar q')
+    (heuristic, heuristicMs) <- timedIO forceHeuristic (buildHeuristic astar q' (prepareQueryTransports (tileWorld astar) q'))
     (points, transformMs) <- timedIO forcePointList (pure (layerPoints (transform useCTransform) groups heuristic False))
     pure (key, title, banking, heuristicMs, transformMs, points, seedPoints heuristic banking, heuristic)
   layerPointsPrepared (_, _, _, _, _, points, _, _) = points
@@ -1310,8 +1313,8 @@ seedTableFromDistances components graph distances = runST $ do
 seedKey :: Int -> Bool -> Int
 seedKey cid banked = cid * 2 + if banked then 1 else 0
 
-siteGraph :: TileAStar -> Query -> SiteGraph
-siteGraph (TileAStar world components static) q =
+siteGraph :: TileAStar -> Query -> QueryTransportAvailability -> SiteGraph
+siteGraph (TileAStar world components static) q availability =
   SiteGraph tiles tileIndex comps staticCount (staticWalkingNetwork static) componentSites reverseEdges
  where
   staticCount = Vector.length (staticTiles static)
@@ -1334,9 +1337,8 @@ siteGraph (TileAStar world components static) q =
     [ (stateId from banked, stateId to banked, transportCost t)
     | allowTransports q
     , banked <- [False, True]
-    , transports <- Map.elems (worldTransports world)
+    , transports <- Map.elems (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
     , t <- transports
-    , transportAvailable q banked t
     , Just originTile <- [origin t]
     , Just destinationTile <- [destination t]
     , Just from <- [nodeFor originTile]
@@ -1356,8 +1358,7 @@ siteGraph (TileAStar world components static) q =
     , bankPathEnabled q
     , bank <- Set.toList reachableBanks
     , Just from <- [nodeFor bank]
-    , t <- worldGlobalTeleports world
-    , transportAvailable q True t
+    , t <- bankedGlobalTransports availability
     , Just destinationTile <- [destination t]
     , Just to <- [nodeFor destinationTile]
     ]

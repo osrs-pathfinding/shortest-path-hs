@@ -22,6 +22,7 @@ instance RouteFinder Dijkstra where
   routeName _ = "dijkstra"
   findRoute (Dijkstra world) q = search (Set.singleton (0, start)) (Map.singleton start 0) Map.empty Set.empty 0
    where
+    availability = prepareQueryTransports world q
     start = State (queryStart q) False
     targetTile = queryTarget q
 
@@ -56,14 +57,14 @@ instance RouteFinder Dijkstra where
         , not banked
         , Set.member tile (worldBanks world)
         ]
-      localTransports = if allowTransports q then transportEdges banked (Map.findWithDefault [] tile (worldTransports world)) else []
+      localTransports = if allowTransports q then transportEdges banked (localAt banked tile) else []
       -- Walking before a broad-origin teleport is dominated by using it immediately.
       initialGlobalTransports =
         [ edge
         | allowTransports q
         , not banked
         , tile == queryStart q
-        , edge <- transportEdges False (worldGlobalTeleports world)
+        , edge <- transportEdges False (globalAt False)
         ]
       bankGlobalTransports =
         [ (State dst True, stepCost, step)
@@ -71,18 +72,19 @@ instance RouteFinder Dijkstra where
         , queryBankPathEnabled
         , not banked
         , Set.member tile (worldBanks world)
-        , (State dst _, stepCost, step) <- transportEdges True (worldGlobalTeleports world)
+        , (State dst _, stepCost, step) <- transportEdges True (globalAt True)
         ]
       queryBankPathEnabled = bankPathEnabled q
 
     transportEdges banked transports =
       [ (State dst banked, duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q), UseTransport (label t) dst)
       | t <- transports
-      , transportAvailable q banked t
       , Just dst <- [destination t]
       ]
 
-    usableOrigin banked tile = allowTransports q && any (transportAvailable q banked) (Map.findWithDefault [] tile (worldTransports world))
+    localAt banked tile = Map.findWithDefault [] tile (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
+    globalAt banked = if banked then bankedGlobalTransports availability else carriedGlobalTransports availability
+    usableOrigin banked tile = allowTransports q && not (null (localAt banked tile))
 
     label t = if null (displayInfo t) then transportType t else displayInfo t
 

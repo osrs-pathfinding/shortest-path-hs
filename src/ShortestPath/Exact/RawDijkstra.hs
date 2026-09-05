@@ -22,6 +22,7 @@ instance RouteFinder RawDijkstra where
   routeName _ = "raw-dijkstra"
   findRoute (RawDijkstra world) q = search (Set.singleton (0, start)) (Map.singleton start 0) Map.empty Set.empty 0
    where
+    availability = prepareQueryTransports world q
     start = State (queryStart q) False
     targetTile = queryTarget q
 
@@ -58,7 +59,7 @@ instance RouteFinder RawDijkstra where
         ]
       localTransports =
         if allowTransports q
-          then transportEdges banked (filter ((/= "VIRTUAL_WALL") . transportType) (Map.findWithDefault [] tile (worldTransports world)))
+          then transportEdges banked (filter ((/= "VIRTUAL_WALL") . transportType) (localAt banked tile))
           else []
       -- Walking before a broad-origin teleport is dominated by using it immediately.
       initialGlobalTransports =
@@ -66,7 +67,7 @@ instance RouteFinder RawDijkstra where
         | allowTransports q
         , not banked
         , tile == queryStart q
-        , edge <- transportEdges False (worldGlobalTeleports world)
+        , edge <- transportEdges False (globalAt False)
         ]
       bankGlobalTransports =
         [ (State dst True, stepCost, step)
@@ -74,18 +75,19 @@ instance RouteFinder RawDijkstra where
         , queryBankPathEnabled
         , not banked
         , Set.member tile (worldBanks world)
-        , (State dst _, stepCost, step) <- transportEdges True (worldGlobalTeleports world)
+        , (State dst _, stepCost, step) <- transportEdges True (globalAt True)
         ]
       queryBankPathEnabled = bankPathEnabled q
 
     transportEdges banked transports =
       [ (State dst banked, duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q), UseTransport (label t) dst)
       | t <- transports
-      , transportAvailable q banked t
       , Just dst <- [destination t]
       ]
 
-    usableOrigin banked tile = allowTransports q && any (transportAvailable q banked) (Map.findWithDefault [] tile (worldTransports world))
+    localAt banked tile = Map.findWithDefault [] tile (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
+    globalAt banked = if banked then bankedGlobalTransports availability else carriedGlobalTransports availability
+    usableOrigin banked tile = allowTransports q && not (null (localAt banked tile))
 
     label t = if null (displayInfo t) then transportType t else displayInfo t
 
