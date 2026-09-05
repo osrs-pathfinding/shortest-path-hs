@@ -11,6 +11,7 @@ import qualified Data.Set as Set
 import ShortestPath.Exact.Hierarchical
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Exact.RawDijkstra
+import ShortestPath.Account
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess
 import ShortestPath.Hierarchy.Types
@@ -189,9 +190,9 @@ cases t =
   , Case "cross-region walking" (query (tA0 t) (tB1 t) Set.empty False) Reachable
   , Case "directed local transport" (query (tB1 t) (tC0 t) (Set.singleton "SYNTHETIC_BOAT") False) Reachable
   , Case "global teleport" (query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_GLOBAL") False) Reachable
-  , Case "missing inventory blocks global teleport" ((query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_GLOBAL") False) {inventoryItems = Map.empty}) Unreachable
-  , Case "default bank supplies missing global item" ((query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_BANK_GLOBAL") True) {inventoryItems = Map.empty}) Reachable
-  , Case "custom bank blocks missing global item" ((query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_BANK_GLOBAL") True) {inventoryItems = Map.empty, bankItems = BankItems Map.empty}) Unreachable
+  , Case "missing inventory blocks global teleport" (withoutInventory (query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_GLOBAL") False)) Unreachable
+  , Case "default bank supplies missing global item" (withoutInventory (query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_BANK_GLOBAL") True)) Reachable
+  , Case "custom bank blocks missing global item" (withoutBank (withoutInventory (query (tA0 t) (tD1 t) (Set.singleton "SYNTHETIC_BANK_GLOBAL") True))) Unreachable
   , Case "blocked transport origin attachment" (query (tC0 t) (tE0 t) (Set.singleton "SYNTHETIC_RING") False) Reachable
   , Case "blocked transport destination exit" (walkingQuery (tE0 t) (tC0 t)) Reachable
   , Case "banking enabled" (query (tA0 t) (tA3 t) Set.empty True) Reachable
@@ -204,7 +205,17 @@ query start target enabled bank =
   (defaultQuery start target)
     { enabledTransportTypes = enabled
     , bankPathEnabled = bank
+    , requirementMode = ConfiguredRequirements syntheticAccount
     }
+
+syntheticAccount :: AccountBuild
+syntheticAccount = emptyAccountBuild { accountInventory = Map.singleton "13393" 1, accountBank = Map.singleton "999" 1 }
+
+withoutInventory :: Query -> Query
+withoutInventory q = q { requirementMode = ConfiguredRequirements (syntheticAccount { accountInventory = Map.empty }) }
+
+withoutBank :: Query -> Query
+withoutBank q = q { requirementMode = ConfiguredRequirements (syntheticAccount { accountInventory = Map.empty, accountBank = Map.empty }) }
 
 walkingQuery :: Tile -> Tile -> Query
 walkingQuery start target = (query start target Set.empty False) { allowTransports = False }
@@ -234,19 +245,19 @@ checkReversePathDebug tileAStar tiles = do
   let initialQuery = query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
       initialDebug = reversePathDebug tileAStar initialQuery
   assertMsg ("initial global leaked: " <> show initialDebug) (all ((/= "SYNTHETIC_GLOBAL") . reverseEdgeLabel) (concatMap reverseStatePath (reverseDebugStates initialDebug)))
-  let decline = reversePathDebug tileAStar ((query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_LOCAL_AT_BANK") True) {inventoryItems = Map.empty})
+  let decline = reversePathDebug tileAStar (withoutInventory (query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_LOCAL_AT_BANK") True))
       (declineUnbanked, declineBanked) = twoStates decline
   assertMsg ("decline unbanked: " <> show declineUnbanked) (map reverseEdgeType (reverseStatePath declineUnbanked) == ["bank", "transport"])
   assertMsg ("decline transitions: " <> show (reverseStatePath declineUnbanked)) (map transition (reverseStatePath declineUnbanked) == [(False, True), (True, True)])
   assertMsg ("decline banked: " <> show declineBanked) (map reverseEdgeType (reverseStatePath declineBanked) == ["transport"])
   assert (map transition (reverseStatePath declineBanked) == [(True, True)])
-  let mixed = reversePathDebug tileAStar ((query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_GLOBAL") True) {inventoryItems = Map.empty})
+  let mixed = reversePathDebug tileAStar (withoutInventory (query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_GLOBAL") True))
       (mixedUnbanked, mixedBanked) = twoStates mixed
   assertMsg ("mixed unbanked value: " <> show mixedUnbanked) (reverseStateDistance mixedUnbanked == reverseStateHeuristic mixedUnbanked)
   assertMsg ("mixed banked: " <> show mixedBanked) (reverseStateUnreachable mixedBanked)
   assertMsg ("mixed unbanked path: " <> show (reverseStatePath mixedUnbanked)) (map reverseEdgeType (reverseStatePath mixedUnbanked) == ["transport"])
   assertMsg ("mixed transitions: " <> show (reverseStatePath mixedUnbanked)) (map transition (reverseStatePath mixedUnbanked) == [(False, True)])
-  let oneMissing = reversePathDebug tileAStar ((query (tE0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_LOCAL") False) {inventoryItems = Map.empty})
+  let oneMissing = reversePathDebug tileAStar (withoutInventory (query (tE0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_LOCAL") False))
       (missingUnbanked, missingBanked) = twoStates oneMissing
   assertMsg ("missing unbanked: " <> show missingUnbanked) (reverseStateUnreachable missingUnbanked)
   assertMsg ("missing banked: " <> show missingBanked) (not (reverseStateUnreachable missingBanked))

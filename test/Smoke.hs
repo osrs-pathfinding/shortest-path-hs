@@ -6,6 +6,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import ShortestPath.Requirements
+import ShortestPath.Account
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess
 import ShortestPath.Hierarchy.Types
@@ -18,6 +19,7 @@ main = do
   assert (unpackTile (packTile 3200 3201 2) == (3200, 3201, 2))
   assert (parseSkills "75 Construction;83 Farming" == [SkillReq 75 "Construction", SkillReq 83 "Farming"])
   assert (parseVars Varbit "4070=0;4560&2" == [VarReq Varbit 4070 0 VarEq, VarReq Varbit 4560 2 VarMask])
+  requirementChecks
   assert (parseTileField "3221 3218 0" == Just (packTile 3221 3218 0))
   assert (length virtualWalls == 3)
   assert (isVirtualWallTile (packTile 2836 3451 0))
@@ -54,3 +56,25 @@ syntheticPreprocessCheck = do
 assert :: Bool -> IO ()
 assert True = pure ()
 assert False = fail "assertion failed"
+
+requirementChecks :: IO ()
+requirementChecks = do
+  let account = emptyAccountBuild
+        { accountLevels = Map.singleton "Agility" 70
+        , accountCompletedQuests = Set.singleton "Quest"
+        , accountVarbits = Map.singleton 1 6
+        , accountVarPlayers = Map.singleton 2 100
+        , accountInventory = Map.singleton "1" 2
+        , accountEquipment = Map.singleton "2" 1
+        , accountRunePouch = Map.singleton "3" 1
+        , accountBank = Map.singleton "4" 1
+        }
+      carried = RequirementContext account CarriedOnly 130
+      banked = RequirementContext account CarriedAndBank 130
+      transport = Transport "TEST" Nothing Nothing 0 "" "" False Nothing [SkillReq 70 "Agility"] (Just (ItemAnd [ItemOne (ItemTerm "1" 2), ItemOr [ItemOne (ItemTerm "2" 1), ItemOne (ItemTerm "4" 1)]])) ["Quest"] [VarReq Varbit 1 6 VarEq, VarReq Varbit 1 2 VarMask] [VarReq VarPlayer 2 20 VarCooldownMinutes] "test"
+  assert (requirementsSatisfied carried transport)
+  assert (not (requirementsSatisfied carried (transport { skills = [SkillReq 71 "Agility"] })))
+  assert (not (requirementsSatisfied carried (transport { quests = ["Missing"] })))
+  assert (not (requirementsSatisfied carried (transport { varbits = [VarReq Varbit 9 0 VarEq] })))
+  assert (not (requirementsSatisfied carried (transport { items = Just (ItemOne (ItemTerm "4" 1)) })))
+  assert (requirementsSatisfied banked (transport { items = Just (ItemOne (ItemTerm "4" 1)) }))

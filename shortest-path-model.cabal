@@ -9,6 +9,7 @@ common warnings
 library
   import: warnings
   exposed-modules:
+    ShortestPath.Account
     ShortestPath.Exact.Dijkstra
     ShortestPath.Exact.Hierarchical
     ShortestPath.Exact.RawDijkstra
