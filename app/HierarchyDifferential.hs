@@ -5,7 +5,7 @@ module Main (main) where
 
 import Control.Exception (evaluate)
 import Control.Monad (filterM, forM, when)
-import Data.Aeson (FromJSON(..), Value, encode, eitherDecode, object, withObject, (.:), (.:?), (.=), (.!=))
+import Data.Aeson (FromJSON(..), Value, decodeFileStrict', encode, eitherDecode, object, withObject, (.:), (.:?), (.=), (.!=))
 import Data.Binary (Binary, decodeFileOrFail, encodeFile)
 import Data.Ord (Down(..))
 import qualified Data.ByteString.Char8 as BS
@@ -34,6 +34,7 @@ import ShortestPath.Exact.Hierarchical
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Heuristic.Region (RegionTable, buildRegionGraph, buildRegionTable)
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
+import ShortestPath.Account (AccountBuild, RequirementMode(..))
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess (preprocessHierarchy)
 import ShortestPath.Hierarchy.Types (Hierarchy(..), LeafOverlay(..))
@@ -75,6 +76,7 @@ data ServeRequest = ServeRequest
   , requestUseHeuristic :: Bool
   , requestHeuristicWeight :: Double
   , requestFinder :: Maybe String
+  , requestAccountProfile :: Maybe String
   }
 
 instance FromJSON ServeRequest where
@@ -88,6 +90,7 @@ instance FromJSON ServeRequest where
       <*> value .: "useHeuristic"
       <*> value .:? "heuristicWeight" .!= 1
       <*> value .:? "finder"
+      <*> value .:? "accountProfile"
 
 data HierarchyCache = HierarchyCache Word64 Hierarchy
   deriving stock (Generic)
@@ -463,10 +466,13 @@ serveRequest world tileAStar hierarchical line =
     Right request
       | not (validPoint (requestStart request)) -> invalid request "start coordinate is outside 0..32767 or has an invalid plane"
       | not (validPoint (requestTarget request)) -> invalid request "target coordinate is outside 0..32767 or has an invalid plane"
+      | maybe False (`notElem` profileNames) (requestAccountProfile request) -> invalid request "unknown account profile"
       | otherwise -> do
+          profile <- traverse loadProfile (requestAccountProfile request)
           let query = (defaultQuery (pointTile (requestStart request)) (pointTile (requestTarget request)))
                 { allowTransports = requestAllowTransports request
                 , heuristicWeight = requestHeuristicWeight request
+                , requirementMode = maybe IgnoreRequirements ConfiguredRequirements profile
                 }
           case maybe "hierarchical" id (requestFinder request) of
             "raw" -> do
@@ -508,6 +514,10 @@ serveRequest world tileAStar hierarchical line =
     && pointY point >= 0 && pointY point <= 32767
     && pointPlane point >= 0 && pointPlane point <= 3
   coordinateFileText tile = let (x, y, p) = unpackTile tile in show x <> "-" <> show y <> "-" <> show p
+  profileNames = ["early", "mid", "end", "maxed"]
+  loadProfile name = do
+    value <- decodeFileStrict' ("benchmarks/accounts" </> name <> ".json")
+    maybe (fail ("invalid account profile: " <> name)) pure value :: IO AccountBuild
   heuristicRegionJson (LeafId component region, value) = object
     [ "component" .= component
     , "region" .= region

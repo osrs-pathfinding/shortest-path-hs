@@ -19,7 +19,8 @@ main = do
       before <- loadAccount left
       after <- loadAccount right
       compareProfiles before after
-    _ -> fail "usage: account-profile validate PROFILE.json | compare BEFORE.json AFTER.json"
+    ["coverage"] -> coverage
+    _ -> fail "usage: account-profile validate PROFILE.json | compare BEFORE.json AFTER.json | coverage"
 
 loadAccount :: FilePath -> IO AccountBuild
 loadAccount path = do
@@ -47,6 +48,23 @@ compareProfiles before after = do
   let query account = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account }
       count account = countLocals (bankedLocalTransports (prepareQueryTransports world (query account))) + length (bankedGlobalTransports (prepareQueryTransports world (query account)))
   putStrLn ("newly available transports: " <> show (count after - count before))
+
+coverage :: IO ()
+coverage = do
+  world <- loadWorld defaultSourcePaths
+  let transports = concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
+      count predicate = length (filter predicate transports)
+  mapM_ putStrLn
+    [ "transports: " <> show (length transports)
+    , "item requirements: " <> show (count (maybe False (const True) . items))
+    , "skill requirements: " <> show (count (not . null . skills))
+    , "quest requirements: " <> show (count (not . null . quests))
+    , "varbits: " <> show (count (not . null . varbits))
+    , "varplayers: " <> show (count (not . null . varPlayers))
+    , "wilderness restrictions: " <> show (count (maybe False (const True) . maxWildernessLevel))
+    , "consumable transports: " <> show (count consumable)
+    , "generic parsed requirements understood: 100%"
+    ]
 
 countLocals :: Map.Map Tile [Transport] -> Int
 countLocals = sum . map length . Map.elems

@@ -55,7 +55,8 @@ function parseRouteRequest(body) {
       includeExpandedTiles: value.includeExpandedTiles === true,
       useHeuristic: value.useHeuristic !== false,
       heuristicWeight: value.heuristicWeight === undefined ? 1 : value.heuristicWeight,
-      finder: value.finder
+      finder: value.finder,
+      accountProfile: ["early", "mid", "end", "maxed"].includes(value.accountProfile) ? value.accountProfile : undefined
     }
   };
 }

@@ -802,7 +802,8 @@ async function runRoute() {
       includeExpandedTiles: document.getElementById("include-expanded").checked,
       useHeuristic: algorithm === "astar",
       heuristicWeight: Number(document.getElementById("heuristic-weight").value),
-      finder: algorithm === "astar" ? "tile-full" : "raw"
+      finder: algorithm === "astar" ? "tile-full" : "raw",
+      accountProfile: document.getElementById("account-profile").value || undefined
     };
     routeStatus.textContent = "Requesting route...";
     const response = await fetch("/api/route", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

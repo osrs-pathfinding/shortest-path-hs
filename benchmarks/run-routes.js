@@ -10,6 +10,7 @@ const runs = positiveInteger(process.env.BENCHMARK_RUNS || "3", "BENCHMARK_RUNS"
 const filter = process.env.BENCHMARK_FILTER;
 const cases = filter ? corpus.filter(test => test.name.toLowerCase().includes(filter.toLowerCase())) : corpus;
 const outputPath = process.env.BENCHMARK_OUTPUT || path.join(root, "out", "route-benchmark.json");
+const accountProfiles = (process.env.BENCHMARK_ACCOUNTS || "early,mid,end,maxed").split(",").filter(Boolean);
 
 if (!cases.length) throw new Error(`no routes match BENCHMARK_FILTER=${JSON.stringify(filter)}`);
 
@@ -23,13 +24,14 @@ function point([x, y, plane]) {
   return { x, y, plane };
 }
 
-const modes = [
+const baseModes = [
   ["raw", { finder: "raw", useHeuristic: false }],
   ["tileFull", { finder: "tile-full", useHeuristic: true }]
 ];
 if (process.env.BENCHMARK_INCLUDE_HIERARCHY === "1") {
-  modes.push(["hierarchical", { finder: "hierarchical", useHeuristic: true }]);
+  baseModes.push(["hierarchical", { finder: "hierarchical", useHeuristic: true }]);
 }
+const modes = accountProfiles.flatMap(profile => baseModes.map(([name, options]) => [`${profile}-${name}`, { ...options, accountProfile: profile }]));
 
 async function query(test, options) {
   const response = await fetch(`${baseUrl}/api/route`, {
@@ -41,7 +43,8 @@ async function query(test, options) {
       allowTransports: test.allowTransports,
       includeExpandedTiles: false,
       useHeuristic: options.useHeuristic,
-      finder: options.finder
+      finder: options.finder,
+      accountProfile: options.accountProfile
     })
   });
   const result = await response.json();
@@ -107,7 +110,7 @@ function printCategoryTable(summary, mode) {
 }
 
 async function main() {
-  console.log(`Benchmarking ${cases.length} routes x ${runs} runs x ${modes.length} modes via ${baseUrl}`);
+  console.log(`Benchmarking ${cases.length} routes x ${accountProfiles.length} accounts x ${runs} runs x ${modes.length} modes via ${baseUrl}`);
   for (const [, options] of modes) await query(cases[0], options);
 
   const results = [];
