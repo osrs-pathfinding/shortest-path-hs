@@ -132,6 +132,7 @@ specialFailures context transport =
       | hasLumbridgeElite || hasItem "772" -> []
       | otherwise -> [MissingCapability "Fairy rings require a Dramen or Lunar staff"]
     "TELEPORTATION_BOX"
+      | "Basic" `isInfixOf` displayInfo transport && pohJewelleryBox poh == NoJewelleryBox -> [MissingCapability "Basic jewellery box is not built"]
       | "Ornate" `isInfixOf` displayInfo transport && pohJewelleryBox poh < OrnateJewelleryBox -> [MissingCapability "Ornate jewellery box is not built"]
       | "Fancy" `isInfixOf` displayInfo transport && pohJewelleryBox poh < FancyJewelleryBox -> [MissingCapability "Fancy jewellery box is not built"]
       | otherwise -> []

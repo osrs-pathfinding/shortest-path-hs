@@ -84,6 +84,8 @@ requirementChecks = do
 profileChecks :: IO ()
 profileChecks = do
   let fairyRing = Transport "FAIRY_RING" Nothing Nothing 0 "" "" False Nothing [] Nothing [] [] [] "test"
+      basicBox = Transport "TELEPORTATION_BOX" Nothing Nothing 0 "Basic Jewellery Box" "" False Nothing [] Nothing [] [] [] "test"
+      varrockPortal = Transport "TELEPORTATION_PORTAL_POH" Nothing Nothing 0 "Varrock Portal" "" False Nothing [] Nothing [] [] [] "test"
       profile name = mustProfile name (benchmarkAccount name [])
       early = profile "early"
       mid = profile "mid"
@@ -97,6 +99,11 @@ profileChecks = do
   assert (not (requirementsSatisfied (context (withoutStaff mid)) fairyRing))
   assert (requirementsSatisfied (context end) fairyRing)
   assert (requirementsSatisfied (context maxed) fairyRing)
+  assert (not (requirementsSatisfied (context early) basicBox))
+  assert (requirementsSatisfied (context mid) basicBox)
+  assert (not (requirementsSatisfied (context early) varrockPortal))
+  assert (requirementsSatisfied (context mid) varrockPortal)
+  assert (requirementsSatisfied (context end) varrockPortal)
 
 mustProfile :: String -> Maybe AccountBuild -> AccountBuild
 mustProfile _ (Just account) = account

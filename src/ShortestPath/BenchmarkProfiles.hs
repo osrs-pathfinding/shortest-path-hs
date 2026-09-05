@@ -56,22 +56,22 @@ benchmarkAccount name transports = compile <$> profile
   allItems = Map.fromList [(item, 1000) | transport <- transports, item <- itemNames =<< maybeToList (items transport)]
   compile value =
     emptyAccountBuild
-      { accountLevels = progressionLevels progression
-      , accountCompletedQuests = progressionQuests progression
-      , accountVarbits = diaryVarbits (progressionDiaries progression) <> platformVarbits (progressionQuetzalPlatforms progression) <> Map.fromList [(4070, 0)]
-      , accountVarPlayers = Map.fromList [(4560, 0), (888, 0), (892, 0), (4182, platformMask (progressionQuetzalPlatforms progression))]
+      { accountLevels = progressionLevels progress
+      , accountCompletedQuests = progressionQuests progress
+      , accountVarbits = diaryVarbits (progressionDiaries progress) <> platformVarbits (progressionQuetzalPlatforms progress) <> Map.fromList [(4070, 0)]
+      , accountVarPlayers = Map.fromList [(4560, 0), (888, 0), (892, 0), (4182, platformMask (progressionQuetzalPlatforms progress))]
       , accountInventory = loadoutInventory loadout
       , accountEquipment = loadoutEquipment loadout
       , accountRunePouch = loadoutRunePouch loadout
       , accountBank = profileBank value
-      , accountDiaries = progressionDiaries progression
+      , accountDiaries = progressionDiaries progress
       , accountPoh = profilePoh value
-      , accountFairyRingsUnlocked = progressionFairyRings progression
-      , accountQuetzalPlatforms = progressionQuetzalPlatforms progression
+      , accountFairyRingsUnlocked = progressionFairyRings progress
+      , accountQuetzalPlatforms = progressionQuetzalPlatforms progress
       , accountRuntime = profileRuntime value
       }
    where
-    progression = profileProgression value
+    progress = profileProgression value
     loadout = profileCarried value
 
 earlyProfile :: BenchmarkProfile
@@ -146,7 +146,7 @@ earlyQuests = Set.fromList ["Another Slice of H.A.M.", "Biohazard", "Bone Voyage
 
 basicPoh, midPoh, maxedPoh :: PohBuild
 basicPoh = PohBuild "Rimmington" NoJewelleryBox Set.empty False False False False False False False
-midPoh = PohBuild "Rimmington" FancyJewelleryBox (Set.fromList ["Varrock", "Falador", "Camelot", "Ardougne", "Kourend Castle", "Barrows"]) False False False True True True True
+midPoh = PohBuild "Rimmington" FancyJewelleryBox (Set.fromList ["Varrock Portal", "Falador Portal", "Camelot Portal", "Ardougne Portal", "Kourend Portal", "Barrows Portal"]) False False False True True True True
 maxedPoh = PohBuild "Rimmington" OrnateJewelleryBox (Set.singleton "*") True True True True True True True
 
 standardRuntime :: RuntimeState
