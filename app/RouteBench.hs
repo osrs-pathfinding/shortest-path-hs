@@ -16,6 +16,7 @@ import System.Exit (exitFailure)
 import System.FilePath (takeDirectory)
 import System.Process (readProcess)
 import System.Info (arch, os)
+import System.IO (hFlush, stdout)
 
 import ShortestPath.Account (AccountBuild, RequirementMode(..))
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames)
@@ -111,14 +112,23 @@ filterTier tier = filter (elem tier . routeTiers)
 writeOracles :: Options -> World -> [RouteCase] -> IO ()
 writeOracles options world cases = do
   let profiles = [(name, benchmarkAccount name (allTransports world)) | name <- benchmarkProfileNames]
-      oracleFor route profile =
-        let result = findRoute (RawDijkstra world) (query route profile)
-            reachable = routeCost result /= maxBound
-         in Oracle reachable (if reachable then Just (routeCost result) else Nothing)
-      entries = Map.fromList [(key route name, oracleFor route profile) | route <- indexed cases, (name, profile) <- profiles]
+      work = [(route, name, profile) | route <- indexed cases, (name, profile) <- profiles]
+      total = length work
+  putProgress ("oracle: 0/" <> show total)
+  entries <- go total (0 :: Int) Map.empty work
   createDirectoryIfMissing True (takeDirectory (oraclePath options))
   LBS.writeFile (oraclePath options) (encode entries)
   putStrLn ("wrote " <> oraclePath options)
+ where
+  go _ _ entries [] = pure entries
+  go total n entries ((route, name, profile):rest) = do
+    let result = findRoute (RawDijkstra world) (query route profile)
+        cost = routeCost result
+    resolvedCost <- evaluate cost
+    let reachable = resolvedCost /= maxBound
+        oracle = Oracle reachable (if reachable then Just resolvedCost else Nothing)
+    putProgress ("oracle: " <> show (n + 1) <> "/" <> show total <> " " <> stableId route <> " " <> name)
+    go total (n + 1) (Map.insert (key route name) oracle entries) rest
 
 runBench :: Options -> World -> TileAStar -> [RouteCase] -> IO ()
 runBench options world astar cases = do
@@ -128,12 +138,14 @@ runBench options world astar cases = do
   createDirectoryIfMissing True (takeDirectory (outputPath options))
   LBS.writeFile (outputPath options) LBS.empty
   let profiles = [(name, benchmarkAccount name (allTransports world)) | name <- benchmarkProfileNames]
+      totalQueries = length cases * length profiles
   -- Warm the same code path without recording it.
   let firstRoute = case indexed cases of route : _ -> route; [] -> error "checked above"
   forM_ profiles $ \(_, profile) -> do
     (route, _) <- findRouteProfiledTileAStar astar (query firstRoute profile)
     voidRoute route
-  forM_ (indexed cases) $ \route -> forM_ profiles $ \(profileName, profile) -> do
+  forM_ (zip [1 :: Int ..] [(route, profileName, profile) | route <- indexed cases, (profileName, profile) <- profiles]) $ \(queryNumber, (route, profileName, profile)) -> do
+    putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName)
     expected <- maybe (die ("missing oracle for " <> key route profileName <> "; run route-bench --write-oracle")) pure (Map.lookup (key route profileName) oracles)
     forM_ [1 .. repetitions options] $ \repetition -> do
       (result, timings) <- findRouteProfiledTileAStar astar (query route profile)
@@ -202,6 +214,9 @@ gitCommit = do
 
 milliseconds :: Integral a => a -> a -> Double
 milliseconds start finish = fromIntegral (finish - start) / 1000000
+
+putProgress :: String -> IO ()
+putProgress message = putStrLn message >> hFlush stdout
 
 timingsJson :: TileAStarTimings -> Value
 timingsJson timings = object
