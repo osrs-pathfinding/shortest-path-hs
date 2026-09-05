@@ -220,6 +220,11 @@ data TileAStarCounters = TileAStarCounters
   , tileHeuristicUnreachable :: !Int
   , tileUnknownComponentPrunes :: !Int
   , tileNoReverseSeedPrunes :: !Int
+  , tileBestBankCostUpdates :: !Int
+  , tileFinalBestBankCost :: !Int
+  , tileBankDominatedHeuristicEvaluations :: !Int
+  , tileBankGlobalTransitionsSuppressed :: !Int
+  , tileBankBoundPQRekeys :: !Int
   }
   deriving stock (Eq, Show)
 
@@ -346,31 +351,35 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
   prevState <- Mutable.replicate stateCount maxBound
   prevStep <- BoxedMutable.replicate stateCount Nothing
   exploredRef <- newSTRef []
+  bestBankRef <- newSTRef maxBound
   -- ponytail: fixed initial heap cap; switch to a growable heap when benchmark routes exceed it.
   queue <- queueNew (min stateCount 262144)
-  let seedInitial counters (state, cost, step) = do
+  counters <- foldM (\counters (state, cost, step) -> do
         known <- Mutable.read best state
         if cost >= known
           then pure counters
-          else enqueue counters state cost step known
-      enqueue counters state cost step known =
-        case heuristicAt world components heuristic (State (stateTile state) (stateBanked state)) of
-          Nothing -> pure (countHeuristicPrune (stateTile state) counters)
-          Just h -> do
-            Mutable.write best state cost
-            case step of
-              Nothing -> pure ()
-              Just value -> do
-                Mutable.write prevState state startState
-                BoxedMutable.write prevStep state (Just value)
-            queuePush queue (addCostDefault maxBound cost (weightedHeuristic h)) state cost
-            pure counters
-              { tilePqPushes = tilePqPushes counters + 1
-              , tileUniqueStatesReached = tileUniqueStatesReached counters + if known == maxBound then 1 else 0
-              , tileHeuristicEvaluations = tileHeuristicEvaluations counters + 1
-              }
-  counters <- foldM seedInitial emptyCounters initialStates
-  go exploredRef best prevState prevStep queue counters
+          else do
+            previousBank <- readSTRef bestBankRef
+            when (isBankCandidate state && cost < previousBank) (writeSTRef bestBankRef cost)
+            bestBank <- readSTRef bestBankRef
+            let counters' = counters {tileBestBankCostUpdates = tileBestBankCostUpdates counters + if isBankCandidate state && cost < previousBank then 1 else 0}
+            case effectiveHeuristic bestBank cost state of
+              Nothing -> pure (countHeuristicPrune (stateTile state) counters')
+              Just (h, dominated) -> do
+                Mutable.write best state cost
+                case step of
+                  Nothing -> pure ()
+                  Just value -> do
+                    Mutable.write prevState state startState
+                    BoxedMutable.write prevStep state (Just value)
+                queuePush queue (addCostDefault maxBound cost (weightedHeuristic h)) state cost
+                pure counters'
+                  { tilePqPushes = tilePqPushes counters' + 1
+                  , tileUniqueStatesReached = tileUniqueStatesReached counters' + if known == maxBound then 1 else 0
+                  , tileHeuristicEvaluations = tileHeuristicEvaluations counters' + 1
+                  , tileBankDominatedHeuristicEvaluations = tileBankDominatedHeuristicEvaluations counters' + if dominated then 1 else 0
+                  }) emptyCounters initialStates
+  go exploredRef best prevState prevStep queue bestBankRef counters
  where
   space = searchSpace astar q
   stateCount = searchSize space * 2
@@ -378,6 +387,8 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
   startState = stateId startNode False
   target = queryTarget q
   reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
+  bankGlobalRelevant = allowTransports q && bankPathEnabled q
+  isBankCandidate state = bankGlobalRelevant && not (stateBanked state) && Set.member (stateTile state) reachableBanks
   initialStates = (startState, 0, Nothing) :
     [ (next, transportCost t, Just (UseTransport (label t) dst))
     | allowTransports q
@@ -393,69 +404,98 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
     Mutable.MVector s Int ->
     BoxedMutable.MVector s (Maybe RouteStep) ->
     MutableQueue s ->
+    STRef s Int ->
     TileAStarCounters ->
     ST s (Route, TileAStarCounters, [(Tile, Bool)])
-  go exploredRef best prevState prevStep queue counters = do
+  go exploredRef best prevState prevStep queue bestBankRef counters = do
     popped <- queuePop queue
     case popped of
       Nothing -> do
         explored <- reverse <$> readSTRef exploredRef
-        pure (Route maxBound (tileStatesPopped counters) [], counters, explored)
-      Just (_, state, cost) -> do
+        finalBank <- readSTRef bestBankRef
+        pure (Route maxBound (tileStatesPopped counters) [], counters {tileFinalBestBankCost = finalBank}, explored)
+      Just (priority, state, cost) -> do
         known <- Mutable.read best state
         if cost /= known
-          then go exploredRef best prevState prevStep queue counters {tileStalePqEntries = tileStalePqEntries counters + 1}
+          then go exploredRef best prevState prevStep queue bestBankRef counters {tileStalePqEntries = tileStalePqEntries counters + 1}
           else do
-            let tile = stateTile state
-            when trace $ do
-              explored <- readSTRef exploredRef
-              writeSTRef exploredRef ((tile, stateBanked state) : explored)
-            if tile == target
-              then do
-                steps <- reconstruct prevState prevStep state
-                explored <- reverse <$> readSTRef exploredRef
-                pure (Route cost (tileStatesPopped counters) steps, counters, explored)
-              else do
-                let counters' = counters {tileStatesPopped = tileStatesPopped counters + 1}
-                counters'' <- foldM (relax best prevState prevStep queue cost state) counters' (neighbors state)
-                go exploredRef best prevState prevStep queue counters''
+            bestBank <- readSTRef bestBankRef
+            let effective = effectiveHeuristic bestBank cost state
+            case effective of
+              Nothing -> go exploredRef best prevState prevStep queue bestBankRef (countHeuristicPrune (stateTile state) counters)
+              Just (h, dominated)
+                | addCostDefault maxBound cost (weightedHeuristic h) > priority -> do
+                    queuePush queue (addCostDefault maxBound cost (weightedHeuristic h)) state cost
+                    go exploredRef best prevState prevStep queue bestBankRef counters
+                      { tileBankBoundPQRekeys = tileBankBoundPQRekeys counters + 1
+                      , tileBankDominatedHeuristicEvaluations = tileBankDominatedHeuristicEvaluations counters + if dominated then 1 else 0
+                      }
+                | otherwise -> do
+                    let tile = stateTile state
+                    when trace $ do
+                      explored <- readSTRef exploredRef
+                      writeSTRef exploredRef ((tile, stateBanked state) : explored)
+                    if tile == target
+                      then do
+                        steps <- reconstruct prevState prevStep state
+                        explored <- reverse <$> readSTRef exploredRef
+                        finalBank <- readSTRef bestBankRef
+                        pure (Route cost (tileStatesPopped counters) steps, counters {tileFinalBestBankCost = finalBank}, explored)
+                      else do
+                        currentBestBank <- readSTRef bestBankRef
+                        let (nextStates, suppressed) = neighbors currentBestBank cost state
+                            counters' = counters
+                              { tileStatesPopped = tileStatesPopped counters + 1
+                              , tileBankGlobalTransitionsSuppressed = tileBankGlobalTransitionsSuppressed counters + suppressed
+                              }
+                        counters'' <- foldM (relax best prevState prevStep queue bestBankRef cost state) counters' nextStates
+                        go exploredRef best prevState prevStep queue bestBankRef counters''
 
   relax ::
-    Mutable.MVector s Int ->
-    Mutable.MVector s Int ->
-    BoxedMutable.MVector s (Maybe RouteStep) ->
-    MutableQueue s ->
-    Int ->
-    Int ->
-    TileAStarCounters ->
-    (Int, Int, RouteStep, EdgeKind) ->
-    ST s TileAStarCounters
-  relax best prevState prevStep queue cost state counters (next, stepCost, step, kind) =
+    Mutable.MVector s Int -> Mutable.MVector s Int -> BoxedMutable.MVector s (Maybe RouteStep) ->
+    MutableQueue s -> STRef s Int -> Int -> Int -> TileAStarCounters ->
+    (Int, Int, RouteStep, EdgeKind) -> ST s TileAStarCounters
+  relax best prevState prevStep queue bestBankRef cost state counters (next, stepCost, step, kind) =
     case addCost cost stepCost of
       Nothing -> pure counters
       Just newCost -> do
         known <- Mutable.read best next
         if newCost >= known
           then pure (countKind kind counters)
-          else case heuristicAt world components heuristic (State (stateTile next) (stateBanked next)) of
-            Nothing -> pure (countKind kind (countHeuristicPrune (stateTile next) counters))
-            Just h -> do
-              Mutable.write best next newCost
-              Mutable.write prevState next state
-              BoxedMutable.write prevStep next (Just step)
-              let counted = countKind kind counters
-                  counters' = counted
-                    { tilePqPushes = tilePqPushes counted + 1
-                    , tileUniqueStatesReached = tileUniqueStatesReached counted + if known == maxBound then 1 else 0
-                    , tileHeuristicEvaluations = tileHeuristicEvaluations counted + 1
-                    }
-              queuePush queue (addCostDefault maxBound newCost (weightedHeuristic h)) next newCost
-              pure counters'
+          else do
+            previousBank <- readSTRef bestBankRef
+            when (isBankCandidate next && newCost < previousBank) (writeSTRef bestBankRef newCost)
+            let counters' = counters {tileBestBankCostUpdates = tileBestBankCostUpdates counters + if isBankCandidate next && newCost < previousBank then 1 else 0}
+            bestBank <- readSTRef bestBankRef
+            let effective = effectiveHeuristic bestBank newCost next
+            case effective of
+              Nothing -> pure (countKind kind (countHeuristicPrune (stateTile next) counters'))
+              Just (h, dominated) -> do
+                Mutable.write best next newCost
+                Mutable.write prevState next state
+                BoxedMutable.write prevStep next (Just step)
+                let counted = countKind kind counters'
+                    counters'' = counted
+                      { tilePqPushes = tilePqPushes counted + 1
+                      , tileUniqueStatesReached = tileUniqueStatesReached counted + if known == maxBound then 1 else 0
+                      , tileHeuristicEvaluations = tileHeuristicEvaluations counted + 1
+                      , tileBankDominatedHeuristicEvaluations = tileBankDominatedHeuristicEvaluations counted + if dominated then 1 else 0
+                      }
+                queuePush queue (addCostDefault maxBound newCost (weightedHeuristic h)) next newCost
+                pure counters''
 
   countKind WalkingEdge counters = counters {tileWalkingRelaxations = tileWalkingRelaxations counters + 1}
   countKind TransportEdge counters = counters {tileTransportRelaxations = tileTransportRelaxations counters + 1}
 
   weightedHeuristic value = min maxBound (round (heuristicWeight q * fromIntegral value))
+  effectiveHeuristic bestBank cost state =
+    let unresolved = not (stateBanked state)
+        dominated = bankGlobalRelevant && unresolved && cost >= bestBank
+        unbanked = heuristicAt world components heuristic (State (stateTile state) False)
+        resolved = heuristicAt world components heuristic (State (stateTile state) True)
+     in case if unresolved then unbanked else resolved of
+      Nothing -> Nothing
+      Just value -> Just (if dominated then maybe value (max value) resolved else value, dominated)
   countHeuristicPrune tile counters =
     counters
       { tileHeuristicUnreachable = tileHeuristicUnreachable counters + 1
@@ -463,8 +503,8 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
       , tileNoReverseSeedPrunes = tileNoReverseSeedPrunes counters + if heuristicComponent world components tile == Nothing then 0 else 1
       }
 
-  neighbors state =
-    walk <> bank <> localTransports <> bankGlobalTransports
+  neighbors bestBank cost state =
+    (walk <> bank <> localTransports <> bankGlobalTransports, length suppressedBankGlobals)
    where
     tile = stateTile state
     banked = stateBanked state
@@ -486,6 +526,8 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
         then transportEdges banked (filter ((/= "VIRTUAL_WALL") . transportType) (Map.findWithDefault [] tile (worldTransports world)))
         else []
     bankGlobalTransports =
+      if dominatedBankGlobal then [] else suppressedBankGlobals
+    suppressedBankGlobals =
       [ (next, stepCost, step, TransportEdge)
       | allowTransports q
       , bankPathEnabled q
@@ -493,6 +535,8 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
       , Set.member tile reachableBanks
       , (next, stepCost, step, _) <- transportEdges True (worldGlobalTeleports world)
       ]
+    -- Keep equal-cost bank globals so the path establishing the bound remains materialized.
+    dominatedBankGlobal = not banked && Set.member tile reachableBanks && cost > bestBank
 
   transportEdges banked transports =
     [ (next, transportCost t, UseTransport (label t) dst, TransportEdge)
@@ -528,7 +572,7 @@ search trace astar@(TileAStar world components _) q heuristic = runST $ do
 data EdgeKind = WalkingEdge | TransportEdge
 
 emptyCounters :: TileAStarCounters
-emptyCounters = TileAStarCounters 0 0 0 0 0 0 0 0 0 0
+emptyCounters = TileAStarCounters 0 0 0 0 0 0 0 0 0 0 0 maxBound 0 0 0
 
 emptyReverseCounters :: TileReverseCounters
 emptyReverseCounters = TileReverseCounters 0 0 0 0 0 0 0 0 0
@@ -1835,6 +1879,11 @@ forceSearch (route, counters, explored) =
         + tileHeuristicUnreachable counters
         + tileUnknownComponentPrunes counters
         + tileNoReverseSeedPrunes counters
+        + tileBestBankCostUpdates counters
+        + tileFinalBestBankCost counters
+        + tileBankDominatedHeuristicEvaluations counters
+        + tileBankGlobalTransitionsSuppressed counters
+        + tileBankBoundPQRekeys counters
     )
 
 forcePointList :: [(Int, Int)] -> IO Int

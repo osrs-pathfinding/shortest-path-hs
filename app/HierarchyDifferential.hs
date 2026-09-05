@@ -661,6 +661,11 @@ tileCountersJson counters = object
   , "heuristicUnreachable" .= tileHeuristicUnreachable counters
   , "unknownComponentPrunes" .= tileUnknownComponentPrunes counters
   , "noReverseSeedPrunes" .= tileNoReverseSeedPrunes counters
+  , "bestBankCostUpdates" .= tileBestBankCostUpdates counters
+  , "finalBestBankCost" .= tileFinalBestBankCost counters
+  , "bankDominatedHeuristicEvaluations" .= tileBankDominatedHeuristicEvaluations counters
+  , "bankGlobalTransitionsSuppressed" .= tileBankGlobalTransitionsSuppressed counters
+  , "bankBoundPQRekeys" .= tileBankBoundPQRekeys counters
   ]
 
 tileReverseCountersJson :: TileReverseCounters -> Value

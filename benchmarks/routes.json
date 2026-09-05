@@ -52,5 +52,6 @@
   {"name":"Lovakengj reverse minecart","category":"tooling-regression","start":[1415,3577,0],"target":[1670,3833,0],"allowTransports":true,"source":"shortest-path-tooling unit-tests.csv"},
   {"name":"Catherby charter tile to Musa Point","category":"tooling-regression","start":[2792,3414,0],"target":[2954,3158,0],"allowTransports":true,"source":"shortest-path-tooling unit-tests.csv"},
   {"name":"Keldagrim east to west","category":"tooling-regression","start":[2894,10199,0],"target":[2864,10199,0],"allowTransports":true,"source":"shortest-path-tooling unit-tests.csv"},
+  {"name":"Falador grapple bank route","category":"tooling-regression","start":[3000,3355,0],"target":[3033,3390,0],"allowTransports":true,"source":"bank-held grapple regression"},
   {"name":"Great Conch to McGrubor's Wood","category":"tooling-regression","start":[3180,2419,0],"target":[2652,3485,0],"allowTransports":true,"source":"shortest-path-tooling unit-tests.csv"}
 ]
