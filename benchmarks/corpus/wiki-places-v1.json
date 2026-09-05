@@ -1,0 +1,25 @@
+{
+  "source": {
+    "page": "https://oldschool.runescape.wiki/w/Lesser_demon",
+    "revision": 15315065
+  },
+  "places": [
+    {"name":"Lesser demons — Crandor","coordinate":[2834,3281,0],"mapId":0},
+    {"name":"Lesser demon — Kourend Castle top floor","coordinate":[1619,3669,2],"mapId":0},
+    {"name":"Lesser demon — Wizards' Tower top floor","coordinate":[3110,3159,2],"mapId":0},
+    {"name":"Lesser demon — Kingstown","coordinate":[1680,3680,2],"mapId":0},
+    {"name":"Lesser demons — Crandor and Karamja Dungeon","coordinate":[2838,9592,0],"mapId":46},
+    {"name":"Lesser demons — Charred Dungeon","coordinate":[2634,8840,0],"mapId":-1},
+    {"name":"Lesser demons — Sisterhood Sanctuary","coordinate":[3847,9759,0],"mapId":14},
+    {"name":"Lesser demons — Taverley Dungeon","coordinate":[2931,9803,0],"mapId":20},
+    {"name":"Lesser demons — Lava Maze","coordinate":[3092,3867,0],"mapId":0},
+    {"name":"Lesser demons — Demonic Ruins","coordinate":[3317,3852,0],"mapId":0},
+    {"name":"Lesser demons — KBD Lair entrance","coordinate":[3015,3850,0],"mapId":0},
+    {"name":"Lesser demons — Wilderness Slayer Cave","coordinate":[3336,10136,0],"mapId":26},
+    {"name":"Lesser demons — Chasm of Fire","coordinate":[1376,10081,0],"mapId":32},
+    {"name":"Lesser demons — Catacombs of Kourend","coordinate":[1714,10069,0],"mapId":32},
+    {"name":"Lesser demons — Temple of Ikov","coordinate":[2631,9875,0],"mapId":10147},
+    {"name":"Lesser demons — Viyeldi caves","coordinate":[2414,4682,0],"mapId":10173},
+    {"name":"Lesser demons — Isle of Souls Dungeon","coordinate":[2152,9335,0],"mapId":-1}
+  ]
+}
