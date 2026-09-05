@@ -7,6 +7,7 @@ import qualified Data.Set as Set
 
 import ShortestPath.Requirements
 import ShortestPath.Account
+import ShortestPath.BenchmarkProfiles
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess
 import ShortestPath.Hierarchy.Types
@@ -20,6 +21,7 @@ main = do
   assert (parseSkills "75 Construction;83 Farming" == [SkillReq 75 "Construction", SkillReq 83 "Farming"])
   assert (parseVars Varbit "4070=0;4560&2" == [VarReq Varbit 4070 0 VarEq, VarReq Varbit 4560 2 VarMask])
   requirementChecks
+  profileChecks
   assert (parseTileField "3221 3218 0" == Just (packTile 3221 3218 0))
   assert (length virtualWalls == 3)
   assert (isVirtualWallTile (packTile 2836 3451 0))
@@ -78,3 +80,24 @@ requirementChecks = do
   assert (not (requirementsSatisfied carried (transport { varbits = [VarReq Varbit 9 0 VarEq] })))
   assert (not (requirementsSatisfied carried (transport { items = Just (ItemOne (ItemTerm "4" 1)) })))
   assert (requirementsSatisfied banked (transport { items = Just (ItemOne (ItemTerm "4" 1)) }))
+
+profileChecks :: IO ()
+profileChecks = do
+  let fairyRing = Transport "FAIRY_RING" Nothing Nothing 0 "" "" False Nothing [] Nothing [] [] [] "test"
+      profile name = mustProfile name (benchmarkAccount name [])
+      early = profile "early"
+      mid = profile "mid"
+      end = profile "end"
+      maxed = profile "maxed"
+      context account = RequirementContext account CarriedOnly 100000000
+      withoutStaff account = account { accountInventory = Map.delete "772" (accountInventory account) }
+  assert (requirementsSatisfied (context early) fairyRing)
+  assert (not (requirementsSatisfied (context (withoutStaff early)) fairyRing))
+  assert (requirementsSatisfied (context mid) fairyRing)
+  assert (not (requirementsSatisfied (context (withoutStaff mid)) fairyRing))
+  assert (requirementsSatisfied (context end) fairyRing)
+  assert (requirementsSatisfied (context maxed) fairyRing)
+
+mustProfile :: String -> Maybe AccountBuild -> AccountBuild
+mustProfile _ (Just account) = account
+mustProfile name Nothing = error ("missing benchmark profile: " <> name)

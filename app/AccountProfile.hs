@@ -1,10 +1,10 @@
 module Main (main) where
 
-import Data.Aeson (decodeFileStrict')
 import qualified Data.Map.Strict as Map
 import System.Environment (getArgs)
 
 import ShortestPath.Account
+import ShortestPath.BenchmarkProfiles
 import ShortestPath.Pathfinder
 import ShortestPath.Tile
 import ShortestPath.Transport
@@ -14,38 +14,45 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
-    ["validate", path] -> loadAccount path >>= validate
+    ["validate", name] -> loadAccount name >>= validate
     ["compare", left, right] -> do
       before <- loadAccount left
       after <- loadAccount right
       compareProfiles before after
     ["coverage"] -> coverage
-    _ -> fail "usage: account-profile validate PROFILE.json | compare BEFORE.json AFTER.json | coverage"
+    _ -> fail "usage: account-profile validate early|mid|end|maxed | compare BEFORE AFTER | coverage"
 
-loadAccount :: FilePath -> IO AccountBuild
-loadAccount path = do
-  value <- decodeFileStrict' path
-  maybe (fail ("invalid account profile: " <> path)) pure value
+loadAccount :: String -> IO AccountBuild
+loadAccount name = do
+  world <- loadWorld defaultSourcePaths
+  maybe (fail ("unknown account profile: " <> name)) pure (benchmarkAccount name (allTransports world))
 
 validate :: AccountBuild -> IO ()
 validate account = do
   world <- loadWorld defaultSourcePaths
   let availability = prepareQueryTransports world profileQuery
-      allTransports = concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
-      failures = foldr countFailure Map.empty [transportExplanation profileQuery False transport | transport <- allTransports]
+      transports = allTransports world
+      failures = foldr countFailure Map.empty [transportExplanation profileQuery False transport | transport <- transports]
   putStrLn ("local carried: " <> show (countLocals (carriedLocalTransports availability)))
   putStrLn ("local banked: " <> show (countLocals (bankedLocalTransports availability)))
   putStrLn ("global carried: " <> show (length (carriedGlobalTransports availability)))
   putStrLn ("global banked: " <> show (length (bankedGlobalTransports availability)))
+  putStrLn ("POH: " <> show (accountPoh account))
+  mapM_ putStrLn
+    [ gatedCount profileQuery transports "quest" (not . null . quests)
+    , gatedCount profileQuery transports "skill" (not . null . skills)
+    , gatedCount profileQuery transports "item" (maybe False (const True) . items)
+    , gatedCount profileQuery transports "var" (\transport -> not (null (varbits transport <> varPlayers transport)))
+    ]
   mapM_ (putStrLn . renderFailure) (Map.toAscList failures)
-  mapM_ (putStrLn . renderFamily availability) ["FAIRY_RING", "SPIRIT_TREE", "QUETZAL", "GNOME_GLIDER"]
+  mapM_ (putStrLn . renderFamily availability) ["FAIRY_RING", "SPIRIT_TREE", "GNOME_GLIDER", "MAGIC_MUSHTREE", "QUETZAL", "HOT_AIR_BALLOON", "CANOE"]
  where
-  profileQuery = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account }
+  profileQuery = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account, queryNowMinutes = 100000000 }
 
 compareProfiles :: AccountBuild -> AccountBuild -> IO ()
 compareProfiles before after = do
   world <- loadWorld defaultSourcePaths
-  let query account = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account }
+  let query account = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account, queryNowMinutes = 100000000 }
       count account = countLocals (bankedLocalTransports (prepareQueryTransports world (query account))) + length (bankedGlobalTransports (prepareQueryTransports world (query account)))
   putStrLn ("newly available transports: " <> show (count after - count before))
 
@@ -66,6 +73,9 @@ coverage = do
     , "generic parsed requirements understood: 100%"
     ]
 
+allTransports :: World -> [Transport]
+allTransports world = concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
+
 countLocals :: Map.Map Tile [Transport] -> Int
 countLocals = sum . map length . Map.elems
 
@@ -82,9 +92,15 @@ failureName failure = case failure of
   MissingSkills _ -> "skills"
   MissingQuests _ -> "quests"
   FailedVarRequirements _ -> "vars"
+  MissingCapability _ -> "profile capability"
 
 renderFailure :: (String, Int) -> String
 renderFailure (name, count) = name <> " blocking: " <> show count
+
+gatedCount :: Query -> [Transport] -> String -> (Transport -> Bool) -> String
+gatedCount query transports name predicate =
+  name <> "-gated available: " <> show (length [transport | transport <- transports, predicate transport, transportAvailable query True transport])
+
 
 renderFamily :: QueryTransportAvailability -> String -> String
 renderFamily availability family =
