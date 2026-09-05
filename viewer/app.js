@@ -755,16 +755,26 @@ function renderRouteStats() {
   const timings = route.timings;
   if (timings) {
     const milliseconds = value => `${Number(value).toFixed(1)} ms`;
-    rows.push(
-      ["source attach", milliseconds(timings.sourceAttachmentMs)],
-      ["target attach", milliseconds(timings.targetAttachmentMs)],
-      ["heuristic", milliseconds(timings.heuristicMs || 0)],
-      ["abstract search", milliseconds(timings.abstractSearchMs)],
-      ["reconstruction", milliseconds(timings.reconstructionMs)],
-      ["total", milliseconds(timings.totalMs)]
-    );
+    if (timings.setupMs !== undefined) {
+      rows.push(
+        ["heuristic setup", milliseconds(timings.setupMs)],
+        ["reverse Dijkstra", milliseconds(timings.reverseDijkstraMs)],
+        ["seed table", milliseconds(timings.seedTableMs)],
+        ["A* search", milliseconds(timings.searchMs)],
+        ["total", milliseconds(timings.totalMs)]
+      );
+    } else {
+      rows.push(
+        ["source attach", milliseconds(timings.sourceAttachmentMs)],
+        ["target attach", milliseconds(timings.targetAttachmentMs)],
+        ["heuristic", milliseconds(timings.heuristicMs || 0)],
+        ["abstract search", milliseconds(timings.abstractSearchMs)],
+        ["reconstruction", milliseconds(timings.reconstructionMs)],
+        ["total", milliseconds(timings.totalMs)]
+      );
+    }
     if (timings.httpWorkerRoundTripMs !== undefined) rows.push(["HTTP round trip", milliseconds(timings.httpWorkerRoundTripMs)]);
-    if (timings.search) rows.push(["metric edges", Number(timings.search.metricEdges).toLocaleString()]);
+    if (timings.search?.metricEdges !== undefined) rows.push(["metric edges", Number(timings.search.metricEdges).toLocaleString()]);
   }
   routeStats.replaceChildren(...rows.flatMap(([name, value]) => { const dt = document.createElement("dt"); const dd = document.createElement("dd"); dt.textContent = name; dd.textContent = value; return [dt, dd]; }));
 }
