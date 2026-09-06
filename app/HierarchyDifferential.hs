@@ -718,7 +718,23 @@ tileCountersJson counters = object
   , "bankDominatedHeuristicEvaluations" .= tileBankDominatedHeuristicEvaluations counters
   , "bankGlobalTransitionsSuppressed" .= tileBankGlobalTransitionsSuppressed counters
   , "bankBoundPQRekeys" .= tileBankBoundPQRekeys counters
+  , "bankGlobalTrace" .= map bankGlobalTraceJson (tileBankGlobalTrace counters)
   ]
+
+bankGlobalTraceJson :: TileBankGlobalObservation -> Value
+bankGlobalTraceJson observation = object
+  [ "tile" .= traceTileJson (bankGlobalTile observation)
+  , "stateBanked" .= bankGlobalStateBanked observation
+  , "cost" .= bankGlobalCost observation
+  , "bestBankCost" .= bankGlobalBestBankCost observation
+  , "suppressed" .= bankGlobalSuppressed observation
+  , "edges" .= map edgeJson (bankGlobalEdges observation)
+  ]
+ where
+  edgeJson (destination, cost, label) = object ["destination" .= traceTileJson destination, "cost" .= cost, "label" .= label]
+
+traceTileJson :: Tile -> [Int]
+traceTileJson tile = let (x, y, plane) = unpackTile tile in [x, y, plane]
 
 tileReverseCountersJson :: TileReverseCounters -> Value
 tileReverseCountersJson counters = object

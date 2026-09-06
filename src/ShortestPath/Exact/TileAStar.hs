@@ -6,6 +6,7 @@ module ShortestPath.Exact.TileAStar
   , NaturalComponents(..)
   , TileStatic(..)
   , TileAStarCounters(..)
+  , TileBankGlobalObservation(..)
   , TileReverseCounters(..)
   , TileAStarTimings(..)
   , ReversePathDebug(..)
@@ -243,6 +244,17 @@ data TileAStarCounters = TileAStarCounters
   , tileBankDominatedHeuristicEvaluations :: !Int
   , tileBankGlobalTransitionsSuppressed :: !Int
   , tileBankBoundPQRekeys :: !Int
+  , tileBankGlobalTrace :: [TileBankGlobalObservation]
+  }
+  deriving stock (Eq, Show)
+
+data TileBankGlobalObservation = TileBankGlobalObservation
+  { bankGlobalTile :: !Tile
+  , bankGlobalStateBanked :: !Bool
+  , bankGlobalCost :: !Int
+  , bankGlobalBestBankCost :: !Int
+  , bankGlobalSuppressed :: !Bool
+  , bankGlobalEdges :: [(Tile, Int, String)]
   }
   deriving stock (Eq, Show)
 
@@ -461,10 +473,11 @@ search trace astar@(TileAStar world components _) q availability heuristic = run
                         pure (Route cost (tileStatesPopped counters) steps, counters {tileFinalBestBankCost = finalBank}, explored)
                       else do
                         currentBestBank <- readSTRef bestBankRef
-                        let (nextStates, suppressed) = neighbors currentBestBank cost state
+                        let (nextStates, suppressed, observation) = neighbors currentBestBank cost state
                             counters' = counters
                               { tileStatesPopped = tileStatesPopped counters + 1
                               , tileBankGlobalTransitionsSuppressed = tileBankGlobalTransitionsSuppressed counters + suppressed
+                              , tileBankGlobalTrace = maybe (tileBankGlobalTrace counters) (: tileBankGlobalTrace counters) observation
                               }
                         counters'' <- foldM (relax best prevState prevStep queue bestBankRef cost state) counters' nextStates
                         go exploredRef best prevState prevStep queue bestBankRef counters''
@@ -522,7 +535,7 @@ search trace astar@(TileAStar world components _) q availability heuristic = run
       }
 
   neighbors bestBank cost state =
-    (walk <> bank <> localTransports <> bankGlobalTransports, length suppressedBankGlobals)
+    (walk <> bank <> localTransports <> bankGlobalTransports, length suppressedBankGlobals, observation)
    where
     tile = stateTile state
     banked = stateBanked state
@@ -555,6 +568,11 @@ search trace astar@(TileAStar world components _) q availability heuristic = run
       ]
     -- Keep equal-cost bank globals so the path establishing the bound remains materialized.
     dominatedBankGlobal = not banked && Set.member tile reachableBanks && cost > bestBank
+    observation =
+      if allowTransports q && Set.member tile reachableBanks
+        then Just (TileBankGlobalObservation tile banked cost bestBank dominatedBankGlobal
+          [(dst, transportCost t, label t) | t <- bankedGlobalTransports availability, Just dst <- [destination t]])
+        else Nothing
 
   transportEdges banked transports =
     [ (next, transportCost t, UseTransport (label t) dst, TransportEdge)
@@ -590,7 +608,24 @@ search trace astar@(TileAStar world components _) q availability heuristic = run
 data EdgeKind = WalkingEdge | TransportEdge
 
 emptyCounters :: TileAStarCounters
-emptyCounters = TileAStarCounters 0 0 0 0 0 0 0 0 0 0 0 maxBound 0 0 0
+emptyCounters = TileAStarCounters
+  { tileStatesPopped = 0
+  , tileStalePqEntries = 0
+  , tilePqPushes = 0
+  , tileUniqueStatesReached = 0
+  , tileWalkingRelaxations = 0
+  , tileTransportRelaxations = 0
+  , tileHeuristicEvaluations = 0
+  , tileHeuristicUnreachable = 0
+  , tileUnknownComponentPrunes = 0
+  , tileNoReverseSeedPrunes = 0
+  , tileBestBankCostUpdates = 0
+  , tileFinalBestBankCost = maxBound
+  , tileBankDominatedHeuristicEvaluations = 0
+  , tileBankGlobalTransitionsSuppressed = 0
+  , tileBankBoundPQRekeys = 0
+  , tileBankGlobalTrace = []
+  }
 
 emptyReverseCounters :: TileReverseCounters
 emptyReverseCounters = TileReverseCounters 0 0 0 0 0 0 0 0 0

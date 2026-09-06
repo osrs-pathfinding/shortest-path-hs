@@ -105,3 +105,60 @@ spec:
         - refId: A
           format: table
           rawSql: SELECT c.profile, c.route_id, b.value AS baseline, c.value AS candidate, 100 * (c.value / b.value - 1) AS pct_change FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0 ORDER BY pct_change DESC
+    - id: 7
+      title: ${metric} CDF
+      description: Corpus CDF for the selected metric, comparing the baseline and candidate runs.
+      type: xychart
+      gridPos: {x: 0, y: 34, w: 24, h: 11}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      fieldConfig:
+        defaults:
+          color: {mode: palette-classic}
+          custom:
+            show: lines
+            lineWidth: 2
+            fillOpacity: 0
+            pointSize: {fixed: 2}
+            axisPlacement: left
+            axisLabel: ""
+            axisColorMode: text
+            scaleDistribution: {type: linear}
+            hideFrom: {tooltip: false, viz: false, legend: false}
+        overrides:
+          - matcher: {id: byName, options: baseline_time_ms}
+            properties:
+              - {id: unit, value: ms}
+              - {id: custom.axisLabel, value: Time}
+              - {id: custom.scaleDistribution, value: {type: log, log: 10}}
+          - matcher: {id: byName, options: candidate_time_ms}
+            properties:
+              - {id: unit, value: ms}
+              - {id: custom.axisLabel, value: Time}
+              - {id: custom.scaleDistribution, value: {type: log, log: 10}}
+          - matcher: {id: byName, options: baseline_percentile}
+            properties:
+              - {id: unit, value: percent}
+              - {id: min, value: 0}
+              - {id: max, value: 100}
+              - {id: custom.axisLabel, value: Corpus percentile}
+          - matcher: {id: byName, options: candidate_percentile}
+            properties:
+              - {id: unit, value: percent}
+              - {id: min, value: 0}
+              - {id: max, value: 100}
+              - {id: custom.axisLabel, value: Corpus percentile}
+      options:
+        mapping: manual
+        series:
+          - name: Baseline
+            x: baseline_time_ms
+            y: baseline_percentile
+          - name: Candidate
+            x: candidate_time_ms
+            y: candidate_percentile
+        tooltip: {mode: all, sort: none}
+        legend: {showLegend: true, displayMode: list, placement: bottom, calcs: []}
+      targets:
+        - refId: A
+          format: table
+          rawSql: WITH ranked AS (SELECT run_id, value, row_number() OVER (PARTITION BY run_id ORDER BY value) AS rank, 100.0 * row_number() OVER (PARTITION BY run_id ORDER BY value) / count() OVER (PARTITION BY run_id) AS percentile FROM osrs_bench.case_metrics WHERE run_id IN ('${baseline}', '${candidate}') AND metric = '${metric}') SELECT maxIf(value, run_id = '${baseline}') AS baseline_time_ms, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_time_ms, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
