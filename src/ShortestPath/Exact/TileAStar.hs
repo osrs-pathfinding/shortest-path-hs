@@ -521,7 +521,7 @@ search trace astar@(TileAStar world components _) q availability heuristic = run
   weightedHeuristic value = min maxBound (round (heuristicWeight q * fromIntegral value))
   effectiveHeuristic bestBank cost state =
     let unresolved = not (stateBanked state)
-        dominated = bankGlobalRelevant && unresolved && cost >= bestBank
+        dominated = bankGlobalRelevant && unresolved && cost > bestBank
         unbanked = heuristicAt world components heuristic (State (stateTile state) False)
         resolved = heuristicAt world components heuristic (State (stateTile state) True)
      in case if unresolved then unbanked else resolved of
