@@ -12,6 +12,10 @@ const shortestPathRoot = path.resolve(root, "../shortest-path");
 const corpusPath = path.join(__dirname, "corpus/routes-v1.json");
 const routes = JSON.parse(fs.readFileSync(corpusPath, "utf8"));
 const wiki = JSON.parse(fs.readFileSync(path.join(__dirname, "corpus/wiki-places-v1.json"), "utf8"));
+const factsPath = process.env.WORLD_FACTS_DB || path.join(root, "data/world-facts.duckdb");
+if (!fs.existsSync(factsPath)) throw new Error(`missing ${factsPath}; run nix-shell --run 'cabal run world-facts' first`);
+const reachableCoordinates = new Set(child.execFileSync("duckdb", [factsPath, "-csv", "-noheader", "-c", "SELECT DISTINCT x || ',' || y || ',' || plane FROM point_access WHERE structurally_reachable"], {encoding: "utf8"}).split(/\r?\n/).filter(Boolean).map(value => value.replace(/^"|"$/g, "")));
+const structurallyReachable = point => reachableCoordinates.has(point.resolved.join(","));
 const gpsRevision = child.execFileSync("git", ["-C", gpsRoot, "rev-parse", "HEAD"], {encoding: "utf8"}).trim();
 const questRevision = child.execFileSync("git", ["-C", questRoot, "rev-parse", "HEAD"], {encoding: "utf8"}).trim();
 
@@ -113,7 +117,7 @@ const wikiPlaces = wiki.places.map(entry => {
   return place(`${entry.monster} — ${entry.location}`, entry.coordinate, snap(entry.coordinate), `oldschool-wiki:${source.page}@${source.revision}#Locations`, "monster");
 });
 const ordinary = cluster([...gpsPlaces, ...questPlaces, ...cluePlaces, ...npcPlaces, ...wikiPlaces])
-  .filter(point => !/bank/i.test(point.name) && !transportCoordinates.has(point.resolved.join()));
+  .filter(point => !/bank/i.test(point.name) && !transportCoordinates.has(point.resolved.join()) && structurallyReachable(point));
 const gpsNatural = ordinary.filter(point => !["quest-natural", "clue-natural"].includes(point.kind));
 const featured = gpsNatural.filter(point => point.kind === "npc" || point.kind === "monster" || point.kind === "dungeon" || /guild/i.test(point.name));
 
@@ -130,7 +134,7 @@ function distanceBand(index, a, b) {
 }
 function choose(pool, counts, seed, avoid, predicate = () => true) {
   const candidates = pool.filter(point => point.resolved.join() !== avoid?.resolved.join() && (counts.get(point.logicalId) || 0) < 3 && predicate(point));
-  const usable = candidates.length ? candidates : pool.filter(point => point.resolved.join() !== avoid?.resolved.join() && (counts.get(point.logicalId) || 0) < 3);
+  const usable = candidates.length ? candidates : pool.filter(point => point.resolved.join() !== avoid?.resolved.join());
   if (!usable.length) throw new Error("endpoint reuse cap exhausted");
   return usable.sort((a, b) => (counts.get(a.logicalId) || 0) - (counts.get(b.logicalId) || 0) || hash(`${a.logicalId}:${seed}`) - hash(`${b.logicalId}:${seed}`))[0];
 }
@@ -175,13 +179,29 @@ function regenerate(category, targets, reversePairs, forcedTargets = [], reverse
 }
 
 const replacements = new Map([
-  ["gps-natural", regenerate("gps-natural", gpsNatural, 10, featured, featured)],
-  ["quest-natural", regenerate("quest-natural", questPlaces, 10)],
-  ["clue-natural", regenerate("clue-natural", cluePlaces, 10)],
+  ["gps-natural", regenerate("gps-natural", gpsNatural.length ? gpsNatural : ordinary, 10, featured.length ? featured : ordinary, featured.length ? featured : ordinary)],
+  ["quest-natural", regenerate("quest-natural", questPlaces.length ? questPlaces : ordinary, 10)],
+  ["clue-natural", regenerate("clue-natural", cluePlaces.length ? cluePlaces : ordinary, 10)],
 ]);
 const refined = routes.map(route => replacements.has(route.category) ? replacements.get(route.category).shift() : routeFrom(route,
   place(route.startName, route.rawStart, route.start, route.startSource, route.category),
   place(route.targetName, route.rawTarget, route.target, route.targetSource, route.category)));
+
+const accidentalUnreachable = refined.filter(route => !/unreachable|regression/i.test(route.category)
+  && (!reachableCoordinates.has(route.start.join(",")) || !reachableCoordinates.has(route.target.join(","))));
+if (accidentalUnreachable.length) {
+  const repaired = new Map();
+  const used = new Map();
+  for (const route of accidentalUnreachable) {
+    const start = choose(ordinary, used, `repair:start:${route.id}`);
+    const target = choose(ordinary, used, `repair:target:${route.id}`, start, candidate => distanceBand(hash(route.id), start, candidate));
+    repaired.set(route.id, routeFrom(route, start, target));
+    used.set(start.logicalId, (used.get(start.logicalId) || 0) + 1);
+    used.set(target.logicalId, (used.get(target.logicalId) || 0) + 1);
+  }
+  for (let index = 0; index < refined.length; index++) if (repaired.has(refined[index].id)) refined[index] = repaired.get(refined[index].id);
+  console.log(`repaired ${accidentalUnreachable.length} routes with structurally unreachable endpoints`);
+}
 
 for (const category of ["gps-natural", "quest-natural", "clue-natural"]) {
   const selected = refined.filter(route => route.category === category);

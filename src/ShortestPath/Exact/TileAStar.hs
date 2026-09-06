@@ -27,6 +27,9 @@ module ShortestPath.Exact.TileAStar
   , renderComponentTiles
   , renderHeuristicTiles
   , tileStaticStats
+  , componentFacts
+  , tileFacts
+  , pointAccessFacts
   , HeuristicRender(..)
   , HeuristicLayer(..)
   , HeuristicTile(..)
@@ -85,6 +88,10 @@ data NaturalComponents = NaturalComponents
   , componentOwnerIds :: Vector.Vector Int
   , componentIds :: Vector.Vector Int
   , maxComponentId :: !Int
+  , allComponentOwnerTiles :: Vector.Vector Int
+  , allComponentOwnerIds :: Vector.Vector Int
+  , allComponentIds :: Vector.Vector Int
+  , structurallyReachableIds :: IntSet.IntSet
   }
 
 instance Binary NaturalComponents where
@@ -93,12 +100,20 @@ instance Binary NaturalComponents where
     put (Vector.toList (componentOwnerIds components))
     put (Vector.toList (componentIds components))
     put (maxComponentId components)
+    put (Vector.toList (allComponentOwnerTiles components))
+    put (Vector.toList (allComponentOwnerIds components))
+    put (Vector.toList (allComponentIds components))
+    put (IntSet.toList (structurallyReachableIds components))
   get =
     NaturalComponents
       <$> (Vector.fromList <$> get)
       <*> (Vector.fromList <$> get)
       <*> (Vector.fromList <$> get)
       <*> get
+      <*> (Vector.fromList <$> get)
+      <*> (Vector.fromList <$> get)
+      <*> (Vector.fromList <$> get)
+      <*> (IntSet.fromList <$> get)
 
 data TileStatic = TileStatic
   { staticTiles :: Vector.Vector Int
@@ -1725,12 +1740,18 @@ naturalComponents world = do
   let reachable = reachableComponents world owner
       pairs = [(tile, cid) | (tile, cid) <- IntMap.toAscList owner, IntSet.member cid reachable]
       ids = IntSet.toAscList (IntSet.fromList (map snd pairs))
+      allPairs = IntMap.toAscList owner
+      allIds = IntSet.toAscList (IntSet.fromList (map snd allPairs))
   pure
     NaturalComponents
       { componentOwnerTiles = Vector.fromList (map fst pairs)
       , componentOwnerIds = Vector.fromList (map snd pairs)
       , componentIds = Vector.fromList ids
       , maxComponentId = maximumDefault 0 ids
+      , allComponentOwnerTiles = Vector.fromList (map fst allPairs)
+      , allComponentOwnerIds = Vector.fromList (map snd allPairs)
+      , allComponentIds = Vector.fromList allIds
+      , structurallyReachableIds = reachable
       }
  where
   go queue cid remaining owner =
@@ -1790,6 +1811,39 @@ reachableComponents world owner =
 
 componentOf :: NaturalComponents -> Tile -> Maybe Int
 componentOf components tile = (componentOwnerIds components Vector.!?) =<< binarySearch (unTile tile) (componentOwnerTiles components)
+
+componentFacts :: TileAStar -> [(Int, Int, Bool, Int, Int, Int, Int, Int, Int)]
+componentFacts (TileAStar _ components _) =
+  [ (cid, count, IntSet.member cid reachable, loX, hiX, loY, hiY, loP, hiP) | (cid, (count, loX, hiX, loY, hiY, loP, hiP)) <- IntMap.toAscList stats ]
+ where
+  reachable = structurallyReachableIds components
+  stats = foldl' add IntMap.empty (zip (Vector.toList (allComponentOwnerTiles components)) (Vector.toList (allComponentOwnerIds components)))
+  add acc (packed, cid) = IntMap.insertWith combine cid (1, x, x, y, y, p, p) acc
+   where
+    (x, y, p) = unpackTile (Tile packed)
+  combine (count, loX, hiX, loY, hiY, loP, hiP) (count', loX', hiX', loY', hiY', loP', hiP') =
+    (count + count', min loX loX', max hiX hiX', min loY loY', max hiY hiY', min loP loP', max hiP hiP')
+
+tileFacts :: TileAStar -> [(Tile, Int)]
+tileFacts (TileAStar _ components _) =
+  [(Tile tile, cid) | (tile, cid) <- zip (Vector.toList (allComponentOwnerTiles components)) (Vector.toList (allComponentOwnerIds components))]
+
+pointAccessFacts :: TileAStar -> Tile -> [(Tile, Maybe Int, String)]
+pointAccessFacts (TileAStar world components _) point =
+  [(resolved, Just cid, accessKind) | (resolved, cid) <- attachments] <> unresolved
+ where
+  owner = allComponentOwnerIds components
+  tiles = allComponentOwnerTiles components
+  componentAt tile = (owner Vector.!?) =<< binarySearch (unTile tile) tiles
+  neighbours = walkingNeighborsRaw world point
+  attachments = case componentAt point of
+    Just cid -> [(point, cid)]
+    Nothing -> [(tile, cid) | tile <- neighbours, Just cid <- [componentAt tile]]
+  unresolved = [(point, Nothing, "unresolved") | null attachments]
+  accessKind
+    | isWalkable (worldCollision world) point = "walkable"
+    | Map.member point (worldTransports world) = "adjacent_transport_origin"
+    | otherwise = "snapped"
 
 -- A blocked transport origin is reachable from an adjacent natural tile.
 heuristicComponent :: World -> NaturalComponents -> Tile -> Maybe Int

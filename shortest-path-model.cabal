@@ -152,6 +152,24 @@ executable bench-import
     time
   default-language: GHC2024
 
+executable world-facts
+  import: warnings
+  main-is: WorldFacts.hs
+  hs-source-dirs: app
+  build-depends:
+    aeson,
+    base,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    hashable,
+    process,
+    shortest-path-model,
+    text,
+    time
+  default-language: GHC2024
+
 test-suite smoke
   import: warnings
   type: exitcode-stdio-1.0

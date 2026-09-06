@@ -1,5 +1,15 @@
 # shortest-path-model
 
+## World facts inspector
+
+Generate the disposable DuckDB inspector database from the authoritative Haskell world model:
+
+```sh
+nix-shell --run 'cabal run world-facts'
+```
+
+This writes `data/world-facts.duckdb`, containing `metadata`, `components`, `tiles`, `point_access`, `places`, and the derived `place_facts` view. Query it directly with `duckdb data/world-facts.duckdb`.
+
 ## Route benchmarks
 
 ### Import benchmark history

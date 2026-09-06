@@ -1,5 +1,6 @@
 .cabal/
 dist-newstyle/
 out/
+data/
 *.o
 *.hi
