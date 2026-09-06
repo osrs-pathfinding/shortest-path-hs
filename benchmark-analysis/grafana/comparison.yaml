@@ -1,0 +1,107 @@
+apiVersion: dashboard.grafana.app/v1beta1
+kind: Dashboard
+metadata:
+  name: osrs-benchmark-comparison
+  annotations:
+    grafana.app/folder: osrs-benchmarks
+spec:
+  title: OSRS Benchmark Comparison
+  description: Compare compatible baseline and candidate benchmark runs.
+  tags: [osrs, benchmark]
+  timezone: browser
+  schemaVersion: 39
+  time:
+    from: now-30d
+    to: now
+  templating:
+    list:
+      - name: candidate
+        label: Candidate
+        type: query
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: PDEE91DDB90597936
+        query: SELECT run_id AS __text, run_id AS __value FROM osrs_bench.runs ORDER BY created_at DESC
+        refresh: 1
+        includeAll: false
+        multi: false
+      - name: baseline
+        label: Baseline
+        type: query
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: PDEE91DDB90597936
+        query: SELECT run_id AS __text, run_id AS __value FROM osrs_bench.runs ORDER BY created_at DESC
+        refresh: 1
+        includeAll: false
+        multi: false
+      - name: metric
+        label: Metric
+        type: custom
+        options:
+          - text: total_ms
+            value: total_ms
+            selected: true
+          - text: search_ms
+            value: search_ms
+          - text: reverse_ms
+            value: reverse_ms
+          - text: states_popped
+            value: states_popped
+          - text: expanded_nodes
+            value: expanded_nodes
+  panels:
+    - id: 1
+      title: Matched Valid Cases
+      type: stat
+      gridPos: {x: 0, y: 0, w: 6, h: 4}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT count() AS matched_cases FROM (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) c INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) b ON c.profile = b.profile AND c.route_id = b.route_id
+    - id: 2
+      title: Candidate Correctness Failures
+      type: stat
+      gridPos: {x: 6, y: 0, w: 6, h: 4}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT uniqExact((profile, route_id)) AS failures FROM osrs_bench.samples WHERE run_id = '${candidate}' AND correct = 0
+    - id: 3
+      title: Median Change (%)
+      type: stat
+      gridPos: {x: 12, y: 0, w: 6, h: 4}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT median(100 * (c.value / b.value - 1)) AS pct_change FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0
+    - id: 4
+      title: Worst Regressions
+      type: table
+      gridPos: {x: 0, y: 4, w: 24, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT c.profile, c.route_id, c.route_label, c.category, b.value AS baseline, c.value AS candidate, 100 * (c.value / b.value - 1) AS pct_change FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0 ORDER BY pct_change DESC LIMIT 100
+    - id: 5
+      title: Before vs After Cases
+      type: table
+      gridPos: {x: 0, y: 14, w: 24, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT c.profile, c.route_id, b.value AS baseline, c.value AS candidate, c.value / b.value AS ratio FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0 ORDER BY ratio DESC
+    - id: 6
+      title: Before vs After Points
+      type: table
+      gridPos: {x: 0, y: 24, w: 24, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT c.profile, c.route_id, b.value AS baseline, c.value AS candidate, 100 * (c.value / b.value - 1) AS pct_change FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0 ORDER BY pct_change DESC

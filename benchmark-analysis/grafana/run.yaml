@@ -1,0 +1,89 @@
+apiVersion: dashboard.grafana.app/v1beta1
+kind: Dashboard
+metadata:
+  name: osrs-benchmark-run
+  annotations:
+    grafana.app/folder: osrs-benchmarks
+spec:
+  title: OSRS Benchmark Run
+  description: Inspect one benchmark run without comparing it to another run.
+  tags: [osrs, benchmark]
+  timezone: browser
+  schemaVersion: 39
+  time:
+    from: now-30d
+    to: now
+  templating:
+    list:
+      - name: run
+        label: Run
+        type: query
+        datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+        query: SELECT run_id AS __text, run_id AS __value FROM osrs_bench.runs ORDER BY created_at DESC
+        refresh: 1
+        includeAll: false
+        multi: false
+  panels:
+    - id: 1
+      title: Run Metadata
+      type: table
+      gridPos: {x: 0, y: 0, w: 12, h: 7}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT run_id, created_at, git_commit, git_branch, git_dirty, suite_id, benchmark_tier, route_count, case_count, testbed, hostname, notes FROM osrs_bench.runs WHERE run_id = '${run}'
+    - id: 2
+      title: Correctness Failures
+      type: stat
+      gridPos: {x: 12, y: 0, w: 6, h: 7}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT countIf(correct = 0) AS failed_samples FROM osrs_bench.samples WHERE run_id = '${run}'
+    - id: 3
+      title: Total Time Distribution (ms)
+      type: stat
+      gridPos: {x: 18, y: 0, w: 6, h: 7}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT quantileExact(0.50)(value) AS p50, quantileExact(0.95)(value) AS p95, quantileExact(0.99)(value) AS p99 FROM osrs_bench.case_metrics WHERE run_id = '${run}' AND metric = 'total_ms'
+    - id: 4
+      title: Timing Summary by Profile (ms)
+      type: table
+      gridPos: {x: 0, y: 7, w: 12, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT profile, count() AS cases, quantileExact(0.50)(value) AS p50, quantileExact(0.95)(value) AS p95, quantileExact(0.99)(value) AS p99 FROM osrs_bench.case_metrics WHERE run_id = '${run}' AND metric = 'total_ms' GROUP BY profile ORDER BY profile
+    - id: 5
+      title: Timing Summary by Category (ms)
+      type: table
+      gridPos: {x: 12, y: 7, w: 12, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT category, count() AS cases, quantileExact(0.50)(value) AS p50, quantileExact(0.95)(value) AS p95, quantileExact(0.99)(value) AS p99 FROM osrs_bench.case_metrics WHERE run_id = '${run}' AND metric = 'total_ms' GROUP BY category ORDER BY p95 DESC
+    - id: 6
+      title: Metric Percentiles
+      type: table
+      gridPos: {x: 0, y: 17, w: 12, h: 13}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT metric, count() AS cases, quantileExact(0.50)(value) AS p50, quantileExact(0.95)(value) AS p95, quantileExact(0.99)(value) AS p99 FROM osrs_bench.case_metrics WHERE run_id = '${run}' GROUP BY metric ORDER BY metric
+    - id: 7
+      title: Slowest Cases (total_ms)
+      type: table
+      gridPos: {x: 12, y: 17, w: 12, h: 13}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT profile, route_id, route_label, category, value AS total_ms, repetitions FROM osrs_bench.case_metrics WHERE run_id = '${run}' AND metric = 'total_ms' ORDER BY total_ms DESC LIMIT 100

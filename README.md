@@ -2,6 +2,26 @@
 
 ## Route benchmarks
 
+### Import benchmark history
+
+Initialize the configured ClickHouse instance with `benchmark-analysis/clickhouse/schema.sql`, then import a JSONL run in one bulk request:
+
+```sh
+nix-shell --run 'cabal run bench-import -- --testbed cedric --notes "baseline" out/route-benchmark.jsonl'
+```
+
+The importer derives `corpus_id`, `profile_set_id`, and `suite_id`, refuses an existing complete `run_id`, keeps the original JSONL untouched, and stores each original JSON object in `raw_json`. ClickHouse is disposable; archived JSONL files remain the source of truth.
+
+Grafana resources live in `benchmark-analysis/grafana/`. Push them after the
+`OSRS Benchmarks` folder exists:
+
+```sh
+gcx resources push -p benchmark-analysis/grafana
+```
+
+The dashboards require Grafana's image-renderer plugin for `gcx dashboards
+snapshot`; the ClickHouse datasource alone is sufficient for normal browsing.
+
 `route-bench` is the canonical local runner. It runs in-process (so it does not
 measure viewer or HTTP overhead), applies all four account profiles, and writes
 one JSON object per route/profile/repetition to a JSONL file.

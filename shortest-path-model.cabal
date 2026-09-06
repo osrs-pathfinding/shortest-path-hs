@@ -134,6 +134,22 @@ executable route-bench
     shortest-path-model,
     text,
     time
+
+executable bench-import
+  import: warnings
+  main-is: BenchImport.hs
+  hs-source-dirs: app
+  build-depends:
+    aeson,
+    base,
+    bytestring,
+    containers,
+    directory,
+    process,
+    scientific,
+    shortest-path-model,
+    text,
+    time
   default-language: GHC2024
 
 test-suite smoke

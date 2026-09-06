@@ -33,6 +33,8 @@ data RouteCase = RouteCase
   { routeId :: Maybe String
   , routeName :: String
   , routeCategory :: String
+  , routeDistanceTag :: String
+  , routePlaneTag :: String
   , routeStart :: [Int]
   , routeTarget :: [Int]
   , routeAllowTransports :: Bool
@@ -41,7 +43,7 @@ data RouteCase = RouteCase
 
 instance FromJSON RouteCase where
   parseJSON = withObject "benchmark route" $ \v ->
-    RouteCase <$> v .:? "id" <*> v .: "name" <*> v .: "category" <*> v .: "start" <*> v .: "target" <*> v .: "allowTransports" <*> v .:? "tiers" .!= []
+    RouteCase <$> v .:? "id" <*> v .: "name" <*> v .: "category" <*> v .:? "distanceTag" .!= "unknown" <*> v .:? "planeTag" .!= "unknown" <*> v .: "start" <*> v .: "target" <*> v .: "allowTransports" <*> v .:? "tiers" .!= []
 
 data Oracle = Oracle { oracleReachable :: Bool, oracleCost :: Maybe Int }
 
@@ -163,6 +165,8 @@ runBench :: Options -> World -> TileAStar -> [RouteCase] -> IO ()
 runBench options world astar cases = do
   oracles <- loadOracle options
   commit <- gitCommit
+  branch <- gitBranch
+  dirty <- gitDirty
   now <- getCurrentTime
   createDirectoryIfMissing True (takeDirectory (outputPath options))
   LBS.writeFile (outputPath options) LBS.empty
@@ -181,12 +185,14 @@ runBench options world astar cases = do
       let reachable = routeCost result /= maxBound
       putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName <> " repetition=" <> show repetition <> " tileAStarMs=" <> show (tileTotalMilliseconds timings) <> " reachable=" <> show reachable)
       when (reachable /= oracleReachable expected || (reachable && Just (routeCost result) /= oracleCost expected)) $
-        die ("oracle mismatch for " <> key route profileName)
+        putStrLn ("oracle mismatch for " <> key route profileName)
       append (outputPath options) options $ object
-        [ "benchmarkVersion" .= ("v1" :: String), "generatedAt" .= show now, "gitCommit" .= commit, "testbed" .= (os <> "-" <> arch)
-        , "routeId" .= stableId route, "routeName" .= routeName route, "category" .= routeCategory route
+        [ "benchmarkVersion" .= ("v1" :: String), "generatedAt" .= show now, "gitCommit" .= commit, "gitBranch" .= branch, "gitDirty" .= dirty, "testbed" .= (os <> "-" <> arch)
+        , "benchmarkTier" .= benchmarkTier options, "routeId" .= stableId route, "routeName" .= routeName route, "category" .= routeCategory route
+        , "distanceTag" .= routeDistanceTag route, "planeTag" .= routePlaneTag route, "allowTransports" .= routeAllowTransports route
         , "accountProfile" .= profileName, "repetition" .= repetition, "start" .= routeStart route, "target" .= routeTarget route
         , "reachable" .= reachable, "cost" .= if reachable then Just (routeCost result) else Nothing
+        , "expectedCost" .= oracleCost expected, "correct" .= (reachable == oracleReachable expected && (not reachable || Just (routeCost result) == oracleCost expected))
         , "timings" .= timingsJson timings, "expandedNodes" .= routeExpandedNodes result
         ]
       when (diagnostic options) $ do
@@ -241,6 +247,16 @@ gitCommit :: IO String
 gitCommit = do
   result <- readProcess "git" ["rev-parse", "--short", "HEAD"] ""
   pure (takeWhile (/= '\n') result)
+
+gitBranch :: IO String
+gitBranch = do
+  result <- readProcess "git" ["branch", "--show-current"] ""
+  pure (takeWhile (/= '\n') result)
+
+gitDirty :: IO Bool
+gitDirty = do
+  result <- readProcess "git" ["status", "--porcelain"] ""
+  pure (not (null result))
 
 milliseconds :: Integral a => a -> a -> Double
 milliseconds start finish = fromIntegral (finish - start) / 1000000
