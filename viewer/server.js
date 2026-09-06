@@ -313,6 +313,22 @@ async function handleComponents(req, res) {
   }
 }
 
+async function handleProfiles(req, res) {
+  try {
+    json(res, 200, await routeProcess.request({
+      start: { x: 3221, y: 3218, plane: 0 },
+      target: { x: 3221, y: 3218, plane: 0 },
+      allowTransports: true,
+      includeExpandedTiles: false,
+      useHeuristic: true,
+      finder: "profiles"
+    }));
+  } catch (error) {
+    const status = /timed out/.test(error.message) ? 504 : 503;
+    json(res, status, { error: error.message });
+  }
+}
+
 http.createServer((req, res) => {
   const requestPath = new URL(req.url, "http://127.0.0.1").pathname;
   if (requestPath === "/api/route") {
@@ -329,6 +345,10 @@ http.createServer((req, res) => {
   }
   if (requestPath === "/api/components") {
     handleComponents(req, res);
+    return;
+  }
+  if (requestPath === "/api/profiles") {
+    handleProfiles(req, res);
     return;
   }
   if (requestPath === "/door_transports.tsv") {

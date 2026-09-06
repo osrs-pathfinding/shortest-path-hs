@@ -48,8 +48,8 @@ benchmarkAccount name transports = compile <$> profile
  where
   profile = case name of
     "early" -> Just earlyProfile
-    "mid" -> Just (midProfile allQuests allItems)
-    "end" -> Just (endProfile allQuests allItems)
+    "mid" -> Just (midProfile allQuests)
+    "end" -> Just (endProfile allQuests)
     "maxed" -> Just (maxedProfile allQuests allItems)
     _ -> Nothing
   allQuests = Set.fromList (concatMap quests transports)
@@ -77,14 +77,14 @@ benchmarkAccount name transports = compile <$> profile
 earlyProfile :: BenchmarkProfile
 earlyProfile = BenchmarkProfile "early" (progression earlyLevels earlyQuests (allDiaries Medium) True (Set.singleton 1)) basicPoh earlyLoadout earlyBank standardRuntime
 
-midProfile :: Set.Set String -> ItemCounts -> BenchmarkProfile
-midProfile allQuests allItems = BenchmarkProfile "mid" (progression midLevels allQuests (allDiaries Hard) True allPlatforms) midPoh midLoadout (withoutCapes allItems) standardRuntime
+midProfile :: Set.Set String -> BenchmarkProfile
+midProfile allQuests = BenchmarkProfile "mid" (progression midLevels allQuests (allDiaries Hard) True allPlatforms) midPoh midLoadout midBank standardRuntime
 
-endProfile :: Set.Set String -> ItemCounts -> BenchmarkProfile
-endProfile allQuests allItems = BenchmarkProfile "end" (progression (Map.insert "Quest" 327 endLevels) allQuests endDiaries True allPlatforms) maxedPoh endLoadout (withoutMaxCapes allItems) standardRuntime
+endProfile :: Set.Set String -> BenchmarkProfile
+endProfile allQuests = BenchmarkProfile "end" (progression (Map.insert "Quest" 327 endLevels) allQuests endDiaries True allPlatforms) maxedPoh endLoadout endBank standardRuntime
 
 maxedProfile :: Set.Set String -> ItemCounts -> BenchmarkProfile
-maxedProfile allQuests allItems = BenchmarkProfile "maxed" (progression (Map.fromList [(skill, 99) | skill <- allSkills] <> Map.fromList [("Quest", 327), ("Total", 2376)]) allQuests (allDiaries Elite) True allPlatforms) maxedPoh maxedLoadout allItems standardRuntime
+maxedProfile allQuests allItems = BenchmarkProfile "maxed" (progression (Map.fromList [(skill, 99) | skill <- allSkills] <> Map.fromList [("Quest", 327), ("Total", 2376)]) allQuests (allDiaries Elite) True allPlatforms) maxedPoh maxedLoadout (allItems <> endBank) standardRuntime
 
 progression :: ItemCounts -> Set.Set String -> Map.Map String DiaryTier -> Bool -> Set.Set Int -> Progression
 progression = Progression
@@ -124,12 +124,6 @@ itemNames expression = case expression of
 maybeToList :: Maybe a -> [a]
 maybeToList = maybe [] pure
 
-withoutCapes :: ItemCounts -> ItemCounts
-withoutCapes counts = foldr Map.delete (withoutMaxCapes counts) ["9813", "13068"]
-
-withoutMaxCapes :: ItemCounts -> ItemCounts
-withoutMaxCapes counts = foldr Map.delete counts ["13280", "13342", "13069", "19476"]
-
 allSkills :: [String]
 allSkills = ["Attack", "Strength", "Defence", "Hitpoints", "Ranged", "Prayer", "Magic", "Agility", "Herblore", "Thieving", "Crafting", "Fletching", "Slayer", "Hunter", "Mining", "Smithing", "Fishing", "Cooking", "Firemaking", "Woodcutting", "Farming", "Runecraft", "Construction", "Sailing"]
 
@@ -162,4 +156,39 @@ standardRunes :: ItemCounts
 standardRunes = Map.fromList [("554", 10000), ("555", 10000), ("556", 10000), ("563", 10000)]
 
 earlyBank :: ItemCounts
-earlyBank = Map.fromList [(item, 1000) | item <- ["772", "2552", "3853", "1704", "11118", "11105", "21146", "11980", "11864", "13111", "13103", "8013", "995"]]
+earlyBank = itemBank ["772", "2552", "3853", "1704", "11118", "11105", "21146", "11980", "8013", "995"]
+
+midBank :: ItemCounts
+midBank = itemBank
+  [ -- Charged jewellery.
+    "2552", "3853", "11978", "11968", "11972", "11194", "11866", "11980", "21146", "21166"
+  , -- Standard spellbook tablets and commonly stocked teleport scrolls.
+    "8007", "8008", "8009", "8010", "8011", "8012", "8013"
+  , "12402", "12403", "12404", "12406", "12407", "12409", "12410", "12938"
+  , -- Reusable quest and travel unlocks.
+    "772", "4251", "6707", "13393", "13660", "19564", "21389", "21760", "22400"
+  , "22599", "22601", "23946", "25818", "29273", "29893", "32399"
+  , -- Hard diary equipment with useful travel actions.
+    "11140", "13110", "13114", "13123", "13127", "13131", "13135", "13139", "13143", "22945"
+  , -- Common rune and overland-transport requirements.
+    "AIR_RUNE", "WATER_RUNE", "EARTH_RUNE", "FIRE_RUNE", "LAW_RUNE", "NATURE_RUNE"
+  , "COINS", "AXE", "PICKAXE", "ROPE", "MACHETE", "SHANTAY_PASS", "CROSSBOW", "MITH_GRAPPLE"
+  ]
+
+endBank :: ItemCounts
+endBank = itemBank
+  [ -- Mid-game staples retained at their best common charge.
+    "2552", "3853", "11978", "11968", "11972", "11194", "11866", "11980", "21146", "21166"
+  , "8007", "8008", "8009", "8010", "8011", "8012", "8013"
+  , "12402", "12403", "12404", "12405", "12406", "12407", "12408", "12409", "12410", "12411", "12642", "12938"
+  , -- Late-game reusable and earned convenience teleports.
+    "772", "4251", "6707", "13393", "13660", "19564", "21268", "21389", "21760", "22400"
+  , "22599", "22601", "23458", "23946", "25818", "26818", "26948", "28327", "29275", "29893", "32399", "33104"
+  , -- Elite diary equipment.
+    "13103", "13111", "13115", "13124", "13128", "13132", "13136", "13140", "13144", "22947"
+  , "AIR_RUNE", "WATER_RUNE", "EARTH_RUNE", "FIRE_RUNE", "LAW_RUNE", "NATURE_RUNE"
+  , "COINS", "AXE", "PICKAXE", "ROPE", "MACHETE", "SHANTAY_PASS", "CROSSBOW", "MITH_GRAPPLE"
+  ]
+
+itemBank :: [String] -> ItemCounts
+itemBank items = Map.fromList [(item, 1000) | item <- items]

@@ -34,7 +34,8 @@ import ShortestPath.Exact.Hierarchical
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Heuristic.Region (RegionTable, buildRegionGraph, buildRegionTable)
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
-import ShortestPath.Account (RequirementMode(..))
+import ShortestPath.Account
+  ( AccountBuild(..), PohBuild(..), RequirementMode(..), RuntimeState(..) )
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames)
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess (preprocessHierarchy)
@@ -495,6 +496,16 @@ serveRequest world tileAStar hierarchical line =
             "components" -> do
               render <- renderComponentTiles tileAStar componentTileRoot "/out/component-tiles"
               pure (heuristicRenderResponse request render)
+            "profiles" ->
+              pure (object
+                [ "id" .= requestId request
+                , "ok" .= True
+                , "profiles" .=
+                    [ accountJson name account
+                    | name <- benchmarkProfileNames
+                    , Just account <- [benchmarkAccount name (allTransports world)]
+                    ]
+                ])
             "reverse-path" ->
               pure (reversePathResponse request (reversePathDebug tileAStar query))
             "hierarchical" -> do
@@ -518,6 +529,37 @@ serveRequest world tileAStar hierarchical line =
   coordinateFileText tile = let (x, y, p) = unpackTile tile in show x <> "-" <> show y <> "-" <> show p
   profileNames = benchmarkProfileNames
   allTransports value = concat (Map.elems (worldTransports value)) <> worldGlobalTeleports value
+  accountJson name account = object
+    [ "name" .= name
+    , "levels" .= accountLevels account
+    , "questCount" .= Set.size (accountCompletedQuests account)
+    , "inventory" .= accountInventory account
+    , "equipment" .= accountEquipment account
+    , "runePouch" .= accountRunePouch account
+    , "bank" .= accountBank account
+    , "diaries" .= Map.map show (accountDiaries account)
+    , "fairyRings" .= accountFairyRingsUnlocked account
+    , "quetzalPlatforms" .= Set.toAscList (accountQuetzalPlatforms account)
+    , "poh" .= pohJson (accountPoh account)
+    , "runtime" .= runtimeJson (accountRuntime account)
+    ]
+  pohJson poh = object
+    [ "location" .= pohLocation poh
+    , "jewelleryBox" .= show (pohJewelleryBox poh)
+    , "portals" .= Set.toAscList (pohPortalDestinations poh)
+    , "fairyRing" .= pohFairyRing poh
+    , "spiritTree" .= pohSpiritTree poh
+    , "obelisk" .= pohObelisk poh
+    , "mountedGlory" .= pohMountedGlory poh
+    , "mountedXerics" .= pohMountedXerics poh
+    , "mountedDigsite" .= pohMountedDigsite poh
+    , "mountedMythical" .= pohMountedMythical poh
+    ]
+  runtimeJson runtime = object
+    [ "spellbook" .= runtimeSpellbook runtime
+    , "cooldownsReady" .= runtimeCooldownsReady runtime
+    , "arriveInsidePoh" .= runtimeArriveInsidePoh runtime
+    ]
   heuristicRegionJson (LeafId component region, value) = object
     [ "component" .= component
     , "region" .= region

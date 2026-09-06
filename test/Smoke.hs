@@ -104,6 +104,12 @@ profileChecks = do
   assert (not (requirementsSatisfied (context early) varrockPortal))
   assert (requirementsSatisfied (context mid) varrockPortal)
   assert (requirementsSatisfied (context end) varrockPortal)
+  assert (Map.member "13393" (accountBank mid))
+  assert (Map.member "28327" (accountBank end))
+  assert (not (Map.member "28327" (accountBank mid)))
+  assert (not (Map.member "13249" (accountBank end)))
+  assert (not (Map.member "CAPESLOT" (accountBank mid)))
+  assert (Map.keysSet (accountBank end) `Set.isSubsetOf` Map.keysSet (accountBank maxed))
 
 mustProfile :: String -> Maybe AccountBuild -> AccountBuild
 mustProfile _ (Just account) = account
