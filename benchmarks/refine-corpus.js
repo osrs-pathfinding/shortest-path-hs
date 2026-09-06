@@ -4,6 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const child = require("child_process");
+const {classifyPoints, coordinateKey} = require("./world-facts");
 
 const root = path.resolve(__dirname, "..");
 const gpsRoot = path.resolve(root, "../runelite-gps-plugin");
@@ -11,11 +12,8 @@ const questRoot = path.resolve(root, "../quest-helper");
 const shortestPathRoot = path.resolve(root, "../shortest-path");
 const corpusPath = path.join(__dirname, "corpus/routes-v1.json");
 const routes = JSON.parse(fs.readFileSync(corpusPath, "utf8"));
+const sentinels = JSON.parse(fs.readFileSync(path.join(__dirname, "corpus/sentinels-v1.json"), "utf8"));
 const wiki = JSON.parse(fs.readFileSync(path.join(__dirname, "corpus/wiki-places-v1.json"), "utf8"));
-const factsPath = process.env.WORLD_FACTS_DB || path.join(root, "data/world-facts.duckdb");
-if (!fs.existsSync(factsPath)) throw new Error(`missing ${factsPath}; run nix-shell --run 'cabal run world-facts' first`);
-const reachableCoordinates = new Set(child.execFileSync("duckdb", [factsPath, "-csv", "-noheader", "-c", "SELECT DISTINCT x || ',' || y || ',' || plane FROM point_access WHERE structurally_reachable"], {encoding: "utf8"}).split(/\r?\n/).filter(Boolean).map(value => value.replace(/^"|"$/g, "")));
-const structurallyReachable = point => reachableCoordinates.has(point.resolved.join(","));
 const gpsRevision = child.execFileSync("git", ["-C", gpsRoot, "rev-parse", "HEAD"], {encoding: "utf8"}).trim();
 const questRevision = child.execFileSync("git", ["-C", questRoot, "rev-parse", "HEAD"], {encoding: "utf8"}).trim();
 
@@ -116,10 +114,19 @@ const wikiPlaces = wiki.places.map(entry => {
   const source = wiki.sources[entry.source];
   return place(`${entry.monster} — ${entry.location}`, entry.coordinate, snap(entry.coordinate), `oldschool-wiki:${source.page}@${source.revision}#Locations`, "monster");
 });
-const ordinary = cluster([...gpsPlaces, ...questPlaces, ...cluePlaces, ...npcPlaces, ...wikiPlaces])
-  .filter(point => !/bank/i.test(point.name) && !transportCoordinates.has(point.resolved.join()) && structurallyReachable(point));
+const routePlaces = routes.flatMap(route => [
+  place(route.startName, route.rawStart, route.start, route.startSource, route.category),
+  place(route.targetName, route.rawTarget, route.target, route.targetSource, route.category),
+]);
+const allCandidates = cluster([...gpsPlaces, ...questPlaces, ...cluePlaces, ...npcPlaces, ...wikiPlaces]);
+const worldFacts = classifyPoints([...allCandidates, ...routePlaces].map(point => point.resolved));
+const factFor = point => worldFacts.get(coordinateKey(point.resolved));
+const benchmarkEligible = point => factFor(point)?.reachable === true;
+const ordinary = allCandidates.filter(point => !/bank/i.test(point.name) && !transportCoordinates.has(point.resolved.join()) && benchmarkEligible(point));
 const gpsNatural = ordinary.filter(point => !["quest-natural", "clue-natural"].includes(point.kind));
 const featured = gpsNatural.filter(point => point.kind === "npc" || point.kind === "monster" || point.kind === "dungeon" || /guild/i.test(point.name));
+const reachableQuestPlaces = questPlaces.filter(benchmarkEligible);
+const reachableCluePlaces = cluePlaces.filter(benchmarkEligible);
 
 function hash(value) {
   let result = 2166136261;
@@ -127,6 +134,10 @@ function hash(value) {
   return result >>> 0;
 }
 function distance(a, b) { return Math.max(Math.abs(a.resolved[0] - b.resolved[0]), Math.abs(a.resolved[1] - b.resolved[1])); }
+function distanceTag(a, b) {
+  const d = distance(a, b);
+  return a.resolved[2] !== b.resolved[2] || d >= 1000 ? "cross-world" : d >= 400 ? "long" : d >= 100 ? "regional" : "local";
+}
 function distanceBand(index, a, b) {
   if (a.resolved[2] !== b.resolved[2]) return index % 4 === 3;
   const d = distance(a, b);
@@ -134,19 +145,17 @@ function distanceBand(index, a, b) {
 }
 function choose(pool, counts, seed, avoid, predicate = () => true) {
   const candidates = pool.filter(point => point.resolved.join() !== avoid?.resolved.join() && (counts.get(point.logicalId) || 0) < 3 && predicate(point));
-  const usable = candidates.length ? candidates : pool.filter(point => point.resolved.join() !== avoid?.resolved.join());
+  const usable = candidates.length ? candidates : pool.filter(point => point.resolved.join() !== avoid?.resolved.join() && (counts.get(point.logicalId) || 0) < 3);
   if (!usable.length) throw new Error("endpoint reuse cap exhausted");
   return usable.sort((a, b) => (counts.get(a.logicalId) || 0) - (counts.get(b.logicalId) || 0) || hash(`${a.logicalId}:${seed}`) - hash(`${b.logicalId}:${seed}`))[0];
 }
 function routeFrom(template, start, target) {
-  const d = distance(start, target);
   return {
     ...template,
     name: `${start.name} → ${target.name}`,
     rawStart: start.raw, start: start.resolved, rawTarget: target.raw, target: target.resolved,
     startName: start.name, targetName: target.name, startSource: start.source, targetSource: target.source,
-    allowTransports: true,
-    distanceTag: start.resolved[2] !== target.resolved[2] || d >= 1000 ? "cross-world" : d >= 400 ? "long" : d >= 100 ? "regional" : "local",
+    distanceTag: distanceTag(start, target),
     planeTag: `${start.resolved[2]}-to-${target.resolved[2]}`,
     startRegion: `${Math.floor(start.resolved[0] / 512)},${Math.floor(start.resolved[1] / 512)}`,
     targetRegion: `${Math.floor(target.resolved[0] / 512)},${Math.floor(target.resolved[1] / 512)}`,
@@ -179,29 +188,59 @@ function regenerate(category, targets, reversePairs, forcedTargets = [], reverse
 }
 
 const replacements = new Map([
-  ["gps-natural", regenerate("gps-natural", gpsNatural.length ? gpsNatural : ordinary, 10, featured.length ? featured : ordinary, featured.length ? featured : ordinary)],
-  ["quest-natural", regenerate("quest-natural", questPlaces.length ? questPlaces : ordinary, 10)],
-  ["clue-natural", regenerate("clue-natural", cluePlaces.length ? cluePlaces : ordinary, 10)],
+  ["gps-natural", regenerate("gps-natural", gpsNatural, 10, featured, featured)],
+  ["quest-natural", regenerate("quest-natural", reachableQuestPlaces, 10)],
+  ["clue-natural", regenerate("clue-natural", reachableCluePlaces, 10)],
 ]);
-const refined = routes.map(route => replacements.has(route.category) ? replacements.get(route.category).shift() : routeFrom(route,
+let refined = routes.map(route => replacements.has(route.category) ? replacements.get(route.category).shift() : routeFrom(route,
   place(route.startName, route.rawStart, route.start, route.startSource, route.category),
   place(route.targetName, route.rawTarget, route.target, route.targetSource, route.category)));
 
-const accidentalUnreachable = refined.filter(route => !/unreachable|regression/i.test(route.category)
-  && (!reachableCoordinates.has(route.start.join(",")) || !reachableCoordinates.has(route.target.join(","))));
-if (accidentalUnreachable.length) {
-  const repaired = new Map();
-  const used = new Map();
-  for (const route of accidentalUnreachable) {
-    const start = choose(ordinary, used, `repair:start:${route.id}`);
-    const target = choose(ordinary, used, `repair:target:${route.id}`, start, candidate => distanceBand(hash(route.id), start, candidate));
-    repaired.set(route.id, routeFrom(route, start, target));
-    used.set(start.logicalId, (used.get(start.logicalId) || 0) + 1);
-    used.set(target.logicalId, (used.get(target.logicalId) || 0) + 1);
-  }
-  for (let index = 0; index < refined.length; index++) if (repaired.has(refined[index].id)) refined[index] = repaired.get(refined[index].id);
-  console.log(`repaired ${accidentalUnreachable.length} routes with structurally unreachable endpoints`);
+const eligibleCoordinate = coordinate => worldFacts.get(coordinateKey(coordinate))?.reachable === true;
+const categoryPools = new Map();
+for (const route of routes) for (const endpoint of [
+  place(route.startName, route.rawStart, route.start, route.startSource, route.category),
+  place(route.targetName, route.rawTarget, route.target, route.targetSource, route.category),
+]) if (benchmarkEligible(endpoint)) categoryPools.set(route.category, cluster([...(categoryPools.get(route.category) || []), endpoint]));
+
+const currentInvalid = routes.filter(route => route.expectedReachable !== false && (!eligibleCoordinate(route.start) || !eligibleCoordinate(route.target)));
+const startCounts = new Map(), targetCounts = new Map();
+for (const route of refined) {
+  if (eligibleCoordinate(route.start)) startCounts.set(coordinateKey(route.start), (startCounts.get(coordinateKey(route.start)) || 0) + 1);
+  if (eligibleCoordinate(route.target)) targetCounts.set(coordinateKey(route.target), (targetCounts.get(coordinateKey(route.target)) || 0) + 1);
 }
+function pickReplacement(route, side, other, counts, originalPlane) {
+  const pool = categoryPools.get(route.category) || ordinary;
+  const candidates = pool.filter(point => point.resolved.join() !== other.resolved.join());
+  const predicates = [
+    point => point.resolved[2] === originalPlane && distanceTag(side === "start" ? point : other, side === "start" ? other : point) === route.distanceTag,
+    point => distanceTag(side === "start" ? point : other, side === "start" ? other : point) === route.distanceTag,
+    point => point.resolved[2] === originalPlane,
+    () => true,
+  ];
+  for (const predicate of predicates) {
+    const usable = candidates.filter(point => (counts.get(coordinateKey(point.resolved)) || 0) < 4 && predicate(point));
+    if (usable.length) return usable.sort((a, b) => (counts.get(coordinateKey(a.resolved)) || 0) - (counts.get(coordinateKey(b.resolved)) || 0) || hash(`${a.logicalId}:repair:${route.id}:${side}`) - hash(`${b.logicalId}:repair:${route.id}:${side}`))[0];
+  }
+  throw new Error(`${route.id}: no structurally reachable ${side} replacement in ${route.category}`);
+}
+refined = refined.map(route => {
+  if (route.expectedReachable === false || (eligibleCoordinate(route.start) && eligibleCoordinate(route.target))) return route;
+  let start = place(route.startName, route.rawStart, route.start, route.startSource, route.category);
+  let target = place(route.targetName, route.rawTarget, route.target, route.targetSource, route.category);
+  const startInvalid = !eligibleCoordinate(route.start), targetInvalid = !eligibleCoordinate(route.target);
+  if (startInvalid && targetInvalid) {
+    start = pickReplacement(route, "start", target, startCounts, route.start[2]);
+    target = pickReplacement(route, "target", start, targetCounts, route.target[2]);
+  } else if (startInvalid) start = pickReplacement(route, "start", target, startCounts, route.start[2]);
+  else target = pickReplacement(route, "target", start, targetCounts, route.target[2]);
+  startCounts.set(coordinateKey(start.resolved), (startCounts.get(coordinateKey(start.resolved)) || 0) + 1);
+  targetCounts.set(coordinateKey(target.resolved), (targetCounts.get(coordinateKey(target.resolved)) || 0) + 1);
+  return routeFrom(route, start, target);
+});
+
+const finalInvalid = refined.filter(route => route.expectedReachable !== false && (!eligibleCoordinate(route.start) || !eligibleCoordinate(route.target)));
+if (finalInvalid.length) throw new Error(finalInvalid.map(route => `${route.id}: final route is structurally unreachable`).join("\n"));
 
 for (const category of ["gps-natural", "quest-natural", "clue-natural"]) {
   const selected = refined.filter(route => route.category === category);
@@ -213,6 +252,10 @@ for (const category of ["gps-natural", "quest-natural", "clue-natural"]) {
 const routePairs = new Set(refined.map(route => `${route.start.join()}>${route.target.join()}`));
 const bidirectionalPairs = refined.filter(route => routePairs.has(`${route.target.join()}>${route.start.join()}`)).length / 2;
 if (bidirectionalPairs < 40 || bidirectionalPairs > 60) throw new Error(`expected 40-60 bidirectional pairs, found ${bidirectionalPairs}`);
+const countsBy = (values, key) => Object.fromEntries([...values.reduce((counts, value) => counts.set(key(value), (counts.get(key(value)) || 0) + 1), new Map())].sort());
+if (refined.length !== routes.length) throw new Error(`route count changed: ${routes.length} -> ${refined.length}`);
+if (JSON.stringify(countsBy(refined, route => route.category)) !== JSON.stringify(countsBy(routes, route => route.category))) throw new Error("category counts changed");
+if (JSON.stringify(countsBy(refined.flatMap(route => route.tiers), tier => tier)) !== JSON.stringify(countsBy(routes.flatMap(route => route.tiers), tier => tier))) throw new Error("tier counts changed");
 
 function metrics(selected) {
   const startCounts = new Map(), targetCounts = new Map();
@@ -240,11 +283,65 @@ function metrics(selected) {
     `maximum logical start reuse: ${Math.max(...startCounts.values())}`,
     `maximum logical target reuse: ${Math.max(...targetCounts.values())}`,
     `bidirectional pairs: ${selected.filter(route => pairs.has(`${route.target.join()}>${route.start.join()}`)).length / 2}`,
+    `categories: ${JSON.stringify(countsBy(selected, route => route.category))}`,
+    `tiers: ${JSON.stringify(countsBy(selected.flatMap(route => route.tiers), tier => tier))}`,
+    `distance tags: ${JSON.stringify(countsBy(selected, route => route.distanceTag))}`,
+    `plane tags: ${JSON.stringify(countsBy(selected, route => route.planeTag))}`,
     "top 20 starts:", top(startCounts), "top 20 targets:", top(targetCounts),
   ].join("\n");
 }
 
+const waterPattern = /\b(sea|ocean|strait|bay|atoll|coast|passage|sailing)\b/i;
+const rejectedCandidates = allCandidates.filter(point => !benchmarkEligible(point));
+const unresolvedCandidates = rejectedCandidates.filter(point => factFor(point)?.status === "unresolved");
+const invalidStarts = currentInvalid.filter(route => !eligibleCoordinate(route.start));
+const invalidTargets = currentInvalid.filter(route => !eligibleCoordinate(route.target));
+const invalidBoth = currentInvalid.filter(route => !eligibleCoordinate(route.start) && !eligibleCoordinate(route.target));
+const describe = (name, coordinate, source) => {
+  const fact = worldFacts.get(coordinateKey(coordinate));
+  return `${name}\t${coordinate.join(",")}\t${source}\t${fact?.status || "unresolved"}\t${(fact?.componentIds || []).join(",") || "-"}`;
+};
+const rejectedEndpoints = currentInvalid.flatMap(route => [
+  ...(!eligibleCoordinate(route.start) ? [`${route.id}\tstart\t${describe(route.startName, route.start, route.startSource)}`] : []),
+  ...(!eligibleCoordinate(route.target) ? [`${route.id}\ttarget\t${describe(route.targetName, route.target, route.targetSource)}`] : []),
+]);
+const waterPlaces = cluster([...allCandidates, ...routePlaces]).filter(point => waterPattern.test(point.name));
+const usedCoordinates = new Set(refined.flatMap(route => [coordinateKey(route.start), coordinateKey(route.target)]));
+const changedRoutes = refined.filter((route, index) => JSON.stringify(route) !== JSON.stringify(routes[index])).length;
+const changedIds = new Set(refined.filter((route, index) => JSON.stringify(route) !== JSON.stringify(routes[index])).map(route => route.id));
+const reachabilityReport = [
+  "# Reachability cleanup",
+  `candidate places examined: ${allCandidates.length}`,
+  `reachable candidate places: ${allCandidates.length - rejectedCandidates.length}`,
+  `structurally unreachable candidate places: ${rejectedCandidates.length - unresolvedCandidates.length}`,
+  `unresolved candidate places: ${unresolvedCandidates.length}`,
+  `current routes examined: ${routes.length}`,
+  `routes with invalid start: ${invalidStarts.length}`,
+  `routes with invalid target: ${invalidTargets.length}`,
+  `routes with both invalid: ${invalidBoth.length}`,
+  `routes with any invalid endpoint: ${currentInvalid.length}`,
+  `routes replaced: ${changedRoutes}`,
+  `sentinel route definitions changed: ${sentinels.filter(sentinel => changedIds.has(sentinel.routeId)).length}/${sentinels.length}`,
+  "",
+  "# Rejected route endpoints",
+  "route_id\tside\tname\tcoordinate\tsource\tstatus\tcomponents",
+  ...rejectedEndpoints,
+  "",
+  "# Unreachable candidate places (non-water names; investigate world-model gaps)",
+  "name\tcoordinate\tsource\tstatus\tcomponents",
+  ...rejectedCandidates.filter(point => !waterPattern.test(point.name)).map(point => describe(point.name, point.resolved, point.source)),
+  "",
+  "# Water/Sailing sanity check",
+  "name\tcoordinate\treachable\tcomponents\tused_in_final_corpus",
+  ...waterPlaces.map(point => {
+    const fact = factFor(point);
+    return `${point.name}\t${point.resolved.join(",")}\t${fact?.reachable === true}\t${(fact?.componentIds || []).join(",") || "-"}\t${usedCoordinates.has(coordinateKey(point.resolved))}`;
+  }),
+].join("\n") + "\n";
+
 const sections = [["all", refined], ...["gps-natural", "quest-natural", "clue-natural"].map(category => [category, refined.filter(route => route.category === category)])];
 fs.writeFileSync(corpusPath, JSON.stringify(refined, null, 2) + "\n");
 fs.writeFileSync(path.join(__dirname, "corpus/coverage-v1.txt"), sections.map(([name, selected]) => `# ${name}\n${metrics(selected)}`).join("\n\n") + "\n");
+const reachabilityPath = path.join(__dirname, "corpus/reachability-v1.txt");
+if (currentInvalid.length || !fs.existsSync(reachabilityPath)) fs.writeFileSync(reachabilityPath, reachabilityReport);
 fs.rmSync(collisionDir, {recursive: true});

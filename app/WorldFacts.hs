@@ -7,18 +7,21 @@ import Data.Aeson (FromJSON(..), eitherDecodeFileStrict', withObject, (.:), (.:?
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
 import Data.List (intercalate, isInfixOf)
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeDirectoryRecursive, removeFile, renameFile)
-import System.Environment (getArgs)
+import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode(..), exitFailure)
 import System.FilePath ((</>), takeDirectory)
 import System.Process (readProcess, readProcessWithExitCode)
+import Text.Read (readMaybe)
 
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Tile
 import ShortestPath.Transport
+import ShortestPath.Tsv (field, readRows)
 import ShortestPath.World
 
 data Place = Place
@@ -78,7 +81,9 @@ main = do
   astar <- buildTileAStar world >>= forceTileAStar
   routes <- loadRoutes "benchmarks/corpus/routes-v1.json"
   wiki <- loadWiki "benchmarks/corpus/wiki-places-v1.json"
-  let places = Map.elems (Map.fromList [(placeId p, p) | p <- routePlaces routes <> wikiPlaces wiki])
+  gpsPath <- fromMaybe "../runelite-gps-plugin/src/main/resources/destinations.tsv" <$> lookupEnv "WORLD_FACTS_GPS_DESTINATIONS"
+  gps <- loadGpsPlaces gpsPath
+  let places = Map.elems (Map.fromList [(placeId p, p) | p <- routePlaces routes <> wikiPlaces wiki <> gps])
       points = Set.toAscList (Set.fromList (map placeTile places <> Set.toList (worldBanks world) <> transportPoints world))
       tempDir = output <> ".csv"
       tempDb = output <> ".tmp"
@@ -86,7 +91,7 @@ main = do
   removeIfExists tempDb
   createDirectoryIfMissing True tempDir
   writeFacts tempDir astar places points
-  metadata <- provenance world
+  metadata <- provenance world gpsPath
   buildDatabase output tempDb tempDir metadata
   removeDirectoryRecursive tempDir
   report astar places
@@ -104,6 +109,19 @@ loadWiki :: FilePath -> IO [WikiPlace]
 loadWiki path = do
   WikiDocument value <- either fail pure =<< eitherDecodeFileStrict' path
   pure value
+
+loadGpsPlaces :: FilePath -> IO [Place]
+loadGpsPlaces path = do
+  exists <- doesFileExist path
+  if not exists then pure [] else do
+    rows <- zip [2 :: Int ..] <$> readRows path
+    pure
+      [ makePlace (field "name" row) (packTile x y plane) ("runelite-gps-plugin:" <> path <> ":" <> show line) (field "category" row)
+      | (line, row) <- rows
+      , Just x <- [readMaybe (field "x" row)]
+      , Just y <- [readMaybe (field "y" row)]
+      , Just plane <- [readMaybe (field "plane" row)]
+      ]
 
 routePlaces :: [Route] -> [Place]
 routePlaces = concatMap $ \route ->
@@ -179,17 +197,20 @@ report astar places = do
   thirdAccess (_, _, value) = value
   structurallyReachableIdsOf (TileAStar _ components _) = structurallyReachableIds components
 
-provenance :: World -> IO [(String, String)]
-provenance world = do
+provenance :: World -> FilePath -> IO [(String, String)]
+provenance world gpsPath = do
   commit <- readProcess "git" ["rev-parse", "--short", "HEAD"] ""
   dirty <- readProcess "git" ["status", "--porcelain"] ""
   worldHash <- sha256 (collisionZip defaultSourcePaths)
   transportHashes <- mapM (sha256 . (resourcesDir defaultSourcePaths </>) . ("transports" </>) . ttFile) transportTypes
+  gpsExists <- doesFileExist gpsPath
+  gpsHash <- if gpsExists then sha256 gpsPath else pure "missing"
   now <- getCurrentTime
   pure
     [ ("git_commit", trim commit), ("git_dirty", bool (not (null dirty)))
     , ("generated_at", formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" now)
     , ("world_data_hash", worldHash), ("transport_data_hash", intercalate ":" transportHashes)
+    , ("place_data_hash", gpsHash)
     , ("component_model_version", "natural-components-v2")
     , ("sailing_supported", "false"), ("generator_version", "world-facts-v1")
     , ("walkable_tiles", show (length (collisionTiles (worldCollision world))))

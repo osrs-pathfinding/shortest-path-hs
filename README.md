@@ -40,17 +40,18 @@ The checked-in v1 corpus contains 750 fixed routes: 20 smoke routes, 140
 standard routes, and 750 full routes. It includes GPS, quest, clue, walking,
 transport, Wilderness, geographic, and regression cases. The 40 entries in
 `benchmarks/corpus/sentinels-v1.json` are the individually tracked cases.
-Unreachable or otherwise failing routes are retained deliberately as useful
-transport/model regression fixtures.
+Ordinary routes contain only structurally reachable endpoints. Intentional
+unreachable regression routes must set `expectedReachable: false`.
 
 Regenerate the natural-route selection from the sibling `runelite-gps-plugin`,
 `quest-helper`, and `shortest-path` clones, then inspect its endpoint-diversity
 report:
 
 ```sh
-node benchmarks/refine-corpus.js
-node benchmarks/validate-corpus.js
+nix-shell --run 'node benchmarks/refine-corpus.js'
+nix-shell --run 'node benchmarks/validate-corpus.js'
 less benchmarks/corpus/coverage-v1.txt
+less benchmarks/corpus/reachability-v1.txt
 ```
 
 The pinned OSRS Wiki monster-location snapshots used by the generator are stored
@@ -62,7 +63,7 @@ access.
 Validate the route schema first:
 
 ```sh
-node benchmarks/validate-corpus.js
+nix-shell --run 'node benchmarks/validate-corpus.js'
 ```
 
 Generate a smoke-tier exact oracle and run the smoke benchmark. Temporary paths
