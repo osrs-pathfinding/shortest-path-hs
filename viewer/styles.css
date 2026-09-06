@@ -1,177 +1,21 @@
 html,
 body,
-.layout,
 #map {
   height: 100%;
-  margin: 0;
 }
 
-body {
-  color: #1d1b19;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+.ts-wrapper {
+  width: 100%;
 }
 
-.layout {
-  display: grid;
-  grid-template-columns: 300px 1fr;
-}
-
-.panel {
-  background: rgba(255, 253, 248, 0.97);
-  border-right: 1px solid rgba(29, 27, 25, 0.16);
-  box-sizing: border-box;
-  overflow: auto;
-  padding: 18px;
-  z-index: 500;
-}
-
-h1 {
-  font-size: 20px;
-  margin: 0 0 18px;
-}
-
-label {
-  display: grid;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 14px;
-}
-
-select,
-button,
-input[type="number"] {
-  border: 1px solid rgba(29, 27, 25, 0.2);
+.ts-control {
+  border-color: #d6d3d1;
   border-radius: 6px;
-  box-sizing: border-box;
-  font: inherit;
-  padding: 8px 10px;
-  width: 100%;
+  min-height: 38px;
 }
 
-input[type="number"] {
-  min-width: 0;
-  width: 100%;
-}
-
-button {
-  background: #1f2937;
-  color: #fff;
-  cursor: pointer;
-  margin: 4px 0 16px;
-}
-
-.routes {
-  border-top: 1px solid rgba(29, 27, 25, 0.16);
-  margin-top: 16px;
-  padding-top: 14px;
-}
-
-h2 {
-  font-size: 15px;
-  margin: 0 0 14px;
-}
-
-.coordinate-grid {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-bottom: 12px;
-}
-
-.coordinate-grid label {
-  font-size: 11px;
-  gap: 4px;
-  margin: 0;
-}
-
-.coordinate-grid input {
-  padding: 7px 5px;
-}
-
-.checkbox-label,
-.map-pick label {
-  align-items: center;
-  display: flex;
-  font-size: 12px;
-  gap: 6px;
-}
-
-.checkbox-label {
-  display: flex;
-  margin-bottom: 10px;
-}
-
-.checkbox-label input,
-.map-pick input {
-  margin: 0;
-  width: auto;
-}
-
-.route-actions {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: 1fr 1fr;
-}
-
-.route-actions button {
-  margin: 0 0 10px;
-}
-
-.map-pick {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.map-pick span {
-  color: #5f5a52;
-  font-size: 12px;
-  margin-right: 2px;
-}
-
-#route-status {
-  color: #6b6258;
-  font-size: 12px;
-  line-height: 1.4;
-  margin: 0 0 10px;
-}
-
-.route-start,
-.route-end {
-  fill: #fff;
-  color: #111827;
-  radius: 7;
-  weight: 3;
-}
-
-.route-transport {
-  color: #b91c1c;
-  fill-color: #f97316;
-  fill-opacity: 1;
-  radius: 7;
-  weight: 2;
-}
-
-.route-jump {
-  color: #b91c1c;
-  dash-array: "6 5";
-  weight: 4;
-}
-
-#status {
-  color: #6b6258;
-  font-size: 12px;
-  line-height: 1.4;
-  margin: 0 0 14px;
-}
-
-.legend {
-  display: grid;
-  gap: 6px;
-  margin: 0 0 16px;
+.ts-dropdown {
+  z-index: 1000;
 }
 
 .legend-item {
@@ -212,10 +56,7 @@ h2 {
   width: 150px;
 }
 
-.heuristic-scale-no-bank {
-  background: linear-gradient(90deg, #28dc6e, #fa2814);
-}
-
+.heuristic-scale-no-bank,
 .heuristic-scale-bank {
   background: linear-gradient(90deg, #28dc6e, #fa2814);
 }
@@ -223,19 +64,11 @@ h2 {
 .heuristic-scale-labels {
   display: flex;
   justify-content: space-between;
-  margin-left: 0;
   width: 150px;
 }
 
-dl {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px 12px;
-  margin: 0;
-}
-
 dt {
-  color: #5f5a52;
+  color: #78716c;
 }
 
 dd {
@@ -246,21 +79,4 @@ dd {
 .heuristic-bitmap-tile {
   image-rendering: pixelated;
   pointer-events: none;
-}
-
-@media (max-width: 800px) {
-  .layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-  }
-
-  .panel {
-    border-bottom: 1px solid rgba(29, 27, 25, 0.16);
-    border-right: 0;
-    max-height: 42vh;
-  }
-
-  .coordinate-grid {
-    gap: 6px;
-  }
 }

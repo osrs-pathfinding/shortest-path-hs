@@ -87,3 +87,79 @@ spec:
         - refId: A
           format: table
           rawSql: SELECT profile, route_id, route_label, category, value AS total_ms, repetitions FROM osrs_bench.case_metrics WHERE run_id = '${run}' AND metric = 'total_ms' ORDER BY total_ms DESC LIMIT 100
+    - id: 8
+      title: Early Build Total Time CDF
+      description: One median total-time value per corpus route, including incorrect cases.
+      type: xychart
+      gridPos: {x: 0, y: 30, w: 12, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      fieldConfig: &cdfFieldConfig
+        defaults:
+          color: {mode: palette-classic}
+          custom:
+            show: lines
+            lineWidth: 2
+            fillOpacity: 0
+            pointSize: {fixed: 2}
+            axisPlacement: left
+            axisLabel: ""
+            axisColorMode: text
+            scaleDistribution: {type: linear}
+            hideFrom: {tooltip: false, viz: false, legend: false}
+        overrides:
+          - matcher: {id: byName, options: total_ms}
+            properties:
+              - {id: unit, value: ms}
+              - {id: custom.axisLabel, value: Total time}
+              - {id: custom.scaleDistribution, value: {type: log, log: 10}}
+          - matcher: {id: byName, options: percentile}
+            properties:
+              - {id: unit, value: percent}
+              - {id: min, value: 0}
+              - {id: max, value: 100}
+              - {id: custom.axisLabel, value: Corpus percentile}
+      options: &cdfOptions
+        mapping: auto
+        series: [{}]
+        tooltip: {mode: single, sort: none}
+        legend: {showLegend: false, displayMode: list, placement: bottom, calcs: []}
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT value AS total_ms, 100.0 * row_number() OVER (ORDER BY value) / count() OVER () AS percentile FROM osrs_bench.case_metrics WHERE run_id = '${run}' AND metric = 'total_ms' AND profile = 'early' ORDER BY total_ms
+    - id: 9
+      title: Mid Build Total Time CDF
+      description: One median total-time value per corpus route, including incorrect cases.
+      type: xychart
+      gridPos: {x: 12, y: 30, w: 12, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      fieldConfig: *cdfFieldConfig
+      options: *cdfOptions
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT value AS total_ms, 100.0 * row_number() OVER (ORDER BY value) / count() OVER () AS percentile FROM osrs_bench.case_metrics WHERE run_id = '${run}' AND metric = 'total_ms' AND profile = 'mid' ORDER BY total_ms
+    - id: 10
+      title: End Build Total Time CDF
+      description: One median total-time value per corpus route, including incorrect cases.
+      type: xychart
+      gridPos: {x: 0, y: 40, w: 12, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      fieldConfig: *cdfFieldConfig
+      options: *cdfOptions
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT value AS total_ms, 100.0 * row_number() OVER (ORDER BY value) / count() OVER () AS percentile FROM osrs_bench.case_metrics WHERE run_id = '${run}' AND metric = 'total_ms' AND profile = 'end' ORDER BY total_ms
+    - id: 11
+      title: Maxed Build Total Time CDF
+      description: One median total-time value per corpus route, including incorrect cases.
+      type: xychart
+      gridPos: {x: 12, y: 40, w: 12, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      fieldConfig: *cdfFieldConfig
+      options: *cdfOptions
+      targets:
+        - refId: A
+          format: table
+          rawSql: SELECT value AS total_ms, 100.0 * row_number() OVER (ORDER BY value) / count() OVER () AS percentile FROM osrs_bench.case_metrics WHERE run_id = '${run}' AND metric = 'total_ms' AND profile = 'maxed' ORDER BY total_ms

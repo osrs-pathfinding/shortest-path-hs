@@ -52,6 +52,15 @@ let kahipPartitions = [];
 let cutEdges = [];
 let doorTransports = [];
 const loadState = { metis: "loading", kahip: "loading", cuts: "loading", doors: "loading" };
+const routeCasePicker = new TomSelect(routeCaseSelect, {
+  create: false,
+  maxOptions: 50,
+  valueField: "value",
+  labelField: "text",
+  searchField: [{ field: "text", weight: 2 }, { field: "keywords", weight: 1 }],
+  searchConjunction: "and",
+  onChange(value) { if (value !== "") loadFixtureRoute(Number(value)); }
+});
 
 const WikiTileLayer = L.TileLayer.extend({
   getTileUrl(coords) {
@@ -143,18 +152,24 @@ function readRouteInputs(which) {
 
 function addFixtureRoutes(group, json) {
   const routes = Array.isArray(json) ? json : (json.routes || []);
-  const previousValue = routeCaseSelect.value;
+  const firstIndex = fixtureRoutes.length;
   fixtureRoutes = fixtureRoutes.concat(routes.map(route => ({ ...route, fixtureGroup: group })));
-  routeCaseSelect.replaceChildren(new Option("Select a test case", ""), ...fixtureRoutes.map((item, index) =>
-    new Option(`${item.fixtureGroup}: ${item.name || `Case ${index + 1}`}`, String(index))));
-  routeCaseSelect.value = previousValue;
+  routeCasePicker.addOptions(routes.map((route, offset) => ({
+    value: String(firstIndex + offset),
+    text: routeCaseLabel(fixtureRoutes[firstIndex + offset], firstIndex + offset),
+    keywords: `${route.id || route.routeId || ""} ${route.accountProfile || ""} ${route.category || ""}`
+  })));
   if (group === "Mismatch" && routes.length) loadFixtureRoute(fixtureRoutes.length - routes.length, true);
+}
+
+function routeCaseLabel(item, index) {
+  return `${item.fixtureGroup}: ${item.name || `Case ${index + 1}`}`;
 }
 
 function loadFixtureRoute(index, fit = false) {
   const selected = fixtureRoutes[index];
   if (!selected) return;
-  routeCaseSelect.value = String(index);
+  routeCasePicker.setValue(String(index), true);
   route = normaliseRoute(selected, selected.name);
   setRouteInputs("start", route.start); setRouteInputs("end", route.target);
   if (typeof route.config.allowTransports === "boolean") document.getElementById("allow-transports").checked = route.config.allowTransports;
@@ -300,11 +315,9 @@ planeSelect.addEventListener("change", () => {
 });
 opacityInput.addEventListener("input", render);
 fitButton.addEventListener("click", fitComponent);
-routeCaseSelect.addEventListener("change", () => {
-  loadFixtureRoute(Number(routeCaseSelect.value));
-});
 document.getElementById("run-route").addEventListener("click", runRoute);
 document.getElementById("fit-route").addEventListener("click", fitRoute);
+document.getElementById("compare-routes").addEventListener("click", compareRoutes);
 map.on("click", event => {
   const point = { x: Math.round(event.latlng.lng), y: Math.round(event.latlng.lat), plane: currentPlane };
   const which = document.querySelector("input[name=pick-mode]:checked").value;
@@ -705,7 +718,7 @@ function drawRoute() {
   if (!route) return;
   const comparison = route.comparisonRoutes || [];
   if (comparison.length) comparisonRouteLayer = L.layerGroup(comparison.flatMap((item, index) => routeSegments(item, index ? "#2563eb" : "#dc2626", index ? 3 : 5))).addTo(map);
-  if (comparison.length) { renderRouteStats(); return; }
+  if (comparison.length) { drawRouteEndpoints(route); renderRouteStats(); return; }
   routeLayer = L.layerGroup(routeSegments(route, "#dc2626", 4)).addTo(map);
   drawRouteEndpoints(route);
   renderRouteStats();
@@ -828,28 +841,66 @@ function renderReversePathStats() {
   }));
 }
 
+function routeRequest(finder) {
+  return {
+    start: readRouteInputs("start"), target: readRouteInputs("end"),
+    allowTransports: document.getElementById("allow-transports").checked,
+    includeExpandedTiles: document.getElementById("include-expanded").checked,
+    useHeuristic: finder === "tile-full",
+    heuristicWeight: Number(document.getElementById("heuristic-weight").value),
+    finder,
+    accountProfile: document.getElementById("account-profile").value || undefined
+  };
+}
+
+async function fetchRoute(body) {
+  const response = await fetch("/api/route", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const result = await response.json();
+  if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+  return result;
+}
+
+function costLabel(value) {
+  return Number.isFinite(value) && value <= Number.MAX_SAFE_INTEGER ? value : "unreachable";
+}
+
 async function runRoute() {
   try {
     const previous = route;
     const algorithm = document.getElementById("route-algorithm").value;
-    const body = {
-      start: readRouteInputs("start"), target: readRouteInputs("end"),
-      allowTransports: document.getElementById("allow-transports").checked,
-      includeExpandedTiles: document.getElementById("include-expanded").checked,
-      useHeuristic: algorithm === "astar",
-      heuristicWeight: Number(document.getElementById("heuristic-weight").value),
-      finder: algorithm === "astar" ? "tile-full" : "raw",
-      accountProfile: document.getElementById("account-profile").value || undefined
-    };
+    const body = routeRequest(algorithm === "astar" ? "tile-full" : "raw");
     routeStatus.textContent = "Requesting route...";
-    const response = await fetch("/api/route", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    const result = await fetchRoute(body);
     route = { ...normaliseRoute(result, previous?.name || (body.useHeuristic ? "Tile A*" : "Dijkstra")), start: body.start, target: body.target, config: { ...(previous?.config || {}), allowTransports: body.allowTransports, includeExpandedTiles: body.includeExpandedTiles, search: body.useHeuristic ? "Tile A*" : "Dijkstra" } };
     routeStatus.textContent = "Route loaded from Haskell.";
     reversePath = null;
     render();
   } catch (error) { routeStatus.textContent = `Route error: ${error.message}`; }
+}
+
+async function compareRoutes() {
+  try {
+    const previous = route;
+    const rawRequest = routeRequest("raw");
+    const tileRequest = { ...rawRequest, finder: "tile-full", useHeuristic: true };
+    routeStatus.textContent = "Requesting Raw Dijkstra and Tile A*...";
+    const [rawResult, tileResult] = await Promise.all([fetchRoute(rawRequest), fetchRoute(tileRequest)]);
+    const raw = { ...normaliseRoute(rawResult, "Raw Dijkstra"), start: rawRequest.start, target: rawRequest.target };
+    const tile = { ...normaliseRoute(tileResult, "Tile A*"), start: rawRequest.start, target: rawRequest.target };
+    const rawCost = costLabel(raw.cost);
+    const tileCost = costLabel(tile.cost);
+    route = {
+      name: previous?.name || "Route comparison",
+      cost: `raw ${rawCost}, tile-full ${tileCost}`,
+      start: rawRequest.start, target: rawRequest.target, path: [],
+      comparisonRoutes: [raw, tile],
+      config: { ...(previous?.config || {}), allowTransports: rawRequest.allowTransports, accountProfile: rawRequest.accountProfile, search: "Raw Dijkstra vs Tile A*" }
+    };
+    routeStatus.textContent = raw.cost === tile.cost ? `Costs agree: ${rawCost}.` : `Correctness failure: raw ${rawCost}, Tile A* ${tileCost}.`;
+    reversePath = null;
+    render();
+    fitRoute();
+  } catch (error) { routeStatus.textContent = `Comparison error: ${error.message}`; }
 }
 
 function fitRoute() {
