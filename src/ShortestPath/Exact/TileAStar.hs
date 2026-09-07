@@ -313,6 +313,8 @@ data ReversePathEdge = ReversePathEdge
 
 data Heuristic = Heuristic
   { heuristicSeeds :: Boxed.Vector (Vector.Vector (Int, Int))
+  , heuristicSiteIndex :: IntMap.IntMap Int
+  , heuristicSiteDistances :: Vector.Vector Int
   , heuristicReverseMilliseconds :: !Double
   , heuristicSeedTableMilliseconds :: !Double
   , heuristicReverseCounters :: !TileReverseCounters
@@ -772,7 +774,7 @@ buildHeuristic astar@(TileAStar _ components _) q availability =
         then timedIO forceReverseResult (pure (reverseDijkstra graph (targetSeeds graph target)))
         else timedIO forceReverseResult (pure (reverseDijkstraUncounted graph (targetSeeds graph target), emptyReverseCounters))
     (table, seedMs) <- timedIO forceSeedTable (pure (seedTableFromDistances components graph distances))
-    pure (Heuristic table reverseMs seedMs counters)
+    pure (heuristicFromSeedTable table graph distances reverseMs seedMs counters)
 
 reversePathDebug :: TileAStar -> Query -> ReversePathDebug
 reversePathDebug astar@(TileAStar world components _) q =
@@ -781,7 +783,7 @@ reversePathDebug astar@(TileAStar world components _) q =
   availability = prepareQueryTransports world q
   graph = siteGraph astar q availability
   distances = reverseDijkstraUncounted graph (targetSeeds graph (queryTarget q))
-  heuristic = Heuristic (seedTableFromDistances components graph distances) 0 0 emptyReverseCounters
+  heuristic = heuristicFromDistances components graph distances 0 0 emptyReverseCounters
   sourceNode = IntMap.lookup (unTile (queryStart q)) (siteTileIndex graph)
   stateDebug banked =
     case sourceNode of
@@ -1336,12 +1338,31 @@ tileCoordMask = (1 `shiftL` 29) - 1
 heuristicAt :: World -> NaturalComponents -> Heuristic -> State -> Maybe Int
 heuristicAt world components heuristic (State tile banked) =
   case heuristicComponent world components tile of
-    Nothing -> Nothing
+    Nothing -> exactSiteDistance
     Just cid ->
       let seeds = heuristicSeeds heuristic Boxed.! seedKey cid banked
-       in if Vector.null seeds then Nothing else Just (Vector.minimum (Vector.map seedDistance seeds))
+       in if Vector.null seeds then exactSiteDistance else Just (Vector.minimum (Vector.map seedDistance seeds))
  where
+  exactSiteDistance = do
+    node <- IntMap.lookup (unTile tile) (heuristicSiteIndex heuristic)
+    let distanceIndex = stateId node banked
+    distance <- heuristicSiteDistances heuristic Vector.!? distanceIndex
+    if distance == maxBound then Nothing else Just distance
   seedDistance (packed, cost) = addCostDefault maxBound cost (chebyshevPacked (unTile tile) packed)
+
+heuristicFromDistances :: NaturalComponents -> SiteGraph -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
+heuristicFromDistances components graph distances reverseMs seedMs counters =
+  heuristicFromSeedTable (seedTableFromDistances components graph distances) graph distances reverseMs seedMs counters
+
+heuristicFromSeedTable :: Boxed.Vector (Vector.Vector (Int, Int)) -> SiteGraph -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
+heuristicFromSeedTable seeds graph distances reverseMs seedMs counters =
+  Heuristic
+    seeds
+    (siteTileIndex graph)
+    (Vector.generate (Vector.length (siteTiles graph) * 2) (distances Vector.!))
+    reverseMs
+    seedMs
+    counters
 
 seedTableFromDistances :: NaturalComponents -> SiteGraph -> Vector.Vector Int -> Boxed.Vector (Vector.Vector (Int, Int))
 seedTableFromDistances components graph distances = runST $ do

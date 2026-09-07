@@ -67,6 +67,8 @@ main = do
   assert (routeSteps globalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
   assert (searchGlobalEntryEdges (querySearchCounters globalTimings) == 1)
   checkReversePathDebug tileAStar tiles
+  checkTransportOnlyEndpoint raw tileAStar tiles
+  checkIntermediateTransportEndpoint raw tileAStar tiles
   checkHeuristicPruning tileAStar tiles
 
 synthetic :: (World, Partition, TerminalRoles, Tiles)
@@ -74,7 +76,7 @@ synthetic =
   ( World (CollisionMap (Map.singleton (1, 1) collisionBytes)) transports globals banks
   , partition
   , roles
-  , Tiles a0 a1 a3 a8 a25 b1 c0 d0 d1 e0 s0 s1 s2
+  , Tiles a0 a1 a3 a8 a25 b1 c0 d0 d1 e0 s0 s1 s2 unknown x y
   )
  where
   a0 = packTile 100 100 0
@@ -96,6 +98,8 @@ synthetic =
   d3 = packTile 111 112 0
   e0 = packTile 109 110 0
   unknown = packTile 200 200 0
+  xSite = packTile 210 210 0
+  ySite = packTile 220 220 0
   allEdges =
     [(packTile x 100 0, 1) | x <- [100 .. 124]]
       <> [(s0, 0), (s0, 1), (s1, 1), (s2, 1), (b0, 1)]
@@ -128,7 +132,10 @@ synthetic =
            , local "SYNTHETIC_LONG" a0 d1 20
            , localReq "SYNTHETIC_BANK_LOCAL_AT_BANK" a0 d1 5 (ItemOne (ItemTerm "999" 1))
            , local "SYNTHETIC_UNKNOWN" a0 unknown 1
+           , local "SYNTHETIC_X_1" a0 xSite 5
+           , local "SYNTHETIC_DEAD_END" a0 ySite 1
            ])
+    , (xSite, [local "SYNTHETIC_X_2" xSite c0 7])
     , (b1, [local "SYNTHETIC_BOAT" b1 c0 2])
     , (c1, [local "SYNTHETIC_RETURN" c1 a25 1])
     , (e0, [local "SYNTHETIC_RING" e0 c0 2, localReq "SYNTHETIC_BANK_LOCAL" e0 d1 5 (ItemOne (ItemTerm "999" 1))])
@@ -142,7 +149,7 @@ synthetic =
 data Tiles = Tiles
   { tA0 :: Tile, tA1 :: Tile, tA3 :: Tile, tA8 :: Tile, tA25 :: Tile
   , tB1 :: Tile, tC0 :: Tile, tD0 :: Tile, tD1 :: Tile, tE0 :: Tile
-  , tS0 :: Tile, tS1 :: Tile, tS2 :: Tile
+  , tS0 :: Tile, tS1 :: Tile, tS2 :: Tile, tUnknown :: Tile, tX :: Tile, tY :: Tile
   }
 
 local :: String -> Tile -> Tile -> Int -> Transport
@@ -280,6 +287,40 @@ checkHeuristicPruning tileAStar tiles = do
   assert (routeCost unknownRoute == 25)
   assert (tileUnknownComponentPrunes unknownCounters > 0)
   assert (tileNoReverseSeedPrunes noSeedCounters > 0)
+
+checkTransportOnlyEndpoint :: RawDijkstra -> TileAStar -> Tiles -> IO ()
+checkTransportOnlyEndpoint raw tileAStar tiles = do
+  let targetQuery = query (tA0 tiles) (tUnknown tiles) (Set.singleton "SYNTHETIC_UNKNOWN") False
+      rawRoute = findRoute raw targetQuery
+      tileRoute = findRoute tileAStar targetQuery
+      expected = [UseTransport "SYNTHETIC_UNKNOWN" (tUnknown tiles)]
+  assert (routeCost rawRoute == 1)
+  assert (routeCost tileRoute == 1)
+  assert (routeSteps tileRoute == expected)
+
+checkIntermediateTransportEndpoint :: RawDijkstra -> TileAStar -> Tiles -> IO ()
+checkIntermediateTransportEndpoint raw tileAStar tiles = do
+  let enabled = Set.fromList ["SYNTHETIC_X_1", "SYNTHETIC_X_2", "SYNTHETIC_DEAD_END"]
+      routeQuery = query (tA0 tiles) (tC0 tiles) enabled False
+      rawRoute = findRoute raw routeQuery
+      tileRoute = findRoute tileAStar routeQuery
+      expected = [ UseTransport "SYNTHETIC_X_1" (tX tiles)
+                 , UseTransport "SYNTHETIC_X_2" (tC0 tiles)
+                 ]
+      xDebug = reversePathDebug tileAStar (query (tX tiles) (tC0 tiles) enabled False)
+      yDebug = reversePathDebug tileAStar (query (tY tiles) (tC0 tiles) enabled False)
+  assert (routeCost rawRoute == 12)
+  assert (routeSteps rawRoute == expected)
+  assert (routeCost tileRoute == 12)
+  assert (routeSteps tileRoute == expected)
+  assert (reverseStateDistance (unbankedState xDebug) == 7)
+  assert (reverseStateHeuristic (unbankedState xDebug) == 7)
+  assert (reverseStateUnreachable (unbankedState yDebug))
+ where
+  unbankedState debug =
+    case reverseDebugStates debug of
+      [state, _] -> state
+      states -> error ("expected two reverse states, got " <> show (length states))
 
 concreteCost :: World -> Query -> [RouteStep] -> Int
 concreteCost world q = snd . foldl step (queryStart q, 0)
