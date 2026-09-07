@@ -6,9 +6,10 @@ import Control.Concurrent (forkIO, setNumCapabilities)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.Exception (SomeException, evaluate, throwIO, try)
 import Control.Monad (forM, forM_, replicateM_, when)
-import Data.Aeson (FromJSON(..), ToJSON(..), Value, eitherDecodeFileStrict', encode, object, withObject, (.:), (.:?), (.!=), (.=))
+import Data.Aeson (FromJSON(..), ToJSON(..), Value, eitherDecode, eitherDecodeFileStrict', encode, object, withObject, (.:), (.:?), (.!=), (.=))
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime)
 import GHC.Clock (getMonotonicTimeNSec)
@@ -47,6 +48,12 @@ instance FromJSON RouteCase where
 
 data Oracle = Oracle { oracleReachable :: Bool, oracleCost :: Maybe Int }
 
+data PreviousResult = PreviousResult String String (Maybe Bool)
+
+instance FromJSON PreviousResult where
+  parseJSON = withObject "benchmark result" $ \v ->
+    PreviousResult <$> v .: "routeId" <*> v .: "accountProfile" <*> v .:? "correct"
+
 instance FromJSON Oracle where
   parseJSON = withObject "oracle" $ \v -> Oracle <$> v .: "reachable" <*> v .:? "cost"
 
@@ -64,10 +71,11 @@ data Options = Options
   , routeLimit :: Maybe Int
   , benchmarkTier :: String
   , oracleJobs :: Int
+  , rerunFailures :: Maybe FilePath
   }
 
 defaultOptions :: Options
-defaultOptions = Options "benchmarks/corpus/routes-v1.json" "benchmarks/corpus/oracle-v1.json" "out/route-benchmark.jsonl" 3 False False False Nothing "full" 4
+defaultOptions = Options "benchmarks/corpus/routes-v1.json" "benchmarks/corpus/oracle-v1.json" "out/route-benchmark.jsonl" 3 False False False Nothing "full" 4 Nothing
 
 main :: IO ()
 main = do
@@ -101,7 +109,8 @@ parseOptions = go defaultOptions
     [(n, "")] | n > 0 -> go (options {oracleJobs = n}) rest
     _ -> die "--jobs must be a positive integer"
   go options ("--diagnostic":rest) = go (options {diagnostic = True}) rest
-  go _ _ = die "usage: route-bench [--seed] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic]"
+  go options ("--rerun-failures":path:rest) = go (options {rerunFailures = Just path}) rest
+  go _ _ = die "usage: route-bench [--seed] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic] [--rerun-failures JSONL]"
 
 loadCases :: Options -> IO [RouteCase]
 loadCases options = do
@@ -164,6 +173,7 @@ writeOracles options world cases = do
 runBench :: Options -> World -> TileAStar -> [RouteCase] -> IO ()
 runBench options world astar cases = do
   oracles <- loadOracle options
+  failedKeys <- maybe (pure Nothing) (fmap Just . loadFailedKeys) (rerunFailures options)
   commit <- gitCommit
   branch <- gitBranch
   dirty <- gitDirty
@@ -171,13 +181,21 @@ runBench options world astar cases = do
   createDirectoryIfMissing True (takeDirectory (outputPath options))
   LBS.writeFile (outputPath options) LBS.empty
   let profiles = [(name, benchmarkAccount name (allTransports world)) | name <- benchmarkProfileNames]
-      totalQueries = length cases * length profiles
+      queries =
+        [ (route, profileName, profile)
+        | route <- indexed cases
+        , (profileName, profile) <- profiles
+        , maybe True (Set.member (key route profileName)) failedKeys
+        ]
+      totalQueries = length queries
+  when (null queries) (die "no failed benchmark cases selected")
   -- Warm the same code path without recording it.
-  let firstRoute = case indexed cases of route : _ -> route; [] -> error "checked above"
-  forM_ profiles $ \(_, profile) -> do
+  let firstRoute = case queries of (route, _, _) : _ -> route; [] -> error "checked above"
+  forM_ (Set.toList (Set.fromList [profileName | (_, profileName, _) <- queries])) $ \profileName -> do
+    let profile = benchmarkAccount profileName (allTransports world)
     (route, _) <- findRouteProfiledTileAStar astar (query firstRoute profile)
     voidRoute route
-  forM_ (zip [1 :: Int ..] [(route, profileName, profile) | route <- indexed cases, (profileName, profile) <- profiles]) $ \(queryNumber, (route, profileName, profile)) -> do
+  forM_ (zip [1 :: Int ..] queries) $ \(queryNumber, (route, profileName, profile)) -> do
     putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName)
     expected <- maybe (die ("missing oracle for " <> key route profileName <> "; run route-bench --write-oracle")) pure (Map.lookup (key route profileName) oracles)
     forM_ [1 .. repetitions options] $ \repetition -> do
@@ -211,6 +229,17 @@ loadOracle options = do
     Left _ | seedMode options -> die "seed oracle missing; run route-bench --seed --write-oracle once"
     Left message -> die (oraclePath options <> ": " <> message)
     Right value -> pure value
+
+loadFailedKeys :: FilePath -> IO (Set.Set String)
+loadFailedKeys path = do
+  contents <- LBS.readFile path
+  rows <- traverse decodeLine (filter (not . LBS.null) (LBS.split 10 contents))
+  pure (Set.fromList [rid <> "/" <> profile | PreviousResult rid profile (Just False) <- rows])
+ where
+  decodeLine line =
+    case eitherDecode line of
+      Left message -> die (path <> ": " <> message)
+      Right result -> pure result
 
 indexed :: [RouteCase] -> [RouteCase]
 indexed = zipWith add [1 :: Int ..]
