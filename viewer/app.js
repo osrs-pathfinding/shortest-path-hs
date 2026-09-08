@@ -5,12 +5,15 @@ const shapeSourceSelect = document.getElementById("shape-source-select");
 const componentSelect = document.getElementById("component-select");
 const planeSelect = document.getElementById("plane-select");
 const opacityInput = document.getElementById("opacity");
+const showTransportsInput = document.getElementById("show-transports");
+const transportTypeSelect = document.getElementById("transport-type-select");
 const showDoorsInput = document.getElementById("show-doors");
 const showBenchmarkCoverageInput = document.getElementById("show-benchmark-coverage");
 const fitButton = document.getElementById("fit");
 const status = document.getElementById("status");
 const legend = document.getElementById("legend");
 const stats = document.getElementById("stats");
+const transportStats = document.getElementById("transport-stats");
 const routeCaseSelect = document.getElementById("route-case-select");
 const routeStatus = document.getElementById("route-status");
 const routeStats = document.getElementById("route-stats");
@@ -35,6 +38,8 @@ let heuristicLayerControl;
 let cutLayer;
 let separatorLayer;
 let doorLayer;
+let transportLayer;
+let selectedTransportLayer;
 let benchmarkCoverageLayer;
 let heuristicBounds;
 let route = null;
@@ -51,7 +56,10 @@ let partitions = [];
 let kahipPartitions = [];
 let cutEdges = [];
 let doorTransports = [];
-const loadState = { metis: "loading", kahip: "loading", cuts: "loading", doors: "loading" };
+let transports = [];
+let transportEndpointIndex = new Map();
+let selectedTransport = null;
+const loadState = { metis: "loading", kahip: "loading", cuts: "loading", doors: "loading", transports: "loading" };
 const routeCasePicker = new TomSelect(routeCaseSelect, {
   create: false,
   maxOptions: 50,
@@ -108,6 +116,7 @@ function coordinate(value) {
 }
 
 function pointKey(point) { return `${point.x}/${point.y}/${point.plane}`; }
+function samePoint(a, b) { return a && b && a.x === b.x && a.y === b.y && a.plane === b.plane; }
 
 function normaliseRoute(value, name = "") {
   const path = (value.path || []).map(step => ({
@@ -303,9 +312,21 @@ fetch("/door_transports.tsv").then(response => {
   status.textContent = `Optional data unavailable: /door_transports.tsv (${error.message})`;
   render();
 });
+fetchJson("/api/transports", json => {
+  loadState.transports = "ready";
+  transports = json;
+  buildTransportEndpointIndex();
+  fillTransportTypeSelect();
+  render();
+}, message => {
+  loadState.transports = "missing";
+  status.textContent = message;
+});
 
 componentSelect.addEventListener("change", render);
 modeSelect.addEventListener("change", render);
+showTransportsInput.addEventListener("change", render);
+transportTypeSelect.addEventListener("change", () => { selectedTransport = null; render(); });
 showDoorsInput.addEventListener("change", render);
 showBenchmarkCoverageInput.addEventListener("change", render);
 planeSelect.addEventListener("change", () => {
@@ -354,7 +375,7 @@ function componentColor(id) {
 
 function removeLayers() {
   removingLayers = true;
-  [shapeLayer, bboxLayer, routeLayer, comparisonRouteLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, benchmarkCoverageLayer, ...expandedStateLayers, ...heuristicImageLayers, ...routeMarkers].forEach(layer => {
+  [shapeLayer, bboxLayer, routeLayer, comparisonRouteLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, transportLayer, selectedTransportLayer, benchmarkCoverageLayer, ...expandedStateLayers, ...heuristicImageLayers, ...routeMarkers].forEach(layer => {
     if (layer) map.removeLayer(layer);
   });
   if (heuristicLayerControl) {
@@ -382,6 +403,7 @@ function render() {
     drawExpandedTiles();
     drawRoute();
     drawReversePath();
+    drawTransports();
     renderLegend(mode);
     if (heuristicSummary) status.textContent = `Heuristic rendered: ${heuristicSummary.layers} layers.`;
     if (componentSummary) status.textContent = `Component tiles rendered: ${componentSummary.tiles.toLocaleString()} image tiles.`;
@@ -426,6 +448,7 @@ function render() {
   drawExpandedTiles();
   drawRoute();
   drawReversePath();
+  drawTransports();
   renderLegend(mode, heuristicSummary);
   renderStats(component, bins.length, mode, heuristicSummary, componentSummary);
 }
@@ -765,7 +788,11 @@ function routeSegments(value, color, weight) {
         walkSegments.push(L.polyline([[previous.y + 0.5, previous.x + 0.5], [point.y + 0.5, point.x + 0.5]], { color, dashArray: "6 5", weight }));
       }
       if (point.plane === currentPlane) {
-        walkSegments.push(L.circleMarker([point.y + 0.5, point.x + 0.5], { className: "route-transport", color, fillColor: "#f97316", fillOpacity: 1, radius: 7, weight: 2 }).bindTooltip(`${value.name}: ${step.label || "Transport"}`));
+        walkSegments.push(L.circleMarker([point.y + 0.5, point.x + 0.5], { className: "route-transport", color, fillColor: "#f97316", fillOpacity: 1, radius: 7, weight: 2 }).bindTooltip(`${value.name}: ${step.label || "Transport"}`).on("click", event => {
+          L.DomEvent.stop(event.originalEvent);
+          const match = findRouteTransport(previous, step);
+          if (match) selectTransport(match);
+        }));
         current = [[point.y + 0.5, point.x + 0.5]];
       }
       previous = point;
@@ -778,6 +805,174 @@ function routeSegments(value, color, weight) {
   });
   flush();
   return walkSegments;
+}
+
+function buildTransportEndpointIndex() {
+  transportEndpointIndex = new Map();
+  const add = (point, role, transport) => {
+    if (!point) return;
+    const key = pointKey(point);
+    const entry = transportEndpointIndex.get(key) || { point, outgoing: [], incoming: [] };
+    entry[role].push(transport);
+    transportEndpointIndex.set(key, entry);
+  };
+  transports.forEach(transport => {
+    add(transport.origin, "outgoing", transport);
+    add(transport.destination, "incoming", transport);
+  });
+}
+
+function fillTransportTypeSelect() {
+  const current = transportTypeSelect.value;
+  const types = ["", ...new Set(transports.map(transport => transport.type).sort())];
+  transportTypeSelect.replaceChildren(...types.map(type => {
+    const option = document.createElement("option");
+    option.value = type;
+    option.textContent = type || "All";
+    return option;
+  }));
+  if (types.includes(current)) transportTypeSelect.value = current;
+}
+
+function transportTypeAllowed(transport) {
+  return !transportTypeSelect.value || transport.type === transportTypeSelect.value;
+}
+
+function endpointRole(entry) {
+  const outgoing = entry.outgoing.some(transportTypeAllowed);
+  const incoming = entry.incoming.some(transportTypeAllowed);
+  return outgoing && incoming ? "both" : outgoing ? "origin" : incoming ? "destination" : "";
+}
+
+function drawTransports() {
+  if (!showTransportsInput.checked || loadState.transports !== "ready") {
+    renderTransportStats();
+    return;
+  }
+  transportLayer = L.layerGroup([...transportEndpointIndex.values()].flatMap(entry => {
+    const role = endpointRole(entry);
+    if (!role || entry.point.plane !== currentPlane) return [];
+    return [transportMarker(entry, role)];
+  })).addTo(map);
+  drawSelectedTransport();
+  renderTransportStats();
+}
+
+function transportMarker(entry, role) {
+  const colors = {
+    origin: ["#1d4ed8", "#60a5fa"],
+    destination: ["#991b1b", "#f87171"],
+    both: ["#6d28d9", "#c084fc"]
+  }[role];
+  const outgoing = entry.outgoing.filter(transportTypeAllowed);
+  const incoming = entry.incoming.filter(transportTypeAllowed);
+  return L.circleMarker([entry.point.y + 0.5, entry.point.x + 0.5], {
+    renderer, color: colors[0], fillColor: colors[1], fillOpacity: 0.95,
+    radius: 4, weight: 2
+  }).bindTooltip(`${transportSummary(outgoing.concat(incoming))}<br>${pointKey(entry.point)}<br>${outgoing.length} outgoing<br>${incoming.length} incoming`)
+    .on("click", event => {
+      L.DomEvent.stop(event.originalEvent);
+      chooseIncidentTransport(entry, event.latlng);
+    });
+}
+
+function transportSummary(items) {
+  const types = [...new Set(items.map(item => item.type))];
+  return types.length === 1 ? types[0] : `${types.length} transport types`;
+}
+
+function chooseIncidentTransport(entry, latlng) {
+  const outgoing = entry.outgoing.filter(transportTypeAllowed);
+  const incoming = entry.incoming.filter(transportTypeAllowed);
+  const incident = outgoing.concat(incoming);
+  if (incident.length === 1) {
+    selectTransport(incident[0]);
+    return;
+  }
+  const box = document.createElement("div");
+  box.className = "transport-picker";
+  [["Outgoing", outgoing, "->"], ["Incoming", incoming, "<-"]].forEach(([heading, items, arrow]) => {
+    if (!items.length) return;
+    const title = document.createElement("strong");
+    title.textContent = heading;
+    box.append(title);
+    items.slice(0, 80).forEach(transport => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `${arrow} ${transport.label || transport.type} ${transport.type}`;
+      button.addEventListener("click", () => { map.closePopup(); selectTransport(transport); });
+      box.append(button);
+    });
+  });
+  L.popup().setLatLng(latlng).setContent(box).openOn(map);
+}
+
+function selectTransport(transport) {
+  selectedTransport = transport;
+  showTransportsInput.checked = true;
+  render();
+}
+
+function drawSelectedTransport() {
+  if (!selectedTransport || !transportTypeAllowed(selectedTransport)) return;
+  const layers = [];
+  if (selectedTransport.origin && selectedTransport.destination) {
+    layers.push(L.polyline([
+      [selectedTransport.origin.y + 0.5, selectedTransport.origin.x + 0.5],
+      [selectedTransport.destination.y + 0.5, selectedTransport.destination.x + 0.5]
+    ], { color: "#111827", weight: 4, opacity: 0.95, dashArray: "8 6" }).bindTooltip(`${selectedTransport.type}<br>${pointKey(selectedTransport.origin)} -> ${pointKey(selectedTransport.destination)}`));
+  }
+  [["origin", selectedTransport.origin, "#2563eb"], ["destination", selectedTransport.destination, "#dc2626"]].forEach(([name, point, color]) => {
+    if (!point) return;
+    const samePlane = point.plane === currentPlane;
+    layers.push(L.circleMarker([point.y + 0.5, point.x + 0.5], {
+      renderer, color, fillColor: samePlane ? "#fff" : color, fillOpacity: samePlane ? 1 : 0.25,
+      radius: 8, weight: 3
+    }).bindTooltip(`${name} plane ${point.plane}<br>${pointKey(point)}`));
+  });
+  selectedTransportLayer = L.layerGroup(layers).addTo(map);
+}
+
+function findRouteTransport(previous, step) {
+  const label = step.label || "";
+  return transports.find(transport =>
+    samePoint(transport.destination, step.coordinate) &&
+    (!transport.origin || samePoint(transport.origin, previous)) &&
+    (transport.label === label || transport.displayInfo === label || transport.type === label)
+  ) || transports.find(transport =>
+    samePoint(transport.destination, step.coordinate) &&
+    (transport.label === label || transport.displayInfo === label || transport.type === label)
+  );
+}
+
+function accessText(access) {
+  const components = access?.components?.length ? access.components.join(",") : "none";
+  const reachable = access?.structurallyReachable === null || access?.structurallyReachable === undefined ? "unknown" : access.structurallyReachable ? "reachable" : "unreachable";
+  return `${access?.kind || "unresolved"} / ${components} / ${reachable}`;
+}
+
+function renderTransportStats() {
+  if (!selectedTransport) {
+    transportStats.replaceChildren();
+    return;
+  }
+  const rows = [
+    ["transport", selectedTransport.type],
+    ["label", selectedTransport.label || ""],
+    ["origin", selectedTransport.origin ? pointKey(selectedTransport.origin) : "global/no fixed origin"],
+    ["destination", selectedTransport.destination ? pointKey(selectedTransport.destination) : "none"],
+    ["duration", selectedTransport.duration],
+    ["source", selectedTransport.source || ""],
+    ["consumable", selectedTransport.consumable ? "yes" : "no"],
+    ["wilderness", selectedTransport.maxWildernessLevel ?? "none"],
+    ["origin access", selectedTransport.origin ? accessText(selectedTransport.originAccess) : "global/no fixed origin"],
+    ["destination access", accessText(selectedTransport.destinationAccess)],
+    ["requirements", JSON.stringify(selectedTransport.requirements || {})]
+  ];
+  transportStats.replaceChildren(...rows.flatMap(([name, value]) => {
+    const dt = document.createElement("dt"); const dd = document.createElement("dd");
+    dt.textContent = name; dd.textContent = value; return [dt, dd];
+  }));
 }
 
 function drawRouteEndpoints(value) {
@@ -991,6 +1186,7 @@ function renderLegend(mode, heuristicSummary) {
   if (route?.expandedStates?.length) items.push(["#fde047", "A* explored", ""], ["#06b6d4", "A* explored (banked)", ""]);
   if (route?.comparisonRoutes?.length) items.push(["#dc2626", "Raw Dijkstra", "legend-line"], ["#2563eb", "Tile A*", "legend-line"]);
   if (showDoorsInput.checked) items.push(["#10b981", "Door transports", ""]);
+  if (showTransportsInput.checked) items.push(["#60a5fa", "Transport origins", ""], ["#f87171", "Transport destinations", ""], ["#111827", "Selected transport", "legend-line"]);
   if (showBenchmarkCoverageInput.checked) items.push(["#16a34a", "Benchmark starts", ""], ["#c026d3", "Benchmark ends", ""]);
   const legendItems = items.map(([color, label, className]) => {
     const item = document.createElement("div"); item.className = "legend-item";
@@ -1052,6 +1248,7 @@ function renderStats(component, visibleBins, mode, heuristicSummary, componentSu
   }
   if (mode === "difference") rows.push(["METIS cut edges", selectedCuts.length.toLocaleString()], ["KaHIP separators", selectedSeparators.length.toLocaleString()]);
   if (showDoorsInput.checked) rows.push(["visible doors", visibleDoorCount().toLocaleString()]);
+  if (showTransportsInput.checked) rows.push(["visible transport endpoints", visibleTransportEndpointCount().toLocaleString()]);
   if (showBenchmarkCoverageInput.checked) rows.push(["benchmark endpoints", benchmarkRoutes.reduce((count, item) => count + [item.start, item.target].filter(value => coordinate(value).plane === currentPlane).length, 0).toLocaleString()]);
   stats.replaceChildren(...rows.flatMap(([name, value]) => {
     const dt = document.createElement("dt"); const dd = document.createElement("dd");
@@ -1065,6 +1262,11 @@ function renderStats(component, visibleBins, mode, heuristicSummary, componentSu
   status.textContent = [mode === "manual" ? "Manual data loaded." : "", modeMissing,
     missing.length ? `Missing optional files: ${missing.join(", ")}.` : "",
     loading.length ? `Loading optional data: ${loading.join(", ")}.` : ""].filter(Boolean).join(" ");
+}
+
+function visibleTransportEndpointCount() {
+  if (loadState.transports !== "ready") return 0;
+  return [...transportEndpointIndex.values()].filter(entry => entry.point.plane === currentPlane && endpointRole(entry)).length;
 }
 
 function fitComponent() {

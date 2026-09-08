@@ -1,7 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const { spawn } = require("child_process");
+const { execFile, spawn } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const port = Number(process.env.PORT || 8000);
@@ -18,6 +18,7 @@ const types = {
   ".tsv": "text/tab-separated-values"
 };
 const doorTransportFile = process.env.DOOR_TRANSPORTS_TSV || "/home/matt/shortest-path-tooling/door_transports.tsv";
+const worldFactsDb = process.env.WORLD_FACTS_DB || path.join(root, "data/world-facts.duckdb");
 
 function json(res, status, value) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -29,6 +30,76 @@ function validCoordinate(value) {
     Number.isInteger(value.x) && value.x >= 0 && value.x <= 32767 &&
     Number.isInteger(value.y) && value.y >= 0 && value.y <= 32767 &&
     Number.isInteger(value.plane) && value.plane >= 0 && value.plane <= 3;
+}
+
+function readTransports() {
+  const sql = `
+    SELECT
+      transport_id, transport_type, origin_x, origin_y, origin_plane,
+      destination_x, destination_y, destination_plane, duration, display_info,
+      object_info, consumable, max_wilderness_level, source, requirements_json,
+      list(DISTINCT origin_component_id ORDER BY origin_component_id) FILTER (WHERE origin_component_id IS NOT NULL) AS origin_components,
+      string_agg(DISTINCT origin_access_kind, ', ' ORDER BY origin_access_kind) FILTER (WHERE origin_access_kind IS NOT NULL) AS origin_access_kind,
+      bool_or(origin_structurally_reachable) AS origin_structurally_reachable,
+      list(DISTINCT destination_component_id ORDER BY destination_component_id) FILTER (WHERE destination_component_id IS NOT NULL) AS destination_components,
+      string_agg(DISTINCT destination_access_kind, ', ' ORDER BY destination_access_kind) FILTER (WHERE destination_access_kind IS NOT NULL) AS destination_access_kind,
+      bool_or(destination_structurally_reachable) AS destination_structurally_reachable
+    FROM transport_facts
+    GROUP BY ALL
+    ORDER BY transport_type, origin_x, origin_y, origin_plane, destination_x, destination_y, destination_plane, display_info
+  `;
+  return new Promise((resolve, reject) => {
+    execFile("duckdb", [worldFactsDb, "-json", "-c", sql], { maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(stderr.trim() || error.message));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout).map(transportJson));
+      } catch (parseError) {
+        reject(parseError);
+      }
+    });
+  });
+}
+
+function point(row, prefix) {
+  return Number.isInteger(row[`${prefix}_x`])
+    ? { x: row[`${prefix}_x`], y: row[`${prefix}_y`], plane: row[`${prefix}_plane`] }
+    : null;
+}
+
+function parseRequirements(value) {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  try { return JSON.parse(value); } catch (_) { return value; }
+}
+
+function transportJson(row) {
+  return {
+    id: row.transport_id,
+    type: row.transport_type,
+    origin: point(row, "origin"),
+    destination: point(row, "destination"),
+    duration: row.duration,
+    label: row.display_info || row.object_info || row.transport_type,
+    displayInfo: row.display_info,
+    objectInfo: row.object_info,
+    consumable: row.consumable === true,
+    maxWildernessLevel: row.max_wilderness_level,
+    source: row.source,
+    requirements: parseRequirements(row.requirements_json),
+    originAccess: {
+      components: row.origin_components || [],
+      kind: row.origin_access_kind || null,
+      structurallyReachable: row.origin_structurally_reachable
+    },
+    destinationAccess: {
+      components: row.destination_components || [],
+      kind: row.destination_access_kind || null,
+      structurallyReachable: row.destination_structurally_reachable
+    }
+  };
 }
 
 function parseRouteRequest(body) {
@@ -329,6 +400,18 @@ async function handleProfiles(req, res) {
   }
 }
 
+async function handleTransports(req, res) {
+  if (req.method !== "GET") {
+    json(res, 405, { error: "method not allowed" });
+    return;
+  }
+  try {
+    json(res, 200, await readTransports());
+  } catch (error) {
+    json(res, 503, { error: error.message });
+  }
+}
+
 http.createServer((req, res) => {
   const requestPath = new URL(req.url, "http://127.0.0.1").pathname;
   if (requestPath === "/api/route") {
@@ -349,6 +432,10 @@ http.createServer((req, res) => {
   }
   if (requestPath === "/api/profiles") {
     handleProfiles(req, res);
+    return;
+  }
+  if (requestPath === "/api/transports") {
+    handleTransports(req, res);
     return;
   }
   if (requestPath === "/door_transports.tsv") {
