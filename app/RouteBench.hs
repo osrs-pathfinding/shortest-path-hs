@@ -22,7 +22,7 @@ import System.Info (arch, os)
 import System.IO (hFlush, stdout)
 
 import ShortestPath.Account (AccountBuild, RequirementMode(..))
-import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames)
+import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkProfileVariableGaps)
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Pathfinder hiding (routeName)
@@ -72,10 +72,11 @@ data Options = Options
   , benchmarkTier :: String
   , oracleJobs :: Int
   , rerunFailures :: Maybe FilePath
+  , strictProfileVars :: Bool
   }
 
 defaultOptions :: Options
-defaultOptions = Options "benchmarks/corpus/routes-v1.json" "benchmarks/corpus/oracle-v1.json" "out/route-benchmark.jsonl" 3 False False False Nothing "full" 4 Nothing
+defaultOptions = Options "benchmarks/corpus/routes-v1.json" "benchmarks/corpus/oracle-v1.json" "out/route-benchmark.jsonl" 3 False False False Nothing "full" 4 Nothing False
 
 main :: IO ()
 main = do
@@ -83,6 +84,9 @@ main = do
   cases <- maybe id take (routeLimit options) . filterTier (benchmarkTier options) <$> loadCases options
   when (null cases) (die "no benchmark routes; select routes for benchmarks/corpus/routes-v1.json first")
   world <- loadWorld defaultSourcePaths
+  when (strictProfileVars options) $ do
+    let gaps = benchmarkProfileVariableGaps (allTransports world)
+    when (not (null gaps)) $ die (unlines ("unmodelled benchmark profile variables:" : [name <> ": " <> show (length requirements) | (name, requirements) <- gaps]))
   if writeOracle options
     then writeOracles options world cases
     else buildTileAStar world >>= forceTileAStar >>= \astar -> runBench options world astar cases
@@ -110,7 +114,8 @@ parseOptions = go defaultOptions
     _ -> die "--jobs must be a positive integer"
   go options ("--diagnostic":rest) = go (options {diagnostic = True}) rest
   go options ("--rerun-failures":path:rest) = go (options {rerunFailures = Just path}) rest
-  go _ _ = die "usage: route-bench [--seed] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic] [--rerun-failures JSONL]"
+  go options ("--strict-profile-vars":rest) = go (options {strictProfileVars = True}) rest
+  go _ _ = die "usage: route-bench [--seed] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic] [--rerun-failures JSONL] [--strict-profile-vars]"
 
 loadCases :: Options -> IO [RouteCase]
 loadCases options = do

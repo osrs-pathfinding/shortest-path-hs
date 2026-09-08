@@ -1,11 +1,15 @@
 module Main (main) where
 
 import qualified Data.Map.Strict as Map
+import Data.List (intercalate)
 import System.Environment (getArgs)
 
 import ShortestPath.Account
 import ShortestPath.BenchmarkProfiles
+import qualified ShortestPath.GameVars.Varbits as VB
+import qualified ShortestPath.GameVars.VarPlayers as VP
 import ShortestPath.Pathfinder
+import ShortestPath.Requirements (GameVar(..), VarReq(..))
 import ShortestPath.Tile
 import ShortestPath.Transport
 import ShortestPath.World
@@ -20,7 +24,8 @@ main = do
       after <- loadAccount right
       compareProfiles before after
     ["coverage"] -> coverage
-    _ -> fail "usage: account-profile validate early|mid|end|maxed | compare BEFORE AFTER | coverage"
+    ["vars"] -> variableAudit
+    _ -> fail "usage: account-profile validate early|mid|end|maxed | compare BEFORE AFTER | coverage | vars"
 
 loadAccount :: String -> IO AccountBuild
 loadAccount name = do
@@ -73,6 +78,41 @@ coverage = do
     , "generic parsed requirements understood: 100%"
     ]
 
+variableAudit :: IO ()
+variableAudit = do
+  world <- loadWorld defaultSourcePaths
+  let transports = allTransports world
+      requirements = Map.fromListWith (<>)
+        [ (varRef requirement, [(transportType transport, displayInfo transport, source transport)])
+        | transport <- transports
+        , requirement <- varbits transport <> varPlayers transport
+        ]
+      profiles = [(name, benchmarkAccount name transports) | name <- benchmarkProfileNames]
+  mapM_ (printVariable profiles) (Map.toAscList requirements)
+
+printVariable :: [(String, Maybe AccountBuild)] -> (GameVar, [(String, String, FilePath)]) -> IO ()
+printVariable profiles (variable, uses) = do
+  putStrLn (variableName variable <> " (" <> show variable <> ")")
+  putStrLn ("  requirements: " <> intercalate ", " (unique [transport | (transport, _, _) <- uses]))
+  putStrLn ("  uses: " <> show (length uses) <> " (" <> intercalate ", " (unique [file | (_, _, file) <- uses]) <> ")")
+  mapM_ printProfile profiles
+ where
+  printProfile (name, Just account) = putStrLn ("  " <> name <> ": " <> maybe "UNMODELLED" show (gameVarValue account variable))
+  printProfile (name, Nothing) = putStrLn ("  " <> name <> ": UNAVAILABLE")
+
+gameVarValue :: AccountBuild -> GameVar -> Maybe Int
+gameVarValue account variable = case variable of
+  GameVarbit identifier -> Map.lookup identifier (accountVarbits account)
+  GameVarPlayer identifier -> Map.lookup identifier (accountVarPlayers account)
+
+variableName :: GameVar -> String
+variableName variable = case variable of
+  GameVarbit identifier -> maybe ("VARBIT_" <> show identifier) id (VB.varbitName identifier)
+  GameVarPlayer identifier -> maybe ("VARPLAYER_" <> show identifier) id (VP.varPlayerName identifier)
+
+unique :: Ord a => [a] -> [a]
+unique = Map.keys . Map.fromList . map (\value -> (value, ()))
+
 allTransports :: World -> [Transport]
 allTransports world = concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
 
@@ -92,6 +132,7 @@ failureName failure = case failure of
   MissingSkills _ -> "skills"
   MissingQuests _ -> "quests"
   FailedVarRequirements _ -> "vars"
+  UnknownVarRequirements _ -> "unmodelled vars"
   MissingCapability _ -> "profile capability"
 
 renderFailure :: (String, Int) -> String

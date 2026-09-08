@@ -2,7 +2,10 @@ module ShortestPath.Requirements
   ( ItemExpr(..)
   , ItemTerm(..)
   , SkillReq(..)
+  , GameVar(..)
   , VarKind(..)
+  , VarbitId(..)
+  , VarPlayerId(..)
   , VarOp(..)
   , VarReq(..)
   , parseItems
@@ -13,6 +16,8 @@ module ShortestPath.Requirements
 
 import Data.Char (isDigit, isSpace, toUpper)
 import qualified Data.Text as T
+
+import ShortestPath.GameVars
 
 data ItemTerm = ItemTerm { itemName :: String, itemQuantity :: Int }
   deriving stock (Eq, Ord, Show)
@@ -26,10 +31,13 @@ data SkillReq = SkillReq { skillLevel :: Int, skillName :: String }
 data VarKind = Varbit | VarPlayer
   deriving stock (Eq, Ord, Show)
 
+data GameVar = GameVarbit VarbitId | GameVarPlayer VarPlayerId
+  deriving stock (Eq, Ord, Show)
+
 data VarOp = VarEq | VarGt | VarLt | VarMask | VarCooldownMinutes
   deriving stock (Eq, Ord, Show)
 
-data VarReq = VarReq { varKind :: VarKind, varId :: Int, varValue :: Int, varOp :: VarOp }
+data VarReq = VarReq { varRef :: GameVar, varValue :: Int, varOp :: VarOp }
   deriving stock (Eq, Ord, Show)
 
 parseSkills :: String -> [SkillReq]
@@ -70,8 +78,12 @@ parseVar kind raw = firstMatch [('=', VarEq), ('>', VarGt), ('<', VarLt), ('&', 
   firstMatch [] = Nothing
   firstMatch ((c, op):rest) =
     case break (== c) raw of
-      (a, _ : b) | all isDigit a, all isDigit b -> Just (VarReq kind (read a) (read b) op)
+      (a, _ : b) | all isDigit a, all isDigit b -> Just (VarReq (gameVar kind (read a)) (read b) op)
       _ -> firstMatch rest
+
+gameVar :: VarKind -> Int -> GameVar
+gameVar Varbit = GameVarbit . VarbitId
+gameVar VarPlayer = GameVarPlayer . VarPlayerId
 
 splitText :: String -> String -> [String]
 splitText token = map T.unpack . T.splitOn (T.pack token) . T.pack

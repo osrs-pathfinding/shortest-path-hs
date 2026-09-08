@@ -7,6 +7,7 @@ import qualified Data.Set as Set
 
 import ShortestPath.Requirements
 import ShortestPath.Account
+import qualified ShortestPath.GameVars.Varbits as VB
 import ShortestPath.BenchmarkProfiles
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess
@@ -19,7 +20,7 @@ main :: IO ()
 main = do
   assert (unpackTile (packTile 3200 3201 2) == (3200, 3201, 2))
   assert (parseSkills "75 Construction;83 Farming" == [SkillReq 75 "Construction", SkillReq 83 "Farming"])
-  assert (parseVars Varbit "4070=0;4560&2" == [VarReq Varbit 4070 0 VarEq, VarReq Varbit 4560 2 VarMask])
+  assert (parseVars Varbit "4070=0;4560&2" == [VarReq (GameVarbit (VarbitId 4070)) 0 VarEq, VarReq (GameVarbit (VarbitId 4560)) 2 VarMask])
   requirementChecks
   profileChecks
   assert (parseTileField "3221 3218 0" == Just (packTile 3221 3218 0))
@@ -64,8 +65,8 @@ requirementChecks = do
   let account = emptyAccountBuild
         { accountLevels = Map.singleton "Agility" 70
         , accountCompletedQuests = Set.singleton "Quest"
-        , accountVarbits = Map.singleton 1 6
-        , accountVarPlayers = Map.singleton 2 100
+        , accountVarbits = Map.singleton (VarbitId 1) 6
+        , accountVarPlayers = Map.singleton (VarPlayerId 2) 100
         , accountInventory = Map.singleton "1" 2
         , accountEquipment = Map.singleton "2" 1
         , accountRunePouch = Map.singleton "3" 1
@@ -73,11 +74,11 @@ requirementChecks = do
         }
       carried = RequirementContext account CarriedOnly 130
       banked = RequirementContext account CarriedAndBank 130
-      transport = Transport "TEST" Nothing Nothing 0 "" "" False Nothing [SkillReq 70 "Agility"] (Just (ItemAnd [ItemOne (ItemTerm "1" 2), ItemOr [ItemOne (ItemTerm "2" 1), ItemOne (ItemTerm "4" 1)]])) ["Quest"] [VarReq Varbit 1 6 VarEq, VarReq Varbit 1 2 VarMask] [VarReq VarPlayer 2 20 VarCooldownMinutes] "test"
+      transport = Transport "TEST" Nothing Nothing 0 "" "" False Nothing [SkillReq 70 "Agility"] (Just (ItemAnd [ItemOne (ItemTerm "1" 2), ItemOr [ItemOne (ItemTerm "2" 1), ItemOne (ItemTerm "4" 1)]])) ["Quest"] [VarReq (GameVarbit (VarbitId 1)) 6 VarEq, VarReq (GameVarbit (VarbitId 1)) 2 VarMask] [VarReq (GameVarPlayer (VarPlayerId 2)) 20 VarCooldownMinutes] "test"
   assert (requirementsSatisfied carried transport)
   assert (not (requirementsSatisfied carried (transport { skills = [SkillReq 71 "Agility"] })))
   assert (not (requirementsSatisfied carried (transport { quests = ["Missing"] })))
-  assert (not (requirementsSatisfied carried (transport { varbits = [VarReq Varbit 9 0 VarEq] })))
+  assert (not (requirementsSatisfied carried (transport { varbits = [VarReq (GameVarbit (VarbitId 9)) 0 VarEq] })))
   assert (not (requirementsSatisfied carried (transport { items = Just (ItemOne (ItemTerm "4" 1)) })))
   assert (requirementsSatisfied banked (transport { items = Just (ItemOne (ItemTerm "4" 1)) }))
 
@@ -91,6 +92,9 @@ profileChecks = do
       mid = profile "mid"
       end = profile "end"
       maxed = profile "maxed"
+      dragonDoor = Transport "TRANSPORT" Nothing Nothing 0 "Open Wall" "" False Nothing [] Nothing ["Dragon Slayer I"] [VarReq (GameVarbit VB.dragonslayerCrandorFoundSecretDoor) 1 VarEq] [] "test"
+      maxedWithDragon = mustProfile "maxed" (benchmarkAccount "maxed" [dragonDoor])
+      unknownDoor = dragonDoor { quests = [], varbits = [VarReq (GameVarbit VB.darkmShortcutInner) 1 VarEq] }
       context account = RequirementContext account CarriedOnly 100000000
       withoutStaff account = account { accountInventory = Map.delete "772" (accountInventory account) }
   assert (requirementsSatisfied (context early) fairyRing)
@@ -104,12 +108,19 @@ profileChecks = do
   assert (not (requirementsSatisfied (context early) varrockPortal))
   assert (requirementsSatisfied (context mid) varrockPortal)
   assert (requirementsSatisfied (context end) varrockPortal)
+  assert (requirementsSatisfied (context maxedWithDragon) dragonDoor)
+  assert (requirementsSatisfied (context maxed) dragonDoor)
+  assert (all (== Just 1) [Map.lookup VB.dragonslayerCrandorFoundSecretDoor (accountVarbits account) | account <- [early, mid, end, maxed]])
+  assert (case transportAvailability (context maxed) unknownDoor of Unavailable failures -> any isUnknown failures; _ -> False)
   assert (Map.member "13393" (accountBank mid))
   assert (Map.member "28327" (accountBank end))
   assert (not (Map.member "28327" (accountBank mid)))
   assert (not (Map.member "13249" (accountBank end)))
   assert (not (Map.member "CAPESLOT" (accountBank mid)))
   assert (Map.keysSet (accountBank end) `Set.isSubsetOf` Map.keysSet (accountBank maxed))
+ where
+  isUnknown (UnknownVarRequirements _) = True
+  isUnknown _ = False
 
 mustProfile :: String -> Maybe AccountBuild -> AccountBuild
 mustProfile _ (Just account) = account

@@ -1,16 +1,21 @@
 module ShortestPath.BenchmarkProfiles
   ( BenchmarkProfile(..)
   , Progression(..)
+  , GameStateSpec(..)
   , ItemLoadout(..)
   , benchmarkProfileNames
   , benchmarkAccount
+  , benchmarkProfileVariableGaps
   ) where
 
 import qualified Data.Map.Strict as Map
+import Data.List (nub)
 import qualified Data.Set as Set
 import Data.Bits ((.|.))
 
 import ShortestPath.Account
+import qualified ShortestPath.GameVars.Varbits as VB
+import qualified ShortestPath.GameVars.VarPlayers as VP
 import ShortestPath.Requirements
 import ShortestPath.Transport
 
@@ -30,9 +35,16 @@ data ItemLoadout = ItemLoadout
   }
   deriving stock (Eq, Show)
 
+data GameStateSpec = GameStateSpec
+  { gameStateVarbits :: Map.Map VarbitId Int
+  , gameStateVarPlayers :: Map.Map VarPlayerId Int
+  }
+  deriving stock (Eq, Show)
+
 data BenchmarkProfile = BenchmarkProfile
   { profileName :: String
   , profileProgression :: Progression
+  , profileGameState :: GameStateSpec
   , profilePoh :: PohBuild
   , profileCarried :: ItemLoadout
   , profileBank :: ItemCounts
@@ -58,8 +70,8 @@ benchmarkAccount name transports = compile <$> profile
     emptyAccountBuild
       { accountLevels = progressionLevels progress
       , accountCompletedQuests = progressionQuests progress
-      , accountVarbits = diaryVarbits (progressionDiaries progress) <> platformVarbits (progressionQuetzalPlatforms progress) <> Map.fromList [(4070, 0)]
-      , accountVarPlayers = Map.fromList [(4560, 0), (888, 0), (892, 0), (4182, platformMask (progressionQuetzalPlatforms progress))]
+      , accountVarbits = gameStateVarbits gameState
+      , accountVarPlayers = gameStateVarPlayers gameState
       , accountInventory = loadoutInventory loadout
       , accountEquipment = loadoutEquipment loadout
       , accountRunePouch = loadoutRunePouch loadout
@@ -72,19 +84,38 @@ benchmarkAccount name transports = compile <$> profile
       }
    where
     progress = profileProgression value
+    gameState = profileGameState value <> progressionGameState progress
     loadout = profileCarried value
 
+benchmarkProfileVariableGaps :: [Transport] -> [(String, [VarReq])]
+benchmarkProfileVariableGaps transports =
+  [ (name, nub unknown)
+  | name <- benchmarkProfileNames
+  , Just account <- [benchmarkAccount name transports]
+  , let context = RequirementContext account CarriedAndBank 100000000
+        unknown = concat
+          [ requirements
+          | transport <- transports
+          , Unavailable failures <- [transportAvailability context transport]
+          , UnknownVarRequirements requirements <- failures
+          ]
+  , not (null unknown)
+  ]
+
 earlyProfile :: BenchmarkProfile
-earlyProfile = BenchmarkProfile "early" (progression earlyLevels earlyQuests (allDiaries Medium) True (Set.singleton 1)) basicPoh earlyLoadout earlyBank standardRuntime
+earlyProfile = BenchmarkProfile "early" (progression earlyLevels (withCoreQuests earlyQuests) (allDiaries Medium) True (Set.singleton 1)) emptyGameState basicPoh earlyLoadout earlyBank standardRuntime
 
 midProfile :: Set.Set String -> BenchmarkProfile
-midProfile allQuests = BenchmarkProfile "mid" (progression midLevels allQuests (allDiaries Hard) True allPlatforms) midPoh midLoadout midBank standardRuntime
+midProfile allQuests = BenchmarkProfile "mid" (progression midLevels (withCoreQuests allQuests) (allDiaries Hard) True allPlatforms) emptyGameState midPoh midLoadout midBank standardRuntime
 
 endProfile :: Set.Set String -> BenchmarkProfile
-endProfile allQuests = BenchmarkProfile "end" (progression (Map.insert "Quest" 327 endLevels) allQuests endDiaries True allPlatforms) maxedPoh endLoadout endBank standardRuntime
+endProfile allQuests = BenchmarkProfile "end" (progression (Map.insert "Quest" 327 endLevels) (withCoreQuests allQuests) endDiaries True allPlatforms) emptyGameState maxedPoh endLoadout endBank standardRuntime
 
 maxedProfile :: Set.Set String -> ItemCounts -> BenchmarkProfile
-maxedProfile allQuests allItems = BenchmarkProfile "maxed" (progression (Map.fromList [(skill, 99) | skill <- allSkills] <> Map.fromList [("Quest", 327), ("Total", 2376)]) allQuests (allDiaries Elite) True allPlatforms) maxedPoh maxedLoadout (allItems <> endBank) standardRuntime
+maxedProfile allQuests allItems = BenchmarkProfile "maxed" (progression (Map.fromList [(skill, 99) | skill <- allSkills] <> Map.fromList [("Quest", 327), ("Total", 2376)]) (withCoreQuests allQuests) (allDiaries Elite) True allPlatforms) emptyGameState maxedPoh maxedLoadout (allItems <> endBank) standardRuntime
+
+withCoreQuests :: Set.Set String -> Set.Set String
+withCoreQuests = Set.insert "Dragon Slayer I"
 
 progression :: ItemCounts -> Set.Set String -> Map.Map String DiaryTier -> Bool -> Set.Set Int -> Progression
 progression = Progression
@@ -98,17 +129,46 @@ endDiaries = Map.insert "Lumbridge & Draynor" Elite (allDiaries Hard)
 diaryNames :: [String]
 diaryNames = ["Ardougne", "Desert", "Falador", "Fremennik", "Kandarin", "Karamja", "Kourend & Kebos", "Lumbridge & Draynor", "Morytania", "Varrock", "Western Provinces", "Wilderness"]
 
-diaryVarbits :: Map.Map String DiaryTier -> Map.Map Int Int
+emptyGameState :: GameStateSpec
+emptyGameState = GameStateSpec Map.empty Map.empty
+
+instance Semigroup GameStateSpec where
+  GameStateSpec bits players <> GameStateSpec moreBits morePlayers =
+    GameStateSpec (bits <> moreBits) (players <> morePlayers)
+
+instance Monoid GameStateSpec where
+  mempty = emptyGameState
+
+progressionGameState :: Progression -> GameStateSpec
+progressionGameState progress =
+  GameStateSpec
+    (diaryVarbits (progressionDiaries progress) <> dragonSlayerVarbit)
+    (Map.fromList
+      [ (VP.homeTeleportAnimToggles, 0)
+      , (VP.slug2Regionuid, 0)
+      , (VP.aideTeleTimer, 0)
+      , (VP.quetzalsUnlocked, platformMask (progressionQuetzalPlatforms progress))
+      ])
+ where
+  dragonSlayerVarbit
+    | Set.member "Dragon Slayer I" (progressionQuests progress) = Map.singleton VB.dragonslayerCrandorFoundSecretDoor 1
+    | otherwise = Map.empty
+
+diaryVarbits :: Map.Map String DiaryTier -> Map.Map VarbitId Int
 diaryVarbits diaries
-  | all (>= Elite) (Map.elems diaries) = Map.fromList [(key, 1) | key <- [4461, 4465, 4469, 4474, 4478, 4482, 4486, 4490, 4494, 4498, 4566]]
-  | Map.findWithDefault NoDiary "Lumbridge & Draynor" diaries >= Elite = Map.singleton 4566 1
+  | all (>= Elite) (Map.elems diaries) = Map.fromList [(key, 1) | key <- eliteDiaryVars]
+  | Map.findWithDefault NoDiary "Lumbridge & Draynor" diaries >= Elite = Map.singleton VB.lumbridgeDiaryEliteComplete 1
   | otherwise = Map.empty
+
+eliteDiaryVars :: [VarbitId]
+eliteDiaryVars = [ VB.ardougneDiaryEliteComplete, VB.faladorDiaryEliteComplete, VB.wildernessDiaryEliteComplete
+                 , VB.westernDiaryEliteComplete, VB.kandarinDiaryEliteComplete, VB.varrockDiaryEliteComplete
+                 , VB.desertDiaryEliteComplete, VB.morytaniaDiaryEliteComplete, VB.fremennikDiaryEliteComplete
+                 , VB.lumbridgeDiaryEliteComplete, VB.karamjaDiaryEliteComplete
+                 ]
 
 allPlatforms :: Set.Set Int
 allPlatforms = Set.fromList [1 .. 8]
-
-platformVarbits :: Set.Set Int -> Map.Map Int Int
-platformVarbits platforms = Map.fromList [(29271, 1), (29273, 1), (29275, 1), (33120, 1)] <> if Set.null platforms then Map.empty else Map.singleton 4182 (platformMask platforms)
 
 platformMask :: Set.Set Int -> Int
 platformMask = Set.foldr (.|.) 0 . Set.map bitFor

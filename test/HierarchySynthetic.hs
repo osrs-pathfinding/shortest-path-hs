@@ -76,7 +76,7 @@ synthetic =
   ( World (CollisionMap (Map.singleton (1, 1) collisionBytes)) transports globals banks
   , partition
   , roles
-  , Tiles a0 a1 a3 a8 a25 b1 c0 d0 d1 e0 s0 s1 s2 unknown x y
+  , Tiles a0 a1 a3 a8 a25 b1 c0 d0 d1 e0 s0 s1 s2 unknown xSite ySite
   )
  where
   a0 = packTile 100 100 0

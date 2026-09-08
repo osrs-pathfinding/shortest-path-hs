@@ -9,6 +9,7 @@ module ShortestPath.Account
   , RequirementMode(..)
   , RequirementContext(..)
   , RequirementFailure(..)
+  , VarRequirementResult(..)
   , TransportAvailability(..)
   , emptyAccountBuild
   , availableItems
@@ -29,8 +30,8 @@ type ItemCounts = Map.Map String Int
 data AccountBuild = AccountBuild
   { accountLevels :: ItemCounts
   , accountCompletedQuests :: Set.Set String
-  , accountVarbits :: Map.Map Int Int
-  , accountVarPlayers :: Map.Map Int Int
+  , accountVarbits :: Map.Map VarbitId Int
+  , accountVarPlayers :: Map.Map VarPlayerId Int
   , accountInventory :: ItemCounts
   , accountEquipment :: ItemCounts
   , accountRunePouch :: ItemCounts
@@ -88,6 +89,7 @@ data RequirementFailure
   | MissingSkills [SkillReq]
   | MissingQuests [String]
   | FailedVarRequirements [VarReq]
+  | UnknownVarRequirements [VarReq]
   | MissingCapability String
   deriving stock (Eq, Show)
 
@@ -119,10 +121,13 @@ transportAvailability context transport =
       <> [ MissingSkills missingSkills | not (null missingSkills) ]
       <> [ MissingQuests missingQuests | not (null missingQuests) ]
       <> [ FailedVarRequirements failedVars | not (null failedVars) ]
+      <> [ UnknownVarRequirements unknownVars | not (null unknownVars) ]
       <> specialFailures context transport
   missingSkills = [requirement | requirement <- skills transport, Map.findWithDefault 0 (skillName requirement) (accountLevels account) < skillLevel requirement]
   missingQuests = filter (`Set.notMember` accountCompletedQuests account) (quests transport)
-  failedVars = filter (not . varSatisfied context) (varbits transport <> varPlayers transport)
+  variableRequirements = varbits transport <> varPlayers transport
+  failedVars = [requirement | requirement <- variableRequirements, varRequirementResult context requirement == VarUnsatisfied]
+  unknownVars = [requirement | requirement <- variableRequirements, varRequirementResult context requirement == VarUnknown]
 
 specialFailures :: RequirementContext -> Transport -> [RequirementFailure]
 specialFailures context transport =
@@ -158,18 +163,24 @@ itemExprSatisfied counts expression =
     ItemAnd expressions -> all (itemExprSatisfied counts) expressions
     ItemOr expressions -> any (itemExprSatisfied counts) expressions
 
-varSatisfied :: RequirementContext -> VarReq -> Bool
-varSatisfied context requirement =
+data VarRequirementResult = VarSatisfied | VarUnsatisfied | VarUnknown
+  deriving stock (Eq, Ord, Show)
+
+varRequirementResult :: RequirementContext -> VarReq -> VarRequirementResult
+varRequirementResult context requirement =
   case value of
-    Nothing -> False
-    Just actual -> case varOp requirement of
-      VarEq -> actual == varValue requirement
-      VarGt -> actual > varValue requirement
-      VarLt -> actual < varValue requirement
-      VarMask -> actual .&. varValue requirement == varValue requirement
-      VarCooldownMinutes -> actual + varValue requirement <= requirementNowMinutes context
+    Nothing -> VarUnknown
+    Just actual
+      | satisfies actual -> VarSatisfied
+      | otherwise -> VarUnsatisfied
  where
   account = requirementAccount context
-  value = case varKind requirement of
-    Varbit -> Map.lookup (varId requirement) (accountVarbits account)
-    VarPlayer -> Map.lookup (varId requirement) (accountVarPlayers account)
+  value = case varRef requirement of
+    GameVarbit identifier -> Map.lookup identifier (accountVarbits account)
+    GameVarPlayer identifier -> Map.lookup identifier (accountVarPlayers account)
+  satisfies actual = case varOp requirement of
+    VarEq -> actual == varValue requirement
+    VarGt -> actual > varValue requirement
+    VarLt -> actual < varValue requirement
+    VarMask -> actual .&. varValue requirement == varValue requirement
+    VarCooldownMinutes -> actual + varValue requirement <= requirementNowMinutes context

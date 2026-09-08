@@ -11,6 +11,9 @@ library
   exposed-modules:
     ShortestPath.Account
     ShortestPath.BenchmarkProfiles
+    ShortestPath.GameVars
+    ShortestPath.GameVars.Varbits
+    ShortestPath.GameVars.VarPlayers
     ShortestPath.Exact.Dijkstra
     ShortestPath.Exact.Hierarchical
     ShortestPath.Exact.RawDijkstra
