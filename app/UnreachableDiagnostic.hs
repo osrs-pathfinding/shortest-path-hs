@@ -87,7 +87,10 @@ printRoute failedByRoute accounts transports request response = do
     _ -> []
   matchingTransports destination label = filter matches transports
    where
-    matches transport = destinationOf transport == Just destination && maybe True (== displayInfo transport) label
+    matches transport = destinationOf transport == Just destination && maybe True (== renderedLabel transport) label
+    renderedLabel transport
+      | null (displayInfo transport) = transportType transport
+      | otherwise = displayInfo transport
   failuresFor account transport =
     if Available `elem` availability then [] else [renderFailure failure | Unavailable failures <- availability, failure <- failures]
    where
