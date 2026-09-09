@@ -182,6 +182,7 @@ canonicalQuestUniverse = earlyQuests <> Set.fromList
   [ "Land of the Goblins", "Sins of the Father", "Dragon Slayer I"
   , "Making Friends with My Arm", "Cabin Fever", "The Depths of Despair"
   , "Zogre Flesh Eaters", "The Path of Glouphrie", "Troubled Tortugans"
+  , "Song of the Elves"
   ]
 
 effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
