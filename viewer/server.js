@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { execFile, spawn } = require("child_process");
+const { resolveEndpoints } = require("../benchmarks/world-facts");
 
 const root = path.resolve(__dirname, "..");
 const port = Number(process.env.PORT || 8000);
@@ -412,6 +413,35 @@ async function handleTransports(req, res) {
   }
 }
 
+let endpointRefinementCache;
+function handleEndpointRefinement(req, res) {
+  if (req.method !== "GET") {
+    json(res, 405, { error: "method not allowed" });
+    return;
+  }
+  try {
+    if (!endpointRefinementCache) {
+      const routes = JSON.parse(fs.readFileSync(path.join(root, "benchmarks/corpus/routes-v1.json"), "utf8"));
+      const endpoints = routes.flatMap(route => [
+        { route, side: "start", raw: route.rawStart },
+        { route, side: "target", raw: route.rawTarget }
+      ]);
+      const resolutions = resolveEndpoints(endpoints.map(endpoint => endpoint.raw), 12, worldFactsDb);
+      endpointRefinementCache = endpoints.map(endpoint => ({
+        id: endpoint.route.id,
+        name: endpoint.route.name,
+        side: endpoint.side,
+        raw: endpoint.raw,
+        current: endpoint.route[endpoint.side],
+        resolution: resolutions.get(endpoint.raw.join(","))
+      }));
+    }
+    json(res, 200, endpointRefinementCache);
+  } catch (error) {
+    json(res, 503, { error: error.message });
+  }
+}
+
 http.createServer((req, res) => {
   const requestPath = new URL(req.url, "http://127.0.0.1").pathname;
   if (requestPath === "/api/route") {
@@ -436,6 +466,10 @@ http.createServer((req, res) => {
   }
   if (requestPath === "/api/transports") {
     handleTransports(req, res);
+    return;
+  }
+  if (requestPath === "/api/endpoint-refinement") {
+    handleEndpointRefinement(req, res);
     return;
   }
   if (requestPath === "/door_transports.tsv") {

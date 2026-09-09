@@ -35,7 +35,7 @@ import ShortestPath.Exact.TileAStar
 import ShortestPath.Heuristic.Region (RegionTable, buildRegionGraph, buildRegionTable)
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
 import ShortestPath.Account
-  ( AccountBuild(..), PohBuild(..), RequirementMode(..), RuntimeState(..) )
+  ( AccountBuild(..), CooldownState(..), PohBuild(..), RequirementMode(..), RuntimeState(..) )
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkNowMinutes)
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess (preprocessHierarchy)

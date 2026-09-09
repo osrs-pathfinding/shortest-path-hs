@@ -9,6 +9,7 @@ const showTransportsInput = document.getElementById("show-transports");
 const transportTypeSelect = document.getElementById("transport-type-select");
 const showDoorsInput = document.getElementById("show-doors");
 const showBenchmarkCoverageInput = document.getElementById("show-benchmark-coverage");
+const showEndpointRefinementInput = document.getElementById("show-endpoint-refinement");
 const fitButton = document.getElementById("fit");
 const status = document.getElementById("status");
 const legend = document.getElementById("legend");
@@ -41,11 +42,13 @@ let doorLayer;
 let transportLayer;
 let selectedTransportLayer;
 let benchmarkCoverageLayer;
+let endpointRefinementLayer;
 let heuristicBounds;
 let route = null;
 let reversePath = null;
 let fixtureRoutes = [];
 let benchmarkRoutes = [];
+let endpointRefinements = [];
 let routeMarkers = [];
 let heuristicRender = null;
 let heuristicRequestKey = "";
@@ -277,6 +280,10 @@ fetchJson("../benchmarks/corpus/routes-v1.json", json => {
   addFixtureRoutes("Benchmark", benchmarkRoutes);
   render();
 }, () => {});
+fetchJson("/api/endpoint-refinement", json => {
+  endpointRefinements = json;
+  render();
+}, () => {});
 fetch("../out/route-benchmark.jsonl").then(response => {
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
@@ -329,6 +336,7 @@ showTransportsInput.addEventListener("change", render);
 transportTypeSelect.addEventListener("change", () => { selectedTransport = null; render(); });
 showDoorsInput.addEventListener("change", render);
 showBenchmarkCoverageInput.addEventListener("change", render);
+showEndpointRefinementInput.addEventListener("change", render);
 planeSelect.addEventListener("change", () => {
   currentPlane = Number(planeSelect.value);
   map.eachLayer(layer => layer.redraw?.());
@@ -375,7 +383,7 @@ function componentColor(id) {
 
 function removeLayers() {
   removingLayers = true;
-  [shapeLayer, bboxLayer, routeLayer, comparisonRouteLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, transportLayer, selectedTransportLayer, benchmarkCoverageLayer, ...expandedStateLayers, ...heuristicImageLayers, ...routeMarkers].forEach(layer => {
+  [shapeLayer, bboxLayer, routeLayer, comparisonRouteLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, transportLayer, selectedTransportLayer, benchmarkCoverageLayer, endpointRefinementLayer, ...expandedStateLayers, ...heuristicImageLayers, ...routeMarkers].forEach(layer => {
     if (layer) map.removeLayer(layer);
   });
   if (heuristicLayerControl) {
@@ -400,6 +408,7 @@ function render() {
     const heuristicSummary = mode === "heuristic" ? drawHeuristic(fillOpacity) : null;
     const componentSummary = mode === "component-bitmap" ? drawComponentBitmap(fillOpacity) : null;
     drawBenchmarkCoverage();
+    drawEndpointRefinement();
     drawExpandedTiles();
     drawRoute();
     drawReversePath();
@@ -445,6 +454,7 @@ function render() {
   }
   drawDoors();
   drawBenchmarkCoverage();
+  drawEndpointRefinement();
   drawExpandedTiles();
   drawRoute();
   drawReversePath();
@@ -710,6 +720,36 @@ function drawBenchmarkCoverage() {
       radius: 3, weight: 1
     }).bindTooltip(`${kind === "start" ? "Start" : "End"}: ${place}<br>${item.id}: ${item.name}`);
   })).filter(Boolean)).addTo(map);
+}
+
+function drawEndpointRefinement() {
+  if (!showEndpointRefinementInput.checked) return;
+  const colors = { start: "#16a34a", target: "#c026d3" };
+  const layers = [];
+  const items = endpointRefinements.length ? endpointRefinements : benchmarkRoutes.flatMap(item => [
+    { id: item.id, name: item.name, side: "start", raw: item.rawStart, current: item.start, resolution: item.startResolution },
+    { id: item.id, name: item.name, side: "target", raw: item.rawTarget, current: item.target, resolution: item.targetResolution }
+  ]);
+  for (const item of items) {
+    const kind = item.side;
+    const raw = coordinate(item.raw);
+    const resolution = item.resolution;
+    const corrected = coordinate(resolution?.resolved || item.current);
+    if (raw.plane !== currentPlane && corrected.plane !== currentPlane) continue;
+    const color = colors[kind];
+    if (raw.plane === currentPlane && corrected.plane === currentPlane && !samePoint(raw, corrected)) {
+      layers.push(L.polyline([[raw.y + 0.5, raw.x + 0.5], [corrected.y + 0.5, corrected.x + 0.5]], {
+        color, dashArray: "3 3", weight: 2, opacity: 0.9, interactive: false
+      }));
+    }
+    if (raw.plane === currentPlane) layers.push(L.circleMarker([raw.y + 0.5, raw.x + 0.5], {
+      renderer, color: "#111827", fillColor: "#fff", fillOpacity: 1, radius: 5, weight: 2
+    }).bindTooltip(`Raw ${kind}<br>${item.id}: ${pointKey(raw)}`));
+    if (corrected.plane === currentPlane) layers.push(L.circleMarker([corrected.y + 0.5, corrected.x + 0.5], {
+      renderer, color, fillColor: color, fillOpacity: 0.95, radius: 4, weight: 2
+    }).bindTooltip(`Corrected ${kind}<br>${item.id}: ${pointKey(corrected)}<br>${resolution?.method || "current"}`));
+  }
+  endpointRefinementLayer = L.layerGroup(layers).addTo(map);
 }
 
 function drawExpandedTiles() {
@@ -1188,6 +1228,7 @@ function renderLegend(mode, heuristicSummary) {
   if (showDoorsInput.checked) items.push(["#10b981", "Door transports", ""]);
   if (showTransportsInput.checked) items.push(["#60a5fa", "Transport origins", ""], ["#f87171", "Transport destinations", ""], ["#111827", "Selected transport", "legend-line"]);
   if (showBenchmarkCoverageInput.checked) items.push(["#16a34a", "Benchmark starts", ""], ["#c026d3", "Benchmark ends", ""]);
+  if (showEndpointRefinementInput.checked) items.push(["#111827", "Raw endpoints", ""], ["#16a34a", "Corrected starts", ""], ["#c026d3", "Corrected targets", ""]);
   const legendItems = items.map(([color, label, className]) => {
     const item = document.createElement("div"); item.className = "legend-item";
     const swatch = document.createElement("span"); swatch.className = `legend-swatch ${className}`;
