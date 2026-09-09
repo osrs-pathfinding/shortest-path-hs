@@ -106,6 +106,7 @@ benchmarkAccount name transports = compile <$> profile
     compiled = mergeCompiledVars
       [ CompiledVars (gameStateVarbits (profileGameState value)) (gameStateVarPlayers (profileGameState value))
       , compileProgressionVars progress
+      , compileRuntimeVars (profileRuntime value)
       ]
     loadout = profileCarried value
 
@@ -183,6 +184,15 @@ compileDefaultVars = CompiledVars Map.empty (Map.fromList
   , (VP.slug2Regionuid, 0)
   , (VP.aideTeleTimer, 0)
   ])
+
+compileRuntimeVars :: RuntimeState -> CompiledVars
+compileRuntimeVars runtime = CompiledVars
+  (Map.singleton VB.spellbook (spellbookVarbit (runtimeSpellbook runtime)))
+  Map.empty
+
+spellbookVarbit :: String -> Int
+spellbookVarbit "Standard" = 0
+spellbookVarbit name = error ("unsupported spellbook: " <> name)
 
 quetzalsUnlockedVarPlayer :: VarPlayerId
 quetzalsUnlockedVarPlayer = VP.quetzalsUnlocked

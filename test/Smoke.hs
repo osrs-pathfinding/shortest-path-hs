@@ -116,6 +116,7 @@ profileChecks = do
   assert (requirementsSatisfied (context maxedWithDragon) dragonDoor)
   assert (requirementsSatisfied (context maxed) dragonDoor)
   assert (all (== Just 1) [Map.lookup VB.dragonslayerCrandorFoundSecretDoor (accountVarbits account) | account <- [early, mid, end, maxed]])
+  assert (all (== Just 0) [Map.lookup VB.spellbook (accountVarbits account) | account <- [early, mid, end, maxed]])
   assert (case transportAvailability (context maxed) unknownDoor of Unavailable failures -> any isUnknown failures; _ -> False)
   assert (Map.member "13393" (accountBank mid))
   assert (Map.member "28327" (accountBank end))
