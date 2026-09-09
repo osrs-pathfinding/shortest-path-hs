@@ -1841,7 +1841,7 @@ reachableComponents world owner =
   localEdges =
     [ (a, b)
     | transport <- concat (Map.elems (worldTransports world))
-    , transportType transport /= "VIRTUAL_WALL"
+    , transportType transport `notElem` ["VIRTUAL_WALL", "SEASONAL_TRANSPORTS"]
     , Just originTile <- [origin transport]
     , Just destinationTile <- [destination transport]
     , a <- componentsAt originTile
@@ -1851,6 +1851,7 @@ reachableComponents world owner =
     IntSet.fromList
       [ component
       | transport <- worldGlobalTeleports world
+      , transportType transport `notElem` ["VIRTUAL_WALL", "SEASONAL_TRANSPORTS"]
       , Just destinationTile <- [destination transport]
       , component <- componentsAt destinationTile
       ]

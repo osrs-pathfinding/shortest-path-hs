@@ -216,5 +216,7 @@ test-suite tile-astar
   hs-source-dirs: test
   build-depends:
     base,
+    bytestring,
+    containers,
     shortest-path-model
   default-language: GHC2024

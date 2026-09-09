@@ -1,22 +1,65 @@
 module Main (main) where
 
+import Data.Bits (setBit)
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Tile
+import ShortestPath.Transport
+import ShortestPath.World
 
 main :: IO ()
 main = do
+  checkSeasonalReachability
   mapM_ check cases
   mapM_ checkSparse sparseCases
   putStrLn "tile astar transform/sparse walking: pass"
+
+checkSeasonalReachability :: IO ()
+checkSeasonalReachability = do
+  astar <- buildTileAStar seasonalWorld
+  assert (length [() | (_, _, reachable, _, _, _, _, _, _) <- componentFacts astar, reachable] == 2)
  where
-  check (box, seeds) =
-    assert (chebyshevTransform box seeds == chebyshevTransformSlow box seeds)
-      >> assert (chebyshevTransformC box seeds == chebyshevTransformSlow box seeds)
-  checkSparse tiles = do
-    let network = buildSparseWalkingNetwork (zip [0 ..] tiles)
-    mapM_ (checkPair network tiles) [(a, b) | a <- [0 .. length tiles - 1], b <- [0 .. length tiles - 1]]
-  checkPair network tiles (a, b) =
-    assert (sparseWalkingDistance network a b == Just (2 * cheb (tiles !! a) (tiles !! b)))
+  root = packTile 3221 3218 0
+  ordinaryTarget = packTile 100 100 0
+  seasonalLocalTarget = packTile 200 200 0
+  seasonalGlobalTarget = packTile 300 300 0
+  seasonalWorld = World
+    (collisionMap [root, ordinaryTarget, seasonalLocalTarget, seasonalGlobalTarget])
+    (Map.fromList
+      [ (root, [transport "ORDINARY" root ordinaryTarget])
+      , (ordinaryTarget, [transport "SEASONAL_TRANSPORTS" ordinaryTarget seasonalLocalTarget])
+      ])
+    [globalTransport "SEASONAL_TRANSPORTS" seasonalGlobalTarget]
+    Set.empty
+  transport kind from to = Transport kind (Just from) (Just to) 1 kind "" False Nothing [] Nothing [] [] [] "synthetic"
+  globalTransport kind to = Transport kind Nothing (Just to) 1 kind "" False Nothing [] Nothing [] [] [] "synthetic"
+
+collisionMap :: [Tile] -> CollisionMap
+collisionMap tiles = CollisionMap (Map.fromList [(region, bytes region) | region <- Set.toList (Set.fromList (map tileRegion tiles))])
+ where
+  tileRegion tile = let (x, y, _) = unpackTile tile in (x `div` 64, y `div` 64)
+  bytes region = BL.pack [byteAt region ix | ix <- [0 .. 8191]]
+  byteAt region ix = foldr set 0 [bit | tile <- tiles, tileRegion tile == region, let bit = collisionBit tile, bit `div` 8 == ix]
+  set bit value = setBit value (bit `mod` 8)
+  collisionBit tile = ((plane * 4096 + (y `mod` 64) * 64 + (x `mod` 64)) * 2)
+   where (x, y, plane) = unpackTile tile
+
+check :: (Box, [(Tile, Int)]) -> IO ()
+check (box, seeds) =
+  assert (chebyshevTransform box seeds == chebyshevTransformSlow box seeds)
+    >> assert (chebyshevTransformC box seeds == chebyshevTransformSlow box seeds)
+
+checkSparse :: [Tile] -> IO ()
+checkSparse tiles = do
+  let network = buildSparseWalkingNetwork (zip [0 ..] tiles)
+  mapM_ (checkPair network tiles) [(a, b) | a <- [0 .. length tiles - 1], b <- [0 .. length tiles - 1]]
+
+checkPair :: SparseWalkingNetwork -> [Tile] -> (Int, Int) -> IO ()
+checkPair network tiles (a, b) =
+  assert (sparseWalkingDistance network a b == Just (2 * cheb (tiles !! a) (tiles !! b)))
 
 cases :: [(Box, [(Tile, Int)])]
 cases =
