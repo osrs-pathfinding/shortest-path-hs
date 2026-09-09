@@ -180,7 +180,7 @@ diaryName = \case
 canonicalQuestUniverse :: Set.Set String
 canonicalQuestUniverse = earlyQuests <> Set.fromList
   [ "Land of the Goblins", "Sins of the Father", "Dragon Slayer I"
-  , "Making Friends with My Arm", "Cabin Fever"
+  , "Making Friends with My Arm", "Cabin Fever", "The Depths of Despair"
   ]
 
 effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
@@ -215,20 +215,22 @@ compileProgressionVars progress = mergeCompiledVars
 compileQuestDerivedVarbits :: Progression -> Map.Map VarbitId Int
 compileQuestDerivedVarbits progress =
   Map.insert VB.my2armStatus (if Set.member "Making Friends with My Arm" quests then makingFriendsCompleteValue else 0)
-    (Map.insert VB.myq5 (if SinsOfTheFatherSlepeBoatAccess `Set.member` milestones then myq5BoatUnlockedValue else 0)
-      (Map.insert VB.lotg (if LandOfTheGoblinsYuBiuskAccess `Set.member` milestones then lotgYuBiuskUnlockedValue else 0)
-        (if Set.member "Dragon Slayer I" quests
-          then Map.singleton VB.dragonslayerCrandorFoundSecretDoor 1
-          else Map.empty)))
+    (Map.insert VB.hosidiusquest (if Set.member "The Depths of Despair" quests then depthsOfDespairCaveAccessValue else 0)
+      (Map.insert VB.myq5 (if SinsOfTheFatherSlepeBoatAccess `Set.member` milestones then myq5BoatUnlockedValue else 0)
+        (Map.insert VB.lotg (if LandOfTheGoblinsYuBiuskAccess `Set.member` milestones then lotgYuBiuskUnlockedValue else 0)
+          (if Set.member "Dragon Slayer I" quests
+            then Map.singleton VB.dragonslayerCrandorFoundSecretDoor 1
+            else Map.empty))))
  where
   quests = progressionQuests progress
   milestones = effectiveQuestMilestones progress
 
 -- Benchmark semantic fallback values for the quest states required by GPS.
-lotgYuBiuskUnlockedValue, myq5BoatUnlockedValue, makingFriendsCompleteValue :: Int
+lotgYuBiuskUnlockedValue, myq5BoatUnlockedValue, makingFriendsCompleteValue, depthsOfDespairCaveAccessValue :: Int
 lotgYuBiuskUnlockedValue = 50
 myq5BoatUnlockedValue = 88
 makingFriendsCompleteValue = 207
+depthsOfDespairCaveAccessValue = 7
 
 compileQuetzalVars :: Set.Set QuetzalPlatform -> Map.Map VarPlayerId Int
 compileQuetzalVars platforms = Map.singleton quetzalsUnlockedVarPlayer (quetzalPlatformMask platforms)
