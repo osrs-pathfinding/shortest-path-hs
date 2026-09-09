@@ -13344,17 +13344,17 @@
   },
   {
     "id": "gps-natural-0147",
-    "name": "The Gauntlet → Council chamber",
+    "name": "The Gauntlet entrance → Council chamber",
     "category": "gps-natural",
     "rawStart": [
-      3033,
-      6115,
-      1
+      3227,
+      6114,
+      0
     ],
     "start": [
-      3033,
-      6118,
-      1
+      3227,
+      6114,
+      0
     ],
     "rawTarget": [
       2718,
@@ -13366,60 +13366,40 @@
       5367,
       1
     ],
-    "startName": "The Gauntlet",
+    "startName": "The Gauntlet entrance",
     "targetName": "Council chamber",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3204",
+    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/seasonal_transports.tsv:188",
     "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2704",
     "allowTransports": true,
     "tiers": [
       "standard",
       "full"
     ],
-    "distanceTag": "long",
-    "planeTag": "1-to-1",
-    "startRegion": "5,11",
+    "distanceTag": "cross-world",
+    "planeTag": "0-to-1",
+    "startRegion": "6,11",
     "targetRegion": "5,10",
     "startResolution": {
       "raw": [
-        3033,
-        6115,
-        1
+        3227,
+        6114,
+        0
       ],
       "resolved": [
-        3033,
-        6118,
-        1
+        3227,
+        6114,
+        0
       ],
-      "distance": 3,
-      "method": "nearest_reachable",
+      "distance": 0,
+      "method": "exact",
       "componentIds": [
-        23491
+        7923
       ],
       "candidates": [
         [
-          3033,
-          6118,
-          1
-        ],
-        [
-          3032,
-          6118,
-          1
-        ],
-        [
-          3035,
-          6118,
-          1
-        ],
-        [
-          3030,
-          6118,
-          1
-        ],
-        [
-          3036,
-          6118,
-          1
+          3227,
+          6114,
+          0
         ]
       ]
     },
@@ -27859,17 +27839,17 @@
   },
   {
     "id": "quest-natural-0054",
-    "name": "The Gauntlet → Monks Friend quest step",
+    "name": "The Gauntlet entrance → Monks Friend quest step",
     "category": "quest-natural",
     "rawStart": [
-      3033,
-      6115,
-      1
+      3227,
+      6114,
+      0
     ],
     "start": [
-      3033,
-      6118,
-      1
+      3227,
+      6114,
+      0
     ],
     "rawTarget": [
       2570,
@@ -27881,59 +27861,39 @@
       9604,
       0
     ],
-    "startName": "The Gauntlet",
+    "startName": "The Gauntlet entrance",
     "targetName": "Monks Friend quest step",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3204",
+    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/seasonal_transports.tsv:188",
     "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/monksfriend/MonksFriend.java:110",
     "allowTransports": true,
     "tiers": [
       "full"
     ],
     "distanceTag": "cross-world",
-    "planeTag": "1-to-0",
-    "startRegion": "5,11",
+    "planeTag": "0-to-0",
+    "startRegion": "6,11",
     "targetRegion": "5,18",
     "startResolution": {
       "raw": [
-        3033,
-        6115,
-        1
+        3227,
+        6114,
+        0
       ],
       "resolved": [
-        3033,
-        6118,
-        1
+        3227,
+        6114,
+        0
       ],
-      "distance": 3,
-      "method": "nearest_reachable",
+      "distance": 0,
+      "method": "exact",
       "componentIds": [
-        23491
+        7923
       ],
       "candidates": [
         [
-          3033,
-          6118,
-          1
-        ],
-        [
-          3032,
-          6118,
-          1
-        ],
-        [
-          3035,
-          6118,
-          1
-        ],
-        [
-          3030,
-          6118,
-          1
-        ],
-        [
-          3036,
-          6118,
-          1
+          3227,
+          6114,
+          0
         ]
       ]
     },
@@ -59127,7 +59087,7 @@
   },
   {
     "id": "geographic-0017",
-    "name": "Famine → The Gauntlet",
+    "name": "Famine → The Gauntlet entrance",
     "category": "geographic-stratified",
     "rawStart": [
       2016,
@@ -59140,27 +59100,27 @@
       0
     ],
     "rawTarget": [
-      3033,
-      6115,
-      1
+      3227,
+      6114,
+      0
     ],
     "target": [
-      3033,
-      6118,
-      1
+      3227,
+      6114,
+      0
     ],
     "startName": "Famine",
-    "targetName": "The Gauntlet",
+    "targetName": "The Gauntlet entrance",
     "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2245",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3204",
+    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/seasonal_transports.tsv:188",
     "allowTransports": true,
     "tiers": [
       "full"
     ],
     "distanceTag": "cross-world",
-    "planeTag": "0-to-1",
+    "planeTag": "0-to-0",
     "startRegion": "3,10",
-    "targetRegion": "5,11",
+    "targetRegion": "6,11",
     "startResolution": {
       "raw": [
         2016,
@@ -59187,45 +59147,25 @@
     },
     "targetResolution": {
       "raw": [
-        3033,
-        6115,
-        1
+        3227,
+        6114,
+        0
       ],
       "resolved": [
-        3033,
-        6118,
-        1
+        3227,
+        6114,
+        0
       ],
-      "distance": 3,
-      "method": "nearest_reachable",
+      "distance": 0,
+      "method": "exact",
       "componentIds": [
-        23491
+        7923
       ],
       "candidates": [
         [
-          3033,
-          6118,
-          1
-        ],
-        [
-          3032,
-          6118,
-          1
-        ],
-        [
-          3035,
-          6118,
-          1
-        ],
-        [
-          3030,
-          6118,
-          1
-        ],
-        [
-          3036,
-          6118,
-          1
+          3227,
+          6114,
+          0
         ]
       ]
     }
@@ -63615,17 +63555,17 @@
   },
   {
     "id": "geographic-0064",
-    "name": "The Gauntlet → Cryptic Clue clue at 3103, 3163",
+    "name": "The Gauntlet entrance → Cryptic Clue clue at 3103, 3163",
     "category": "geographic-stratified",
     "rawStart": [
-      3033,
-      6115,
-      1
+      3227,
+      6114,
+      0
     ],
     "start": [
-      3033,
-      6118,
-      1
+      3227,
+      6114,
+      0
     ],
     "rawTarget": [
       3103,
@@ -63637,59 +63577,39 @@
       3163,
       2
     ],
-    "startName": "The Gauntlet",
+    "startName": "The Gauntlet entrance",
     "targetName": "Cryptic Clue clue at 3103, 3163",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3204",
+    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/seasonal_transports.tsv:188",
     "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:994",
     "allowTransports": true,
     "tiers": [
       "full"
     ],
     "distanceTag": "cross-world",
-    "planeTag": "1-to-2",
-    "startRegion": "5,11",
+    "planeTag": "0-to-2",
+    "startRegion": "6,11",
     "targetRegion": "6,6",
     "startResolution": {
       "raw": [
-        3033,
-        6115,
-        1
+        3227,
+        6114,
+        0
       ],
       "resolved": [
-        3033,
-        6118,
-        1
+        3227,
+        6114,
+        0
       ],
-      "distance": 3,
-      "method": "nearest_reachable",
+      "distance": 0,
+      "method": "exact",
       "componentIds": [
-        23491
+        7923
       ],
       "candidates": [
         [
-          3033,
-          6118,
-          1
-        ],
-        [
-          3032,
-          6118,
-          1
-        ],
-        [
-          3035,
-          6118,
-          1
-        ],
-        [
-          3030,
-          6118,
-          1
-        ],
-        [
-          3036,
-          6118,
-          1
+          3227,
+          6114,
+          0
         ]
       ]
     },
@@ -64506,7 +64426,7 @@
   },
   {
     "id": "geographic-0074",
-    "name": "Motherlode Mine → The Gauntlet",
+    "name": "Motherlode Mine → The Gauntlet entrance",
     "category": "geographic-stratified",
     "rawStart": [
       3728,
@@ -64519,27 +64439,27 @@
       0
     ],
     "rawTarget": [
-      3033,
-      6115,
-      1
+      3227,
+      6114,
+      0
     ],
     "target": [
-      3033,
-      6118,
-      1
+      3227,
+      6114,
+      0
     ],
     "startName": "Motherlode Mine",
-    "targetName": "The Gauntlet",
+    "targetName": "The Gauntlet entrance",
     "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2258",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3204",
+    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/transports/seasonal_transports.tsv:188",
     "allowTransports": true,
     "tiers": [
       "full"
     ],
-    "distanceTag": "cross-world",
-    "planeTag": "0-to-1",
+    "distanceTag": "long",
+    "planeTag": "0-to-0",
     "startRegion": "7,11",
-    "targetRegion": "5,11",
+    "targetRegion": "6,11",
     "startResolution": {
       "raw": [
         3728,
@@ -64566,45 +64486,25 @@
     },
     "targetResolution": {
       "raw": [
-        3033,
-        6115,
-        1
+        3227,
+        6114,
+        0
       ],
       "resolved": [
-        3033,
-        6118,
-        1
+        3227,
+        6114,
+        0
       ],
-      "distance": 3,
-      "method": "nearest_reachable",
+      "distance": 0,
+      "method": "exact",
       "componentIds": [
-        23491
+        7923
       ],
       "candidates": [
         [
-          3033,
-          6118,
-          1
-        ],
-        [
-          3032,
-          6118,
-          1
-        ],
-        [
-          3035,
-          6118,
-          1
-        ],
-        [
-          3030,
-          6118,
-          1
-        ],
-        [
-          3036,
-          6118,
-          1
+          3227,
+          6114,
+          0
         ]
       ]
     }
