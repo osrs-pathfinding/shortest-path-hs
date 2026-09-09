@@ -52,12 +52,12 @@ validate account = do
   mapM_ (putStrLn . renderFailure) (Map.toAscList failures)
   mapM_ (putStrLn . renderFamily availability) ["FAIRY_RING", "SPIRIT_TREE", "GNOME_GLIDER", "MAGIC_MUSHTREE", "QUETZAL", "HOT_AIR_BALLOON", "CANOE"]
  where
-  profileQuery = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account, queryNowMinutes = 100000000 }
+  profileQuery = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account, queryNowMinutes = benchmarkNowMinutes }
 
 compareProfiles :: AccountBuild -> AccountBuild -> IO ()
 compareProfiles before after = do
   world <- loadWorld defaultSourcePaths
-  let query account = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account, queryNowMinutes = 100000000 }
+  let query account = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account, queryNowMinutes = benchmarkNowMinutes }
       count account = countLocals (bankedLocalTransports (prepareQueryTransports world (query account))) + length (bankedGlobalTransports (prepareQueryTransports world (query account)))
   putStrLn ("newly available transports: " <> show (count after - count before))
 

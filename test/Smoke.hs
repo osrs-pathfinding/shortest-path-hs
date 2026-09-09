@@ -81,6 +81,8 @@ requirementChecks = do
       banked = RequirementContext account CarriedAndBank 130
       transport = Transport "TEST" Nothing Nothing 0 "" "" False Nothing [SkillReq 70 "Agility"] (Just (ItemAnd [ItemOne (ItemTerm "1" 2), ItemOr [ItemOne (ItemTerm "2" 1), ItemOne (ItemTerm "4" 1)]])) ["Quest"] [VarReq (GameVarbit (VarbitId 1)) 6 VarEq, VarReq (GameVarbit (VarbitId 1)) 2 VarMask] [VarReq (GameVarPlayer (VarPlayerId 2)) 20 VarCooldownMinutes] "test"
   assert (requirementsSatisfied carried transport)
+  assert (not (requirementsSatisfied (carried { requirementAccount = account { accountVarPlayers = Map.singleton (VarPlayerId 2) 110 } }) transport))
+  assert (requirementsSatisfied (carried { requirementAccount = account { accountVarPlayers = Map.singleton (VarPlayerId 2) 109 } }) transport)
   assert (not (requirementsSatisfied carried (transport { skills = [SkillReq 71 "Agility"] })))
   assert (not (requirementsSatisfied carried (transport { quests = ["Missing"] })))
   assert (not (requirementsSatisfied carried (transport { varbits = [VarReq (GameVarbit (VarbitId 9)) 0 VarEq] })))
@@ -100,7 +102,7 @@ profileChecks = do
       dragonDoor = Transport "TRANSPORT" Nothing Nothing 0 "Open Wall" "" False Nothing [] Nothing ["Dragon Slayer I"] [VarReq (GameVarbit VB.dragonslayerCrandorFoundSecretDoor) 1 VarEq] [] "test"
       maxedWithDragon = mustProfile "maxed" (benchmarkAccount "maxed" [dragonDoor])
       unknownDoor = dragonDoor { quests = [], varbits = [VarReq (GameVarbit VB.darkmShortcutInner) 1 VarEq] }
-      context account = RequirementContext account CarriedOnly 100000000
+      context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       withoutStaff account = account { accountInventory = Map.delete "772" (accountInventory account) }
   assert (requirementsSatisfied (context early) fairyRing)
   assert (not (requirementsSatisfied (context (withoutStaff early)) fairyRing))
@@ -151,8 +153,20 @@ semanticProfileChecks = do
   assert (Map.lookup VP.quetzalsUnlocked (accountVarPlayers early) == Just 0)
   assert (Map.notMember (VarbitId 4182) (accountVarbits early))
   assert (all (`Map.notMember` accountVarbits early) whistleIds)
+  let end = mustProfile "end" (benchmarkAccount "end" [])
+      maxed = mustProfile "maxed" (benchmarkAccount "maxed" [])
+  assert (Map.lookup (VarbitId 4498) (accountVarbits end) == Just 1)
+  assert (Map.lookup (VarbitId 4566) (accountVarbits end) == Just 0)
+  assert (Map.lookup (VarbitId 4566) (accountVarbits maxed) == Just 1)
+  assert (Map.lookup VP.slug2Regionuid (accountVarPlayers early) == Just (benchmarkNowMinutes - 21))
+  assert (Set.member "Land of the Goblins" (accountCompletedQuests maxed))
+  assert (Set.member "Sins of the Father" (accountCompletedQuests maxed))
+  assert (Map.lookup VB.lotg (accountVarbits early) == Just 0)
+  assert (Map.lookup VB.myq5 (accountVarbits early) == Just 0)
+  assert (Map.lookup VB.lotg (accountVarbits maxed) == Just 50)
+  assert (Map.lookup VB.myq5 (accountVarbits maxed) == Just 88)
   transports <- loadTransports defaultSourcePaths
-  let context account = RequirementContext account CarriedOnly 0
+  let context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       available account transport = case transportAvailability (context account) transport of
         Available -> True
         _ -> False

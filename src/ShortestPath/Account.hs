@@ -5,6 +5,7 @@ module ShortestPath.Account
   , JewelleryBoxTier(..)
   , PohBuild(..)
   , RuntimeState(..)
+  , CooldownState(..)
   , ItemAccess(..)
   , RequirementMode(..)
   , RequirementContext(..)
@@ -65,10 +66,13 @@ data PohBuild = PohBuild
 
 data RuntimeState = RuntimeState
   { runtimeSpellbook :: String
-  , runtimeCooldownsReady :: Bool
+  , runtimeMinigameTeleport :: CooldownState
   , runtimeArriveInsidePoh :: Bool
   }
   deriving stock (Eq, Show)
+
+data CooldownState = CooldownReady | CooldownUsedAt Int
+  deriving stock (Eq, Ord, Show)
 
 data ItemAccess = CarriedOnly | CarriedAndBank
   deriving stock (Eq, Ord, Show)
@@ -97,7 +101,7 @@ data TransportAvailability = Available | TransportTypeDisabled String | Unavaila
 
 emptyAccountBuild :: AccountBuild
 emptyAccountBuild =
-  AccountBuild Map.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty emptyPoh False (RuntimeState "Standard" True True)
+  AccountBuild Map.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty emptyPoh False (RuntimeState "Standard" CooldownReady True)
 
 emptyPoh :: PohBuild
 emptyPoh = PohBuild "Rimmington" NoJewelleryBox Set.empty False False False False False False False
@@ -182,4 +186,4 @@ varRequirementResult context requirement =
     VarGt -> actual > varValue requirement
     VarLt -> actual < varValue requirement
     VarMask -> actual .&. varValue requirement == varValue requirement
-    VarCooldownMinutes -> actual + varValue requirement <= requirementNowMinutes context
+    VarCooldownMinutes -> actual + varValue requirement < requirementNowMinutes context

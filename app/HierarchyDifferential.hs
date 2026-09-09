@@ -36,7 +36,7 @@ import ShortestPath.Heuristic.Region (RegionTable, buildRegionGraph, buildRegion
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
 import ShortestPath.Account
   ( AccountBuild(..), PohBuild(..), RequirementMode(..), RuntimeState(..) )
-import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames)
+import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkNowMinutes)
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess (preprocessHierarchy)
 import ShortestPath.Hierarchy.Types (Hierarchy(..), LeafOverlay(..))
@@ -475,7 +475,7 @@ serveRequest world tileAStar hierarchical line =
                 { allowTransports = requestAllowTransports request
                 , heuristicWeight = requestHeuristicWeight request
                 , requirementMode = maybe IgnoreRequirements ConfiguredRequirements profile
-                , queryNowMinutes = 100000000
+                , queryNowMinutes = benchmarkNowMinutes
                 }
           case maybe "hierarchical" id (requestFinder request) of
             "raw" -> do
@@ -556,7 +556,7 @@ serveRequest world tileAStar hierarchical line =
     ]
   runtimeJson runtime = object
     [ "spellbook" .= runtimeSpellbook runtime
-    , "cooldownsReady" .= runtimeCooldownsReady runtime
+    , "cooldownsReady" .= (runtimeMinigameTeleport runtime == CooldownReady)
     , "arriveInsidePoh" .= runtimeArriveInsidePoh runtime
     ]
   heuristicRegionJson (LeafId component region, value) = object

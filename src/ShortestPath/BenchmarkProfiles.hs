@@ -1,6 +1,8 @@
 module ShortestPath.BenchmarkProfiles
   ( BenchmarkProfile(..)
   , Progression(..)
+  , Diary(..)
+  , QuestMilestone(..)
   , QuetzalPlatform(..)
   , CompiledVars(..)
   , GameStateSpec(..)
@@ -8,7 +10,11 @@ module ShortestPath.BenchmarkProfiles
   , benchmarkProfileNames
   , benchmarkAccount
   , benchmarkProfileVariableGaps
+  , benchmarkNowMinutes
   , compileProgressionVars
+  , effectiveQuestMilestones
+  , diaryVarbitsFor
+  , compileDiary
   , quetzalPlatformBit
   , quetzalPlatformMask
   ) where
@@ -36,11 +42,22 @@ data QuetzalPlatform
 data Progression = Progression
   { progressionLevels :: ItemCounts
   , progressionQuests :: Set.Set String
-  , progressionDiaries :: Map.Map String DiaryTier
+  , progressionMilestones :: Set.Set QuestMilestone
+  , progressionDiaries :: Map.Map Diary DiaryTier
   , progressionFairyRings :: Bool
   , progressionQuetzalPlatforms :: Set.Set QuetzalPlatform
   }
   deriving stock (Eq, Show)
+
+data Diary = Ardougne | Desert | Falador | Fremennik | Kandarin | Karamja
+  | KourendKebos | LumbridgeDraynor | Morytania | Varrock
+  | WesternProvinces | Wilderness
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
+
+data QuestMilestone
+  = LandOfTheGoblinsYuBiuskAccess
+  | SinsOfTheFatherSlepeBoatAccess
+  deriving stock (Eq, Ord, Show)
 
 data ItemLoadout = ItemLoadout
   { loadoutInventory :: ItemCounts
@@ -84,7 +101,7 @@ benchmarkAccount name transports = compile <$> profile
     "end" -> Just (endProfile allQuests)
     "maxed" -> Just (maxedProfile allQuests allItems)
     _ -> Nothing
-  allQuests = Set.fromList (concatMap quests transports)
+  allQuests = canonicalQuestUniverse
   allItems = Map.fromList [(item, 1000) | transport <- transports, item <- itemNames =<< maybeToList (items transport)]
   compile value =
     emptyAccountBuild
@@ -96,7 +113,8 @@ benchmarkAccount name transports = compile <$> profile
       , accountEquipment = loadoutEquipment loadout
       , accountRunePouch = loadoutRunePouch loadout
       , accountBank = profileBank value
-      , accountDiaries = progressionDiaries progress
+      , accountDiaries = Map.fromList
+          [(diaryName diary, tier) | (diary, tier) <- Map.toList (progressionDiaries progress)]
       , accountPoh = profilePoh value
       , accountFairyRingsUnlocked = progressionFairyRings progress
       , accountRuntime = profileRuntime value
@@ -106,7 +124,7 @@ benchmarkAccount name transports = compile <$> profile
     compiled = mergeCompiledVars
       [ CompiledVars (gameStateVarbits (profileGameState value)) (gameStateVarPlayers (profileGameState value))
       , compileProgressionVars progress
-      , compileRuntimeVars (profileRuntime value)
+      , compileRuntimeVars benchmarkNowMinutes (profileRuntime value)
       , compilePohVars (profilePoh value)
       ]
     loadout = profileCarried value
@@ -116,7 +134,7 @@ benchmarkProfileVariableGaps transports =
   [ (name, nub unknown)
   | name <- benchmarkProfileNames
   , Just account <- [benchmarkAccount name transports]
-  , let context = RequirementContext account CarriedAndBank 100000000
+  , let context = RequirementContext account CarriedAndBank benchmarkNowMinutes
         unknown = concat
           [ requirements
           | transport <- transports
@@ -141,17 +159,38 @@ maxedProfile allQuests allItems = BenchmarkProfile "maxed" (progression (Map.fro
 withCoreQuests :: Set.Set String -> Set.Set String
 withCoreQuests = Set.insert "Dragon Slayer I"
 
-progression :: ItemCounts -> Set.Set String -> Map.Map String DiaryTier -> Bool -> Set.Set QuetzalPlatform -> Progression
-progression = Progression
+progression :: ItemCounts -> Set.Set String -> Map.Map Diary DiaryTier -> Bool -> Set.Set QuetzalPlatform -> Progression
+progression levels quests diaries fairy platforms =
+  Progression levels quests Set.empty diaries fairy platforms
 
-allDiaries :: DiaryTier -> Map.Map String DiaryTier
-allDiaries tier = Map.fromList [(name, tier) | name <- diaryNames]
+allDiaries :: DiaryTier -> Map.Map Diary DiaryTier
+allDiaries tier = Map.fromList [(diary, tier) | diary <- [minBound .. maxBound]]
 
-endDiaries :: Map.Map String DiaryTier
-endDiaries = Map.insert "Lumbridge & Draynor" Elite (allDiaries Hard)
+endDiaries :: Map.Map Diary DiaryTier
+endDiaries = Map.insert LumbridgeDraynor Elite (allDiaries Hard)
 
-diaryNames :: [String]
-diaryNames = ["Ardougne", "Desert", "Falador", "Fremennik", "Kandarin", "Karamja", "Kourend & Kebos", "Lumbridge & Draynor", "Morytania", "Varrock", "Western Provinces", "Wilderness"]
+diaryName :: Diary -> String
+diaryName = \case
+  Ardougne -> "Ardougne"; Desert -> "Desert"; Falador -> "Falador"
+  Fremennik -> "Fremennik"; Kandarin -> "Kandarin"; Karamja -> "Karamja"
+  KourendKebos -> "Kourend & Kebos"; LumbridgeDraynor -> "Lumbridge & Draynor"
+  Morytania -> "Morytania"; Varrock -> "Varrock"
+  WesternProvinces -> "Western Provinces"; Wilderness -> "Wilderness"
+
+canonicalQuestUniverse :: Set.Set String
+canonicalQuestUniverse = earlyQuests <> Set.fromList
+  [ "Land of the Goblins", "Sins of the Father", "Dragon Slayer I" ]
+
+effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
+effectiveQuestMilestones progress = progressionMilestones progress <> Set.fromList
+  [ LandOfTheGoblinsYuBiuskAccess | Set.member "Land of the Goblins" quests ]
+  <> Set.fromList
+  [ SinsOfTheFatherSlepeBoatAccess | Set.member "Sins of the Father" quests ]
+ where
+  quests = progressionQuests progress
+
+benchmarkNowMinutes :: Int
+benchmarkNowMinutes = 100000000
 
 emptyGameState :: GameStateSpec
 emptyGameState = GameStateSpec Map.empty Map.empty
@@ -166,15 +205,26 @@ instance Monoid GameStateSpec where
 compileProgressionVars :: Progression -> CompiledVars
 compileProgressionVars progress = mergeCompiledVars
   [ CompiledVars (diaryVarbits (progressionDiaries progress)) Map.empty
-  , CompiledVars (compileQuestDerivedVarbits (progressionQuests progress)) Map.empty
+  , CompiledVars (compileQuestDerivedVarbits progress) Map.empty
   , CompiledVars Map.empty (compileQuetzalVars (progressionQuetzalPlatforms progress))
   , compileDefaultVars
   ]
 
-compileQuestDerivedVarbits :: Set.Set String -> Map.Map VarbitId Int
-compileQuestDerivedVarbits quests
-  | Set.member "Dragon Slayer I" quests = Map.singleton VB.dragonslayerCrandorFoundSecretDoor 1
-  | otherwise = Map.empty
+compileQuestDerivedVarbits :: Progression -> Map.Map VarbitId Int
+compileQuestDerivedVarbits progress =
+  Map.insert VB.myq5 (if SinsOfTheFatherSlepeBoatAccess `Set.member` milestones then myq5BoatUnlockedValue else 0)
+    (Map.insert VB.lotg (if LandOfTheGoblinsYuBiuskAccess `Set.member` milestones then lotgYuBiuskUnlockedValue else 0)
+      (if Set.member "Dragon Slayer I" quests
+        then Map.singleton VB.dragonslayerCrandorFoundSecretDoor 1
+        else Map.empty))
+ where
+  quests = progressionQuests progress
+  milestones = effectiveQuestMilestones progress
+
+-- Benchmark semantic fallback values for the quest states required by GPS.
+lotgYuBiuskUnlockedValue, myq5BoatUnlockedValue :: Int
+lotgYuBiuskUnlockedValue = 50
+myq5BoatUnlockedValue = 88
 
 compileQuetzalVars :: Set.Set QuetzalPlatform -> Map.Map VarPlayerId Int
 compileQuetzalVars platforms = Map.singleton quetzalsUnlockedVarPlayer (quetzalPlatformMask platforms)
@@ -182,17 +232,20 @@ compileQuetzalVars platforms = Map.singleton quetzalsUnlockedVarPlayer (quetzalP
 compileDefaultVars :: CompiledVars
 compileDefaultVars = CompiledVars Map.empty (Map.fromList
   [ (VP.homeTeleportAnimToggles, 0)
-  , (VP.slug2Regionuid, 0)
   , (VP.aideTeleTimer, 0)
   ])
 
-compileRuntimeVars :: RuntimeState -> CompiledVars
-compileRuntimeVars runtime = CompiledVars
+compileRuntimeVars :: Int -> RuntimeState -> CompiledVars
+compileRuntimeVars now runtime = CompiledVars
   (Map.fromList
     [ (VB.spellbook, spellbookVarbit (runtimeSpellbook runtime))
     , (VB.pohTeleToggle, if runtimeArriveInsidePoh runtime then 0 else 1)
     ])
-  Map.empty
+  (Map.singleton VP.slug2Regionuid (cooldownTimestamp now (runtimeMinigameTeleport runtime)))
+
+cooldownTimestamp :: Int -> CooldownState -> Int
+cooldownTimestamp now CooldownReady = now - 21
+cooldownTimestamp _ (CooldownUsedAt timestamp) = timestamp
 
 spellbookVarbit :: String -> Int
 spellbookVarbit "Standard" = 0
@@ -233,18 +286,44 @@ mergeCompiledVars = foldl' merge (CompiledVars Map.empty Map.empty)
         | old == value -> values
         | otherwise -> error (namespace <> " " <> show key <> " compiled with conflicting values " <> show old <> " and " <> show value)
 
-diaryVarbits :: Map.Map String DiaryTier -> Map.Map VarbitId Int
-diaryVarbits diaries
-  | all (>= Elite) (Map.elems diaries) = Map.fromList [(key, 1) | key <- eliteDiaryVars]
-  | Map.findWithDefault NoDiary "Lumbridge & Draynor" diaries >= Elite = Map.singleton VB.lumbridgeDiaryEliteComplete 1
-  | otherwise = Map.empty
+data DiaryVarbits = DiaryVarbits
+  { diaryEasy :: VarbitId
+  , diaryMedium :: VarbitId
+  , diaryHard :: VarbitId
+  , diaryElite :: VarbitId
+  }
 
-eliteDiaryVars :: [VarbitId]
-eliteDiaryVars = [ VB.ardougneDiaryEliteComplete, VB.faladorDiaryEliteComplete, VB.wildernessDiaryEliteComplete
-                 , VB.westernDiaryEliteComplete, VB.kandarinDiaryEliteComplete, VB.varrockDiaryEliteComplete
-                 , VB.desertDiaryEliteComplete, VB.morytaniaDiaryEliteComplete, VB.fremennikDiaryEliteComplete
-                 , VB.lumbridgeDiaryEliteComplete, VB.karamjaDiaryEliteComplete
-                 ]
+-- RuneLite Varbits.java: DIARY_*_EASY/MEDIUM/HARD/ELITE_COMPLETE.
+diaryVarbitsFor :: Diary -> DiaryVarbits
+diaryVarbitsFor = \case
+  Ardougne -> DiaryVarbits (VarbitId 4458) (VarbitId 4459) (VarbitId 4460) (VarbitId 4461)
+  Desert -> DiaryVarbits (VarbitId 4483) (VarbitId 4484) (VarbitId 4485) (VarbitId 4486)
+  Falador -> DiaryVarbits (VarbitId 4462) (VarbitId 4463) (VarbitId 4464) (VarbitId 4465)
+  Fremennik -> DiaryVarbits (VarbitId 4491) (VarbitId 4492) (VarbitId 4493) (VarbitId 4494)
+  Kandarin -> DiaryVarbits (VarbitId 4475) (VarbitId 4476) (VarbitId 4477) (VarbitId 4478)
+  Karamja -> DiaryVarbits (VarbitId 3578) (VarbitId 3599) (VarbitId 3611) (VarbitId 4566)
+  KourendKebos -> DiaryVarbits (VarbitId 7925) (VarbitId 7926) (VarbitId 7927) (VarbitId 7928)
+  LumbridgeDraynor -> DiaryVarbits (VarbitId 4495) (VarbitId 4496) (VarbitId 4497) (VarbitId 4498)
+  Morytania -> DiaryVarbits (VarbitId 4487) (VarbitId 4488) (VarbitId 4489) (VarbitId 4490)
+  Varrock -> DiaryVarbits (VarbitId 4479) (VarbitId 4480) (VarbitId 4481) (VarbitId 4482)
+  WesternProvinces -> DiaryVarbits (VarbitId 4471) (VarbitId 4472) (VarbitId 4473) (VarbitId 4474)
+  Wilderness -> DiaryVarbits (VarbitId 4466) (VarbitId 4467) (VarbitId 4468) (VarbitId 4469)
+
+diaryVarbits :: Map.Map Diary DiaryTier -> Map.Map VarbitId Int
+diaryVarbits = Map.foldlWithKey' addDiary Map.empty
+ where
+  addDiary values diary tier = values <> compileDiary tier (diaryVarbitsFor diary)
+
+compileDiary :: DiaryTier -> DiaryVarbits -> Map.Map VarbitId Int
+compileDiary tier vars = Map.fromList
+  [ (diaryEasy vars, flag (tier >= Easy))
+  , (diaryMedium vars, flag (tier >= Medium))
+  , (diaryHard vars, flag (tier >= Hard))
+  , (diaryElite vars, flag (tier >= Elite))
+  ]
+ where
+  flag True = 1
+  flag False = 0
 
 allPlatforms :: Set.Set QuetzalPlatform
 allPlatforms = Set.fromList [minBound .. maxBound]
@@ -290,7 +369,7 @@ midPoh = PohBuild "Rimmington" FancyJewelleryBox (Set.fromList ["Varrock Portal"
 maxedPoh = PohBuild "Rimmington" OrnateJewelleryBox (Set.singleton "*") True True True True True True True
 
 standardRuntime :: RuntimeState
-standardRuntime = RuntimeState "Standard" True True
+standardRuntime = RuntimeState "Standard" CooldownReady True
 
 earlyLoadout, midLoadout, endLoadout, maxedLoadout :: ItemLoadout
 earlyLoadout = ItemLoadout (Map.fromList [("772", 1), ("2552", 1), ("3853", 1), ("1704", 1), ("8013", 1), ("995", 100000)]) Map.empty standardRunes

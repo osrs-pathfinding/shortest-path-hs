@@ -22,7 +22,7 @@ import System.Info (arch, os)
 import System.IO (hFlush, stdout)
 
 import ShortestPath.Account (AccountBuild, RequirementMode(..))
-import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkProfileVariableGaps)
+import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkProfileVariableGaps, benchmarkNowMinutes)
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Pathfinder hiding (routeName)
@@ -262,7 +262,7 @@ query route profile =
   (defaultQuery (tile (routeStart route)) (tile (routeTarget route)))
     { allowTransports = routeAllowTransports route
     , requirementMode = maybe IgnoreRequirements ConfiguredRequirements profile
-    , queryNowMinutes = 100000000
+    , queryNowMinutes = benchmarkNowMinutes
     }
  where
   tile [x, y, plane] = packTile x y plane

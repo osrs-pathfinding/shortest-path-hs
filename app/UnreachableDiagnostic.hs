@@ -91,7 +91,7 @@ printRoute failedByRoute accounts transports request response = do
   failuresFor account transport =
     if Available `elem` availability then [] else [renderFailure failure | Unavailable failures <- availability, failure <- failures]
    where
-    availability = [transportExplanation query banked transport | banked <- [False, True], let query = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account }]
+    availability = [transportExplanation query banked transport | banked <- [False, True], let query = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account, queryNowMinutes = benchmarkNowMinutes }]
 
 renderFailure :: RequirementFailure -> String
 renderFailure failure = case failure of
