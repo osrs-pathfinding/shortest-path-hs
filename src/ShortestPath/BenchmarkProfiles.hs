@@ -180,7 +180,7 @@ diaryName = \case
 canonicalQuestUniverse :: Set.Set String
 canonicalQuestUniverse = earlyQuests <> Set.fromList
   [ "Land of the Goblins", "Sins of the Father", "Dragon Slayer I"
-  , "Making Friends with My Arm"
+  , "Making Friends with My Arm", "Cabin Fever"
   ]
 
 effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
