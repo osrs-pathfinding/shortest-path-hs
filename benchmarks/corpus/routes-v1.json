@@ -37522,8 +37522,8 @@
       0
     ],
     "target": [
-      2614,
-      3330,
+      2616,
+      3332,
       0
     ],
     "startName": "West Ardougne Altar",
@@ -37570,19 +37570,19 @@
         0
       ],
       "resolved": [
-        2614,
-        3330,
+        2616,
+        3332,
         0
       ],
-      "distance": 0,
-      "method": "exact",
+      "distance": 2,
+      "method": "nearest_reachable",
       "componentIds": [
-        2596
+        657
       ],
       "candidates": [
         [
-          2614,
-          3330,
+          2616,
+          3332,
           0
         ]
       ]
@@ -39979,8 +39979,8 @@
       0
     ],
     "target": [
-      3258,
-      6103,
+      3255,
+      6105,
       0
     ],
     "startName": "Prifddinas Bank",
@@ -40037,19 +40037,19 @@
         0
       ],
       "resolved": [
-        3258,
-        6103,
+        3255,
+        6105,
         0
       ],
-      "distance": 0,
-      "method": "exact",
+      "distance": 3,
+      "method": "nearest_reachable",
       "componentIds": [
-        8181
+        7923
       ],
       "candidates": [
         [
-          3258,
-          6103,
+          3255,
+          6105,
           0
         ]
       ]
@@ -40357,8 +40357,8 @@
       0
     ],
     "target": [
-      1486,
-      3593,
+      1488,
+      3592,
       0
     ],
     "startName": "Wintertodt Bank",
@@ -40405,40 +40405,19 @@
         0
       ],
       "resolved": [
-        1486,
-        3593,
+        1488,
+        3592,
         0
       ],
       "distance": 1,
-      "method": "ambiguous",
+      "method": "nearest_reachable",
       "componentIds": [
-        2954,
-        3813
+        2954
       ],
       "candidates": [
         [
-          1486,
-          3593,
-          0
-        ],
-        [
-          1487,
-          3594,
-          0
-        ],
-        [
           1488,
-          3593,
-          0
-        ],
-        [
-          1486,
-          3594,
-          0
-        ],
-        [
-          1488,
-          3594,
+          3592,
           0
         ]
       ]
@@ -41105,8 +41084,8 @@
       0
     ],
     "target": [
-      2657,
-      3281,
+      2655,
+      3283,
       0
     ],
     "startName": "Ardougne Zoo",
@@ -41162,19 +41141,19 @@
         0
       ],
       "resolved": [
-        2657,
-        3281,
+        2655,
+        3283,
         0
       ],
-      "distance": 0,
-      "method": "exact",
+      "distance": 2,
+      "method": "nearest_reachable",
       "componentIds": [
-        2358
+        657
       ],
       "candidates": [
         [
-          2657,
-          3281,
+          2655,
+          3283,
           0
         ]
       ]
@@ -43776,8 +43755,8 @@
       0
     ],
     "target": [
-      2657,
-      3281,
+      2655,
+      3283,
       0
     ],
     "startName": "Coordinate Clue clue at 2363, 3531",
@@ -43824,19 +43803,19 @@
         0
       ],
       "resolved": [
-        2657,
-        3281,
+        2655,
+        3283,
         0
       ],
-      "distance": 0,
-      "method": "exact",
+      "distance": 2,
+      "method": "nearest_reachable",
       "componentIds": [
-        2358
+        657
       ],
       "candidates": [
         [
-          2657,
-          3281,
+          2655,
+          3283,
           0
         ]
       ]
@@ -54871,8 +54850,8 @@
       0
     ],
     "target": [
-      2615,
-      3330,
+      2616,
+      3332,
       0
     ],
     "startName": "Wilderness Bank",
@@ -54918,24 +54897,18 @@
         0
       ],
       "resolved": [
-        2615,
-        3330,
+        2616,
+        3332,
         0
       ],
       "distance": 1,
-      "method": "ambiguous",
+      "method": "nearest_reachable",
       "componentIds": [
-        657,
-        2596
+        657
       ],
       "candidates": [
         [
-          2615,
-          3330,
-          0
-        ],
-        [
-          2615,
+          2616,
           3332,
           0
         ]
