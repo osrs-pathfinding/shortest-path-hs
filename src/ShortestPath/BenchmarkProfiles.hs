@@ -107,6 +107,7 @@ benchmarkAccount name transports = compile <$> profile
       [ CompiledVars (gameStateVarbits (profileGameState value)) (gameStateVarPlayers (profileGameState value))
       , compileProgressionVars progress
       , compileRuntimeVars (profileRuntime value)
+      , compilePohVars (profilePoh value)
       ]
     loadout = profileCarried value
 
@@ -187,12 +188,33 @@ compileDefaultVars = CompiledVars Map.empty (Map.fromList
 
 compileRuntimeVars :: RuntimeState -> CompiledVars
 compileRuntimeVars runtime = CompiledVars
-  (Map.singleton VB.spellbook (spellbookVarbit (runtimeSpellbook runtime)))
+  (Map.fromList
+    [ (VB.spellbook, spellbookVarbit (runtimeSpellbook runtime))
+    , (VB.pohTeleToggle, if runtimeArriveInsidePoh runtime then 0 else 1)
+    ])
   Map.empty
 
 spellbookVarbit :: String -> Int
 spellbookVarbit "Standard" = 0
 spellbookVarbit name = error ("unsupported spellbook: " <> name)
+
+compilePohVars :: PohBuild -> CompiledVars
+compilePohVars poh = CompiledVars
+  (Map.singleton VB.pohHouseLocation (pohLocationVarbit (pohLocation poh)))
+  Map.empty
+
+pohLocationVarbit :: String -> Int
+pohLocationVarbit = \case
+  "Rimmington" -> 1
+  "Taverly" -> 2
+  "Pollnivneach" -> 3
+  "Rellekka" -> 4
+  "Brimhaven" -> 5
+  "Yanille" -> 6
+  "Prifddinas" -> 7
+  "Hosidius" -> 8
+  "Aldarin" -> 9
+  name -> error ("unsupported POH location: " <> name)
 
 quetzalsUnlockedVarPlayer :: VarPlayerId
 quetzalsUnlockedVarPlayer = VP.quetzalsUnlocked
