@@ -38983,7 +38983,7 @@
     ],
     "start": [
       2947,
-      3364,
+      3368,
       0
     ],
     "rawTarget": [
@@ -39016,18 +39016,18 @@
       ],
       "resolved": [
         2947,
-        3364,
+        3368,
         0
       ],
-      "distance": 0,
-      "method": "exact",
+      "distance": 4,
+      "method": "nearest_reachable",
       "componentIds": [
-        2737
+        657
       ],
       "candidates": [
         [
           2947,
-          3364,
+          3368,
           0
         ]
       ]
@@ -49716,7 +49716,7 @@
       0
     ],
     "start": [
-      2620,
+      2618,
       3895,
       0
     ],
@@ -49749,18 +49749,18 @@
         0
       ],
       "resolved": [
-        2620,
+        2618,
         3895,
         0
       ],
-      "distance": 0,
-      "method": "exact",
+      "distance": 2,
+      "method": "nearest_reachable",
       "componentIds": [
-        4630
+        4534
       ],
       "candidates": [
         [
-          2620,
+          2618,
           3895,
           0
         ]
@@ -55134,8 +55134,8 @@
       0
     ],
     "target": [
-      3020,
-      3353,
+      3017,
+      3352,
       0
     ],
     "startName": "Wilderness Water source",
@@ -55181,19 +55181,19 @@
         0
       ],
       "resolved": [
-        3020,
-        3353,
+        3017,
+        3352,
         0
       ],
-      "distance": 0,
-      "method": "exact",
+      "distance": 3,
+      "method": "nearest_reachable",
       "componentIds": [
-        2705
+        657
       ],
       "candidates": [
         [
-          3020,
-          3353,
+          3017,
+          3352,
           0
         ]
       ]
@@ -55944,7 +55944,7 @@
       0
     ],
     "target": [
-      3425,
+      3427,
       2893,
       0
     ],
@@ -55991,22 +55991,16 @@
         0
       ],
       "resolved": [
-        3425,
+        3427,
         2893,
         0
       ],
       "distance": 1,
-      "method": "ambiguous",
+      "method": "nearest_reachable",
       "componentIds": [
-        281,
-        691
+        281
       ],
       "candidates": [
-        [
-          3425,
-          2893,
-          0
-        ],
         [
           3427,
           2893,
