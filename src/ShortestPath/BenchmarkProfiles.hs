@@ -181,7 +181,7 @@ canonicalQuestUniverse :: Set.Set String
 canonicalQuestUniverse = earlyQuests <> Set.fromList
   [ "Land of the Goblins", "Sins of the Father", "Dragon Slayer I"
   , "Making Friends with My Arm", "Cabin Fever", "The Depths of Despair"
-  , "Zogre Flesh Eaters"
+  , "Zogre Flesh Eaters", "The Path of Glouphrie"
   ]
 
 effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
