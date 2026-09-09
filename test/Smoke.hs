@@ -169,10 +169,12 @@ semanticProfileChecks = do
   assert (Map.lookup VB.myq5 (accountVarbits early) == Just 0)
   assert (Map.lookup VB.my2armStatus (accountVarbits early) == Just 0)
   assert (Map.lookup VB.hosidiusquest (accountVarbits early) == Just 0)
+  assert (Map.lookup VB.thzfeBlockingBarricade (accountVarbits early) == Just 0)
   assert (Map.lookup VB.lotg (accountVarbits maxed) == Just 50)
   assert (Map.lookup VB.myq5 (accountVarbits maxed) == Just 88)
   assert (Map.lookup VB.my2armStatus (accountVarbits maxed) == Just 207)
   assert (all (== Just 7) [Map.lookup VB.hosidiusquest (accountVarbits account) | account <- [mid, end, maxed]])
+  assert (all (== Just 1) [Map.lookup VB.thzfeBlockingBarricade (accountVarbits account) | account <- [mid, end, maxed]])
   transports <- loadTransports defaultSourcePaths
   let context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       available account transport = case transportAvailability (context account) transport of
