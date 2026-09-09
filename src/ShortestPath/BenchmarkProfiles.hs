@@ -244,6 +244,7 @@ compileRuntimeVars now runtime = CompiledVars
   (Map.fromList
     [ (VB.spellbook, spellbookVarbit (runtimeSpellbook runtime))
     , (VB.pohTeleToggle, if runtimeArriveInsidePoh runtime then 0 else 1)
+    , (VB.fremennikBasicTeleport, 0)
     ])
   (Map.singleton VP.slug2Regionuid (cooldownTimestamp now (runtimeMinigameTeleport runtime)))
 
