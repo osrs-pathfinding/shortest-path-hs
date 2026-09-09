@@ -57,4 +57,62 @@ function classifyPoints(points, database = process.env.WORLD_FACTS_DB || path.jo
   }
 }
 
-module.exports = {classifyPoints, coordinateKey};
+function resolveEndpoints(points, radius = 12, database = process.env.WORLD_FACTS_DB || path.join(root, "data/world-facts.duckdb")) {
+  if (!fs.existsSync(database)) throw new Error(`missing ${database}; run nix-shell --run 'cabal run world-facts' first`);
+  const unique = [...new Map(points.map(point => [coordinateKey(point), point])).values()];
+  if (!unique.length) return new Map();
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "world-facts-resolve-"));
+  const input = path.join(tempDir, "points.csv");
+  fs.writeFileSync(input, `id,x,y,plane\n${unique.map((point, id) => `${id},${point.join(",")}`).join("\n")}\n`);
+  const quotedInput = input.replaceAll("'", "''");
+  const sql = `
+    WITH requested AS (
+      SELECT id::INTEGER AS id, x::INTEGER AS x, y::INTEGER AS y, plane::INTEGER AS plane
+      FROM read_csv_auto('${quotedInput}', header = true)
+    ), candidates AS (
+      SELECT r.id, pa.resolved_x AS x, pa.resolved_y AS y, pa.resolved_plane AS plane,
+             pa.component_id, 1 AS priority
+      FROM requested r
+      JOIN point_access pa USING (x, y, plane)
+      WHERE pa.structurally_reachable
+      UNION ALL
+      SELECT r.id, t.x, t.y, t.plane, t.component_id,
+             CASE WHEN t.x = r.x AND t.y = r.y THEN 0 ELSE 2 END AS priority
+      FROM requested r
+      JOIN tiles t ON t.plane = r.plane
+        AND t.x BETWEEN r.x - ${radius} AND r.x + ${radius}
+        AND t.y BETWEEN r.y - ${radius} AND r.y + ${radius}
+      JOIN components c USING (component_id)
+      WHERE c.structurally_reachable
+    )
+    SELECT c.id, c.x, c.y, c.plane, c.component_id, c.priority,
+           greatest(abs(c.x - r.x), abs(c.y - r.y)) AS distance,
+           abs(c.x - r.x) + abs(c.y - r.y) AS manhattan
+    FROM candidates c JOIN requested r USING (id)
+    ORDER BY c.id, c.priority, distance, manhattan, c.x, c.y
+  `;
+  try {
+    const rows = JSON.parse(child.execFileSync("duckdb", [database, "-json", "-c", sql], {encoding: "utf8", maxBuffer: 64 * 1024 * 1024}));
+    const grouped = new Map();
+    for (const row of rows) (grouped.get(row.id) || (grouped.set(row.id, []), grouped.get(row.id))).push(row);
+    return new Map(unique.map((point, id) => {
+      const candidates = grouped.get(id) || [];
+      if (!candidates.length) return [coordinateKey(point), {raw: point, resolved: null, method: "unresolved", candidates: []}];
+      const best = candidates[0];
+      const tied = candidates.filter(candidate => candidate.priority === best.priority && candidate.distance === best.distance);
+      const componentIds = [...new Set(tied.map(candidate => candidate.component_id))].sort((a, b) => a - b);
+      return [coordinateKey(point), {
+        raw: point,
+        resolved: [best.x, best.y, best.plane],
+        distance: best.distance,
+        method: componentIds.length > 1 ? "ambiguous" : best.priority === 0 ? "exact" : best.priority === 1 ? "point_access" : "nearest_reachable",
+        componentIds,
+        candidates: tied.map(candidate => [candidate.x, candidate.y, candidate.plane]),
+      }];
+    }));
+  } finally {
+    fs.rmSync(tempDir, {recursive: true});
+  }
+}
+
+module.exports = {classifyPoints, coordinateKey, resolveEndpoints};

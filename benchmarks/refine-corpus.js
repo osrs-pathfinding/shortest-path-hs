@@ -4,7 +4,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const child = require("child_process");
-const {classifyPoints, coordinateKey} = require("./world-facts");
+const {classifyPoints, coordinateKey, resolveEndpoints} = require("./world-facts");
 
 const root = path.resolve(__dirname, "..");
 const gpsRoot = path.resolve(root, "../runelite-gps-plugin");
@@ -33,37 +33,13 @@ function parseCoordinate(value) {
   return numbers.length >= 3 && numbers.slice(0, 3).every(Number.isInteger) ? numbers.slice(0, 3) : null;
 }
 
-const collisionDir = fs.mkdtempSync(path.join(os.tmpdir(), "route-corpus-collision-"));
-child.execFileSync("jar", ["xf", path.join(shortestPathRoot, "src/main/resources/collision-map.zip")], {cwd: collisionDir});
-const collision = new Map(fs.readdirSync(collisionDir).map(name => [name, fs.readFileSync(path.join(collisionDir, name))]));
-function flag(x, y, plane, direction) {
-  const bytes = collision.get(`${Math.floor(x / 64)}_${Math.floor(y / 64)}`);
-  if (!bytes) return false;
-  const bit = ((plane * 4096) + ((y & 63) * 64) + (x & 63)) * 2 + direction;
-  return Math.floor(bit / 8) < bytes.length && !!(bytes[Math.floor(bit / 8)] & (1 << (bit & 7)));
-}
-function walkable([x, y, plane]) {
-  return flag(x, y, plane, 0) || flag(x, y, plane, 1) || flag(x, y - 1, plane, 0) || flag(x - 1, y, plane, 1);
-}
-function snap(raw) {
-  if (walkable(raw)) return raw;
-  const [x, y, plane] = raw;
-  for (let radius = 1; radius <= 12; radius++) {
-    const candidates = [];
-    for (let dx = -radius; dx <= radius; dx++) for (let dy = -radius; dy <= radius; dy++) {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) === radius && walkable([x + dx, y + dy, plane])) candidates.push([x + dx, y + dy, plane]);
-    }
-    candidates.sort((a, b) => Math.abs(a[0] - x) + Math.abs(a[1] - y) - Math.abs(b[0] - x) - Math.abs(b[1] - y) || a[1] - b[1] || a[0] - b[0]);
-    if (candidates.length) return candidates[0];
-  }
-  return raw;
-}
-
 function normalizeName(name) {
   return name.toLowerCase().replace(/\s+clue at \d+, \d+$/, " clue").replace(/\s*\(\d+,\s*\d+\)$/, "").replace(/[^a-z0-9]+/g, " ").trim();
 }
 function place(name, raw, resolved, source, kind) {
-  return {name, raw, resolved, source, kind, logicalId: `${normalizeName(name)}@${Math.floor(resolved[0] / 32)},${Math.floor(resolved[1] / 32)},${resolved[2]}`};
+  const resolution = resolved || endpointResolution(raw);
+  if (!resolution.resolved) throw new Error(`${name}: ${raw.join(",")}: no structurally reachable tile within radius 12`);
+  return {name, raw, resolved: resolution.resolved, resolution, source, kind, logicalId: `${normalizeName(name)}@${Math.floor(resolution.resolved[0] / 32)},${Math.floor(resolution.resolved[1] / 32)},${resolution.resolved[2]}`};
 }
 function cluster(points) {
   const clusters = [];
@@ -77,11 +53,29 @@ function cluster(points) {
 }
 
 const gpsFile = "src/main/resources/destinations.tsv";
-const gpsPlaces = cluster(readTsv(path.join(gpsRoot, gpsFile)).flatMap(row => {
+const gpsRows = readTsv(path.join(gpsRoot, gpsFile)).flatMap(row => {
   const raw = [Number(row.x), Number(row.y), Number(row.plane)];
   if (!raw.every(Number.isInteger) || ["bank", "water", "range"].includes(row.category) || /^(altar|anvil|furnace|spinning wheel) \(\d+,\s*\d+\)$/i.test(row.name)) return [];
-  return [place(row.name, raw, snap(raw), `runelite-gps-plugin@${gpsRevision.slice(0, 12)}:${gpsFile}:${row.line}`, row.category)];
-}));
+  return [{name: row.name, raw, source: `runelite-gps-plugin@${gpsRevision.slice(0, 12)}:${gpsFile}:${row.line}`, kind: row.category}];
+});
+const npcDefinitions = [
+  ["Turael", [2931,3536,0], "src/main/java/com/questhelper/helpers/quests/animalmagnetism/AnimalMagnetism.java:228"],
+  ["Spria", [3092,3267,0], "src/main/java/com/questhelper/helpers/quests/aporcineofinterest/APorcineOfInterest.java:140"],
+  ["Mazchna", [3513,3510,0], "src/main/java/com/questhelper/helpers/achievementdiaries/morytania/MorytaniaEasy.java:231"],
+  ["Vannaka", [3146,9913,0], "src/main/java/com/questhelper/helpers/achievementdiaries/varrock/VarrockMedium.java:261"],
+  ["Chaeldar", [2446,4430,0], "src/main/java/com/questhelper/helpers/achievementdiaries/lumbridgeanddraynor/LumbridgeMedium.java:242"],
+  ["Nieve", [2432,3424,0], "src/main/java/com/questhelper/helpers/quests/monkeymadnessii/MonkeyMadnessII.java:575"],
+  ["Duradel", [2869,2982,1], "src/main/java/com/questhelper/helpers/achievementdiaries/karamja/KaramjaHard.java:290"],
+];
+const rawEndpoints = [
+  ...routes.flatMap(route => [route.rawStart, route.rawTarget]),
+  ...gpsRows.map(point => point.raw),
+  ...npcDefinitions.map(([, raw]) => raw),
+  ...wiki.places.map(entry => entry.coordinate),
+];
+const endpointResolutions = resolveEndpoints(rawEndpoints);
+const endpointResolution = raw => endpointResolutions.get(coordinateKey(raw)) || {resolved: null, method: "unresolved", candidates: []};
+const gpsPlaces = cluster(gpsRows.map(point => place(point.name, point.raw, null, point.source, point.kind)));
 
 const transportCoordinates = new Set();
 const transportDir = path.join(gpsRoot, "src/main/resources/transports");
@@ -94,29 +88,21 @@ for (const file of fs.readdirSync(transportDir).filter(name => name.endsWith(".t
 
 function existingPlaces(category, pattern) {
   return cluster(routes.filter(route => route.category === category).flatMap(route => [
-    place(route.startName, route.rawStart, route.start, route.startSource, pattern.test(route.startName) ? category : "ordinary"),
-    place(route.targetName, route.rawTarget, route.target, route.targetSource, pattern.test(route.targetName) ? category : "ordinary"),
+    place(route.startName, route.rawStart, null, route.startSource, pattern.test(route.startName) ? category : "ordinary"),
+    place(route.targetName, route.rawTarget, null, route.targetSource, pattern.test(route.targetName) ? category : "ordinary"),
   ]).filter(point => pattern.test(point.name)));
 }
 const questPlaces = existingPlaces("quest-natural", /quest step$/i).filter(point => !transportCoordinates.has(point.resolved.join()));
 const cluePlaces = existingPlaces("clue-natural", /clue/i).filter(point => !transportCoordinates.has(point.resolved.join()));
-const npcPlaces = [
-  ["Turael", [2931,3536,0], "src/main/java/com/questhelper/helpers/quests/animalmagnetism/AnimalMagnetism.java:228"],
-  ["Spria", [3092,3267,0], "src/main/java/com/questhelper/helpers/quests/aporcineofinterest/APorcineOfInterest.java:140"],
-  ["Mazchna", [3513,3510,0], "src/main/java/com/questhelper/helpers/achievementdiaries/morytania/MorytaniaEasy.java:231"],
-  ["Vannaka", [3146,9913,0], "src/main/java/com/questhelper/helpers/achievementdiaries/varrock/VarrockMedium.java:261"],
-  ["Chaeldar", [2446,4430,0], "src/main/java/com/questhelper/helpers/achievementdiaries/lumbridgeanddraynor/LumbridgeMedium.java:242"],
-  ["Nieve", [2432,3424,0], "src/main/java/com/questhelper/helpers/quests/monkeymadnessii/MonkeyMadnessII.java:575"],
-  ["Duradel", [2869,2982,1], "src/main/java/com/questhelper/helpers/achievementdiaries/karamja/KaramjaHard.java:290"],
-].map(([name, raw, source]) => place(`${name} — Slayer master`, raw, snap(raw), source, "npc"));
+const npcPlaces = npcDefinitions.map(([name, raw, source]) => place(`${name} — Slayer master`, raw, null, source, "npc"));
 for (const npc of npcPlaces) npc.source = `quest-helper@${questRevision.slice(0, 12)}:${npc.source}`;
 const wikiPlaces = wiki.places.map(entry => {
   const source = wiki.sources[entry.source];
-  return place(`${entry.monster} — ${entry.location}`, entry.coordinate, snap(entry.coordinate), `oldschool-wiki:${source.page}@${source.revision}#Locations`, "monster");
+  return place(`${entry.monster} — ${entry.location}`, entry.coordinate, null, `oldschool-wiki:${source.page}@${source.revision}#Locations`, "monster");
 });
 const routePlaces = routes.flatMap(route => [
-  place(route.startName, route.rawStart, route.start, route.startSource, route.category),
-  place(route.targetName, route.rawTarget, route.target, route.targetSource, route.category),
+  place(route.startName, route.rawStart, null, route.startSource, route.category),
+  place(route.targetName, route.rawTarget, null, route.targetSource, route.category),
 ]);
 const allCandidates = cluster([...gpsPlaces, ...questPlaces, ...cluePlaces, ...npcPlaces, ...wikiPlaces]);
 const worldFacts = classifyPoints([...allCandidates, ...routePlaces].map(point => point.resolved));
@@ -154,6 +140,7 @@ function routeFrom(template, start, target) {
     ...template,
     name: `${start.name} → ${target.name}`,
     rawStart: start.raw, start: start.resolved, rawTarget: target.raw, target: target.resolved,
+    startResolution: start.resolution, targetResolution: target.resolution,
     startName: start.name, targetName: target.name, startSource: start.source, targetSource: target.source,
     distanceTag: distanceTag(start, target),
     planeTag: `${start.resolved[2]}-to-${target.resolved[2]}`,
@@ -193,14 +180,14 @@ const replacements = new Map([
   ["clue-natural", regenerate("clue-natural", reachableCluePlaces, 10)],
 ]);
 let refined = routes.map(route => replacements.has(route.category) ? replacements.get(route.category).shift() : routeFrom(route,
-  place(route.startName, route.rawStart, route.start, route.startSource, route.category),
-  place(route.targetName, route.rawTarget, route.target, route.targetSource, route.category)));
+  place(route.startName, route.rawStart, null, route.startSource, route.category),
+  place(route.targetName, route.rawTarget, null, route.targetSource, route.category)));
 
 const eligibleCoordinate = coordinate => worldFacts.get(coordinateKey(coordinate))?.reachable === true;
 const categoryPools = new Map();
 for (const route of routes) for (const endpoint of [
-  place(route.startName, route.rawStart, route.start, route.startSource, route.category),
-  place(route.targetName, route.rawTarget, route.target, route.targetSource, route.category),
+  place(route.startName, route.rawStart, null, route.startSource, route.category),
+  place(route.targetName, route.rawTarget, null, route.targetSource, route.category),
 ]) if (benchmarkEligible(endpoint)) categoryPools.set(route.category, cluster([...(categoryPools.get(route.category) || []), endpoint]));
 
 const currentInvalid = routes.filter(route => route.expectedReachable !== false && (!eligibleCoordinate(route.start) || !eligibleCoordinate(route.target)));
@@ -226,8 +213,8 @@ function pickReplacement(route, side, other, counts, originalPlane) {
 }
 refined = refined.map(route => {
   if (route.expectedReachable === false || (eligibleCoordinate(route.start) && eligibleCoordinate(route.target))) return route;
-  let start = place(route.startName, route.rawStart, route.start, route.startSource, route.category);
-  let target = place(route.targetName, route.rawTarget, route.target, route.targetSource, route.category);
+  let start = place(route.startName, route.rawStart, null, route.startSource, route.category);
+  let target = place(route.targetName, route.rawTarget, null, route.targetSource, route.category);
   const startInvalid = !eligibleCoordinate(route.start), targetInvalid = !eligibleCoordinate(route.target);
   if (startInvalid && targetInvalid) {
     start = pickReplacement(route, "start", target, startCounts, route.start[2]);
@@ -344,4 +331,3 @@ fs.writeFileSync(corpusPath, JSON.stringify(refined, null, 2) + "\n");
 fs.writeFileSync(path.join(__dirname, "corpus/coverage-v1.txt"), sections.map(([name, selected]) => `# ${name}\n${metrics(selected)}`).join("\n\n") + "\n");
 const reachabilityPath = path.join(__dirname, "corpus/reachability-v1.txt");
 if (currentInvalid.length || !fs.existsSync(reachabilityPath)) fs.writeFileSync(reachabilityPath, reachabilityReport);
-fs.rmSync(collisionDir, {recursive: true});
