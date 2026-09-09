@@ -44377,8 +44377,8 @@
       0
     ],
     "target": [
-      2584,
-      3421,
+      2616,
+      3332,
       0
     ],
     "startName": "Cryptic Clue clue at 2576, 3464",
@@ -44389,7 +44389,7 @@
     "tiers": [
       "full"
     ],
-    "distanceTag": "local",
+    "distanceTag": "regional",
     "planeTag": "0-to-0",
     "startRegion": "5,6",
     "targetRegion": "5,6",
@@ -44454,25 +44454,19 @@
         0
       ],
       "resolved": [
-        2584,
-        3421,
+        2616,
+        3332,
         0
       ],
-      "distance": 1,
-      "method": "ambiguous",
+      "distance": 89,
+      "method": "nearest_reachable",
       "componentIds": [
-        657,
-        3070
+        657
       ],
       "candidates": [
         [
-          2584,
-          3421,
-          0
-        ],
-        [
-          2586,
-          3421,
+          2616,
+          3332,
           0
         ]
       ]
@@ -56396,8 +56390,8 @@
       0
     ],
     "start": [
-      2656,
-      3287,
+      2655,
+      3283,
       0
     ],
     "rawTarget": [
@@ -56430,19 +56424,19 @@
         0
       ],
       "resolved": [
-        2656,
-        3287,
+        2655,
+        3283,
         0
       ],
-      "distance": 0,
-      "method": "exact",
+      "distance": 4,
+      "method": "nearest_reachable",
       "componentIds": [
-        2358
+        657
       ],
       "candidates": [
         [
-          2656,
-          3287,
+          2655,
+          3283,
           0
         ]
       ]
@@ -57288,8 +57282,8 @@
       0
     ],
     "start": [
-      2617,
-      3330,
+      2616,
+      3332,
       0
     ],
     "rawTarget": [
@@ -57321,19 +57315,19 @@
         0
       ],
       "resolved": [
-        2617,
-        3330,
+        2616,
+        3332,
         0
       ],
-      "distance": 0,
-      "method": "exact",
+      "distance": 2,
+      "method": "nearest_reachable",
       "componentIds": [
-        2596
+        657
       ],
       "candidates": [
         [
-          2617,
-          3330,
+          2616,
+          3332,
           0
         ]
       ]
