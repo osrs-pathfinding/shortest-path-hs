@@ -167,6 +167,8 @@ semanticProfileChecks = do
   assert (not (Set.member "Cabin Fever" (accountCompletedQuests early)))
   assert (all (\account -> Set.member "The Path of Glouphrie" (accountCompletedQuests account)) [mid, end, maxed])
   assert (not (Set.member "The Path of Glouphrie" (accountCompletedQuests early)))
+  assert (all (\account -> Set.member "Troubled Tortugans" (accountCompletedQuests account)) [mid, end, maxed])
+  assert (not (Set.member "Troubled Tortugans" (accountCompletedQuests early)))
   assert (Map.lookup VB.lotg (accountVarbits early) == Just 0)
   assert (Map.lookup VB.myq5 (accountVarbits early) == Just 0)
   assert (Map.lookup VB.my2armStatus (accountVarbits early) == Just 0)
