@@ -89,6 +89,18 @@ executable account-profile
     shortest-path-model
   default-language: GHC2024
 
+executable unreachable-diagnostic
+  import: warnings
+  main-is: UnreachableDiagnostic.hs
+  hs-source-dirs: app
+  build-depends:
+    aeson,
+    base,
+    bytestring,
+    containers,
+    shortest-path-model
+  default-language: GHC2024
+
 executable metis-partition
   import: warnings
   main-is: MetisPartition.hs

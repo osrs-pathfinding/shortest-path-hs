@@ -1,11 +1,16 @@
 module ShortestPath.BenchmarkProfiles
   ( BenchmarkProfile(..)
   , Progression(..)
+  , QuetzalPlatform(..)
+  , CompiledVars(..)
   , GameStateSpec(..)
   , ItemLoadout(..)
   , benchmarkProfileNames
   , benchmarkAccount
   , benchmarkProfileVariableGaps
+  , compileProgressionVars
+  , quetzalPlatformBit
+  , quetzalPlatformMask
   ) where
 
 import qualified Data.Map.Strict as Map
@@ -19,12 +24,21 @@ import qualified ShortestPath.GameVars.VarPlayers as VP
 import ShortestPath.Requirements
 import ShortestPath.Transport
 
+data QuetzalPlatform
+  = CamTorum
+  | ColossalWyrmRemains
+  | OuterFortis
+  | FortisColosseum
+  | SalvagerOverlook
+  | Kastori
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
+
 data Progression = Progression
   { progressionLevels :: ItemCounts
   , progressionQuests :: Set.Set String
   , progressionDiaries :: Map.Map String DiaryTier
   , progressionFairyRings :: Bool
-  , progressionQuetzalPlatforms :: Set.Set Int
+  , progressionQuetzalPlatforms :: Set.Set QuetzalPlatform
   }
   deriving stock (Eq, Show)
 
@@ -38,6 +52,12 @@ data ItemLoadout = ItemLoadout
 data GameStateSpec = GameStateSpec
   { gameStateVarbits :: Map.Map VarbitId Int
   , gameStateVarPlayers :: Map.Map VarPlayerId Int
+  }
+  deriving stock (Eq, Show)
+
+data CompiledVars = CompiledVars
+  { compiledVarbits :: Map.Map VarbitId Int
+  , compiledVarPlayers :: Map.Map VarPlayerId Int
   }
   deriving stock (Eq, Show)
 
@@ -70,8 +90,8 @@ benchmarkAccount name transports = compile <$> profile
     emptyAccountBuild
       { accountLevels = progressionLevels progress
       , accountCompletedQuests = progressionQuests progress
-      , accountVarbits = gameStateVarbits gameState
-      , accountVarPlayers = gameStateVarPlayers gameState
+      , accountVarbits = compiledVarbits compiled
+      , accountVarPlayers = compiledVarPlayers compiled
       , accountInventory = loadoutInventory loadout
       , accountEquipment = loadoutEquipment loadout
       , accountRunePouch = loadoutRunePouch loadout
@@ -79,12 +99,14 @@ benchmarkAccount name transports = compile <$> profile
       , accountDiaries = progressionDiaries progress
       , accountPoh = profilePoh value
       , accountFairyRingsUnlocked = progressionFairyRings progress
-      , accountQuetzalPlatforms = progressionQuetzalPlatforms progress
       , accountRuntime = profileRuntime value
       }
    where
     progress = profileProgression value
-    gameState = profileGameState value <> progressionGameState progress
+    compiled = mergeCompiledVars
+      [ CompiledVars (gameStateVarbits (profileGameState value)) (gameStateVarPlayers (profileGameState value))
+      , compileProgressionVars progress
+      ]
     loadout = profileCarried value
 
 benchmarkProfileVariableGaps :: [Transport] -> [(String, [VarReq])]
@@ -103,7 +125,7 @@ benchmarkProfileVariableGaps transports =
   ]
 
 earlyProfile :: BenchmarkProfile
-earlyProfile = BenchmarkProfile "early" (progression earlyLevels (withCoreQuests earlyQuests) (allDiaries Medium) True (Set.singleton 1)) emptyGameState basicPoh earlyLoadout earlyBank standardRuntime
+earlyProfile = BenchmarkProfile "early" (progression earlyLevels (withCoreQuests earlyQuests) (allDiaries Medium) True Set.empty) emptyGameState basicPoh earlyLoadout earlyBank standardRuntime
 
 midProfile :: Set.Set String -> BenchmarkProfile
 midProfile allQuests = BenchmarkProfile "mid" (progression midLevels (withCoreQuests allQuests) (allDiaries Hard) True allPlatforms) emptyGameState midPoh midLoadout midBank standardRuntime
@@ -117,7 +139,7 @@ maxedProfile allQuests allItems = BenchmarkProfile "maxed" (progression (Map.fro
 withCoreQuests :: Set.Set String -> Set.Set String
 withCoreQuests = Set.insert "Dragon Slayer I"
 
-progression :: ItemCounts -> Set.Set String -> Map.Map String DiaryTier -> Bool -> Set.Set Int -> Progression
+progression :: ItemCounts -> Set.Set String -> Map.Map String DiaryTier -> Bool -> Set.Set QuetzalPlatform -> Progression
 progression = Progression
 
 allDiaries :: DiaryTier -> Map.Map String DiaryTier
@@ -139,20 +161,45 @@ instance Semigroup GameStateSpec where
 instance Monoid GameStateSpec where
   mempty = emptyGameState
 
-progressionGameState :: Progression -> GameStateSpec
-progressionGameState progress =
-  GameStateSpec
-    (diaryVarbits (progressionDiaries progress) <> dragonSlayerVarbit)
-    (Map.fromList
-      [ (VP.homeTeleportAnimToggles, 0)
-      , (VP.slug2Regionuid, 0)
-      , (VP.aideTeleTimer, 0)
-      , (VP.quetzalsUnlocked, platformMask (progressionQuetzalPlatforms progress))
-      ])
+compileProgressionVars :: Progression -> CompiledVars
+compileProgressionVars progress = mergeCompiledVars
+  [ CompiledVars (diaryVarbits (progressionDiaries progress)) Map.empty
+  , CompiledVars (compileQuestDerivedVarbits (progressionQuests progress)) Map.empty
+  , CompiledVars Map.empty (compileQuetzalVars (progressionQuetzalPlatforms progress))
+  , compileDefaultVars
+  ]
+
+compileQuestDerivedVarbits :: Set.Set String -> Map.Map VarbitId Int
+compileQuestDerivedVarbits quests
+  | Set.member "Dragon Slayer I" quests = Map.singleton VB.dragonslayerCrandorFoundSecretDoor 1
+  | otherwise = Map.empty
+
+compileQuetzalVars :: Set.Set QuetzalPlatform -> Map.Map VarPlayerId Int
+compileQuetzalVars platforms = Map.singleton quetzalsUnlockedVarPlayer (quetzalPlatformMask platforms)
+
+compileDefaultVars :: CompiledVars
+compileDefaultVars = CompiledVars Map.empty (Map.fromList
+  [ (VP.homeTeleportAnimToggles, 0)
+  , (VP.slug2Regionuid, 0)
+  , (VP.aideTeleTimer, 0)
+  ])
+
+quetzalsUnlockedVarPlayer :: VarPlayerId
+quetzalsUnlockedVarPlayer = VP.quetzalsUnlocked
+
+mergeCompiledVars :: [CompiledVars] -> CompiledVars
+mergeCompiledVars = foldl' merge (CompiledVars Map.empty Map.empty)
  where
-  dragonSlayerVarbit
-    | Set.member "Dragon Slayer I" (progressionQuests progress) = Map.singleton VB.dragonslayerCrandorFoundSecretDoor 1
-    | otherwise = Map.empty
+  merge (CompiledVars bits players) (CompiledVars moreBits morePlayers) =
+    CompiledVars (mergeMap "Varbit" bits moreBits) (mergeMap "VarPlayer" players morePlayers)
+
+  mergeMap namespace = Map.foldlWithKey' insertValue
+   where
+    insertValue values key value = case Map.lookup key values of
+      Nothing -> Map.insert key value values
+      Just old
+        | old == value -> values
+        | otherwise -> error (namespace <> " " <> show key <> " compiled with conflicting values " <> show old <> " and " <> show value)
 
 diaryVarbits :: Map.Map String DiaryTier -> Map.Map VarbitId Int
 diaryVarbits diaries
@@ -167,13 +214,20 @@ eliteDiaryVars = [ VB.ardougneDiaryEliteComplete, VB.faladorDiaryEliteComplete, 
                  , VB.lumbridgeDiaryEliteComplete, VB.karamjaDiaryEliteComplete
                  ]
 
-allPlatforms :: Set.Set Int
-allPlatforms = Set.fromList [1 .. 8]
+allPlatforms :: Set.Set QuetzalPlatform
+allPlatforms = Set.fromList [minBound .. maxBound]
 
-platformMask :: Set.Set Int -> Int
-platformMask = Set.foldr (.|.) 0 . Set.map bitFor
- where
-  bitFor platform = 2 ^ platform
+quetzalPlatformMask :: Set.Set QuetzalPlatform -> Int
+quetzalPlatformMask = Set.foldr ((.|.) . quetzalPlatformBit) 0
+
+quetzalPlatformBit :: QuetzalPlatform -> Int
+quetzalPlatformBit = \case
+  CamTorum -> 32
+  ColossalWyrmRemains -> 64
+  OuterFortis -> 128
+  FortisColosseum -> 256
+  SalvagerOverlook -> 2048
+  Kastori -> 16384
 
 itemNames :: ItemExpr -> [String]
 itemNames expression = case expression of

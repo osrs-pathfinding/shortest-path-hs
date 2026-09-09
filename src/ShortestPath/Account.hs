@@ -39,7 +39,6 @@ data AccountBuild = AccountBuild
   , accountDiaries :: Map.Map String DiaryTier
   , accountPoh :: PohBuild
   , accountFairyRingsUnlocked :: Bool
-  , accountQuetzalPlatforms :: Set.Set Int
   , accountRuntime :: RuntimeState
   }
   deriving stock (Eq, Show)
@@ -98,7 +97,7 @@ data TransportAvailability = Available | TransportTypeDisabled String | Unavaila
 
 emptyAccountBuild :: AccountBuild
 emptyAccountBuild =
-  AccountBuild Map.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty emptyPoh False Set.empty (RuntimeState "Standard" True True)
+  AccountBuild Map.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty emptyPoh False (RuntimeState "Standard" True True)
 
 emptyPoh :: PohBuild
 emptyPoh = PohBuild "Rimmington" NoJewelleryBox Set.empty False False False False False False False

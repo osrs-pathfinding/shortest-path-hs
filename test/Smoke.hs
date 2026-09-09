@@ -4,10 +4,12 @@ import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Data.List (find)
 
 import ShortestPath.Requirements
 import ShortestPath.Account
 import qualified ShortestPath.GameVars.Varbits as VB
+import qualified ShortestPath.GameVars.VarPlayers as VP
 import ShortestPath.BenchmarkProfiles
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess
@@ -15,6 +17,8 @@ import ShortestPath.Hierarchy.Types
 import ShortestPath.Tile
 import ShortestPath.Transport
 import ShortestPath.World
+import ShortestPath.Pathfinder
+import ShortestPath.Exact.RawDijkstra
 
 main :: IO ()
 main = do
@@ -23,6 +27,7 @@ main = do
   assert (parseVars Varbit "4070=0;4560&2" == [VarReq (GameVarbit (VarbitId 4070)) 0 VarEq, VarReq (GameVarbit (VarbitId 4560)) 2 VarMask])
   requirementChecks
   profileChecks
+  semanticProfileChecks
   assert (parseTileField "3221 3218 0" == Just (packTile 3221 3218 0))
   assert (length virtualWalls == 3)
   assert (isVirtualWallTile (packTile 2836 3451 0))
@@ -125,3 +130,41 @@ profileChecks = do
 mustProfile :: String -> Maybe AccountBuild -> AccountBuild
 mustProfile _ (Just account) = account
 mustProfile name Nothing = error ("missing benchmark profile: " <> name)
+
+semanticProfileChecks :: IO ()
+semanticProfileChecks = do
+  assert (quetzalPlatformBit CamTorum == 32)
+  assert (quetzalPlatformBit ColossalWyrmRemains == 64)
+  assert (quetzalPlatformBit OuterFortis == 128)
+  assert (quetzalPlatformBit FortisColosseum == 256)
+  assert (quetzalPlatformBit SalvagerOverlook == 2048)
+  assert (quetzalPlatformBit Kastori == 16384)
+  assert (quetzalPlatformMask Set.empty == 0)
+  assert (quetzalPlatformMask (Set.fromList [minBound .. maxBound]) == 18912)
+  let early = mustProfile "early" (benchmarkAccount "early" [])
+      cam = early
+        { accountVarPlayers = Map.singleton VP.quetzalsUnlocked (quetzalPlatformMask (Set.singleton CamTorum)) }
+      whistleIds = map VarbitId [29271, 29273, 29275, 33120]
+  assert (Map.lookup VP.quetzalsUnlocked (accountVarPlayers early) == Just 0)
+  assert (Map.notMember (VarbitId 4182) (accountVarbits early))
+  assert (all (`Map.notMember` accountVarbits early) whistleIds)
+  transports <- loadTransports defaultSourcePaths
+  let context account = RequirementContext account CarriedOnly 0
+      available account transport = case transportAvailability (context account) transport of
+        Available -> True
+        _ -> False
+      findTransport kind label = find (\transport -> transportType transport == kind && displayInfo transport == label) transports
+      base = findTransport "QUETZAL" "Auburnvale"
+      camTorum = findTransport "QUETZAL" "Cam Torum"
+      outerFortis = findTransport "QUETZAL" "Outer Fortis"
+      primio = find (\transport -> origin transport == Just (packTile 3280 3412 0) && destination transport == Just (packTile 1700 3141 0)) transports
+  assert (maybe False (available early) base)
+  assert (maybe False (not . available early) camTorum)
+  assert (maybe False (available cam) camTorum)
+  assert (maybe False (not . available cam) outerFortis)
+  assert (maybe False (available early) primio)
+  world <- loadWorld defaultSourcePaths
+  let route = findRoute (RawDijkstra world)
+        (defaultQuery (packTile 3280 3412 0) (packTile 1700 3141 0))
+          { requirementMode = ConfiguredRequirements early }
+  assert (routeCost route < maxBound)

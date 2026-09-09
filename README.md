@@ -114,6 +114,17 @@ Choose a route (a result restores its account profile), then click **Run route**
 for its detailed path and counters. The viewer explains individual routes; it
 does not provide historical charts.
 
+### Diagnose unreachable routes
+
+The reusable diagnostic executable evaluates the transports on successful paths
+against the authoritative account profiles and emits one concise TSV row per
+route. Requests must include `id`, `routeId`, `routeName`, and `profile`; the
+extra fields are ignored by `serve-direct`:
+
+```sh
+nix-shell --run 'cabal run unreachable-diagnostic -- requests.jsonl responses.jsonl unreachable-oracle.jsonl'
+```
+
 ## Tile A* Experiment Handoff
 
 Build the benchmark executable:

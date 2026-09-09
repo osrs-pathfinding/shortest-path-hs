@@ -539,7 +539,6 @@ serveRequest world tileAStar hierarchical line =
     , "bank" .= accountBank account
     , "diaries" .= Map.map show (accountDiaries account)
     , "fairyRings" .= accountFairyRingsUnlocked account
-    , "quetzalPlatforms" .= Set.toAscList (accountQuetzalPlatforms account)
     , "poh" .= pohJson (accountPoh account)
     , "runtime" .= runtimeJson (accountRuntime account)
     ]
