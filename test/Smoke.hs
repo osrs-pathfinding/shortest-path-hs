@@ -139,6 +139,14 @@ mustProfile name Nothing = error ("missing benchmark profile: " <> name)
 
 semanticProfileChecks :: IO ()
 semanticProfileChecks = do
+  assert (compileHotAirBalloonVars (Set.singleton BalloonEntrana) == Map.fromList
+    [ (VB.zepMultiBasket, 2)
+    , (VB.zepMultiPiccard, 0)
+    , (VB.zepMultiCast, 0)
+    , (VB.zepMultiGno, 0)
+    , (VB.zepMultiCraft, 0)
+    , (VB.zepMultiVarr, 0)
+    ])
   assert (quetzalPlatformBit CamTorum == 32)
   assert (quetzalPlatformBit ColossalWyrmRemains == 64)
   assert (quetzalPlatformBit OuterFortis == 128)
@@ -171,6 +179,8 @@ semanticProfileChecks = do
   assert (not (Set.member "Troubled Tortugans" (accountCompletedQuests early)))
   assert (all (\account -> Set.member "Song of the Elves" (accountCompletedQuests account)) [mid, end, maxed])
   assert (not (Set.member "Song of the Elves" (accountCompletedQuests early)))
+  assert (all (\account -> Set.member "Enlightened Journey" (accountCompletedQuests account)) [mid, end, maxed])
+  assert (not (Set.member "Enlightened Journey" (accountCompletedQuests early)))
   assert (Map.lookup VB.lotg (accountVarbits early) == Just 0)
   assert (Map.lookup VB.myq5 (accountVarbits early) == Just 0)
   assert (Map.lookup VB.my2armStatus (accountVarbits early) == Just 0)
@@ -183,6 +193,15 @@ semanticProfileChecks = do
   assert (all (== Just 1) [Map.lookup VB.thzfeBlockingBarricade (accountVarbits account) | account <- [mid, end, maxed]])
   assert (Map.lookup VB.lovaquest (accountVarbits early) == Just 0)
   assert (all (== Just 11) [Map.lookup VB.lovaquest (accountVarbits account) | account <- [mid, end, maxed]])
+  assert (all (== Just 0)
+    [ Map.lookup varbit (accountVarbits early)
+    | varbit <- [VB.zepMultiBasket, VB.zepMultiPiccard, VB.zepMultiCast, VB.zepMultiGno, VB.zepMultiCraft, VB.zepMultiVarr]
+    ])
+  assert (all (== Just True)
+    [ (== value) <$> Map.lookup varbit (accountVarbits account)
+    | account <- [mid, end, maxed]
+    , (varbit, value) <- [(VB.zepMultiBasket, 2), (VB.zepMultiPiccard, 2), (VB.zepMultiCast, 1), (VB.zepMultiGno, 1), (VB.zepMultiCraft, 1), (VB.zepMultiVarr, 1)]
+    ])
   transports <- loadTransports defaultSourcePaths
   let context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       available account transport = case transportAvailability (context account) transport of
@@ -193,6 +212,7 @@ semanticProfileChecks = do
       camTorum = findTransport "QUETZAL" "Cam Torum"
       outerFortis = findTransport "QUETZAL" "Outer Fortis"
       freeMinecart = find (\transport -> transportType transport == "MINECART" && varbits transport == [VarReq (GameVarbit VB.lovaquest) 11 VarEq]) transports
+      balloons = map (findTransport "HOT_AIR_BALLOON") ["Entrana", "Taverley", "Castle Wars", "Grand Tree", "Crafting Guild", "Varrock"]
       primio = find (\transport -> origin transport == Just (packTile 3280 3412 0) && destination transport == Just (packTile 1700 3141 0)) transports
   assert (maybe False (available early) base)
   assert (maybe False (not . available early) camTorum)
@@ -200,6 +220,8 @@ semanticProfileChecks = do
   assert (maybe False (not . available cam) outerFortis)
   assert (maybe False (not . available early) freeMinecart)
   assert (maybe False (available mid) freeMinecart)
+  assert (all (maybe False (not . available early)) balloons)
+  assert (all (maybe False (available mid)) balloons)
   assert (maybe False (available early) primio)
   world <- loadWorld defaultSourcePaths
   let route = findRoute (RawDijkstra world)

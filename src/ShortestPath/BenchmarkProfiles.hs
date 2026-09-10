@@ -4,6 +4,7 @@ module ShortestPath.BenchmarkProfiles
   , Diary(..)
   , QuestMilestone(..)
   , QuetzalPlatform(..)
+  , HotAirBalloonDestination(..)
   , CompiledVars(..)
   , GameStateSpec(..)
   , ItemLoadout(..)
@@ -12,6 +13,7 @@ module ShortestPath.BenchmarkProfiles
   , benchmarkProfileVariableGaps
   , benchmarkNowMinutes
   , compileProgressionVars
+  , compileHotAirBalloonVars
   , effectiveQuestMilestones
   , diaryVarbitsFor
   , compileDiary
@@ -39,6 +41,15 @@ data QuetzalPlatform
   | Kastori
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
+data HotAirBalloonDestination
+  = BalloonEntrana
+  | BalloonTaverley
+  | BalloonCastleWars
+  | BalloonGrandTree
+  | BalloonCraftingGuild
+  | BalloonVarrock
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
+
 data Progression = Progression
   { progressionLevels :: ItemCounts
   , progressionQuests :: Set.Set String
@@ -46,6 +57,7 @@ data Progression = Progression
   , progressionDiaries :: Map.Map Diary DiaryTier
   , progressionFairyRings :: Bool
   , progressionQuetzalPlatforms :: Set.Set QuetzalPlatform
+  , progressionHotAirBalloonDestinations :: Set.Set HotAirBalloonDestination
   }
   deriving stock (Eq, Show)
 
@@ -145,23 +157,23 @@ benchmarkProfileVariableGaps transports =
   ]
 
 earlyProfile :: BenchmarkProfile
-earlyProfile = BenchmarkProfile "early" (progression earlyLevels (withCoreQuests earlyQuests) (allDiaries Medium) True Set.empty) emptyGameState basicPoh earlyLoadout earlyBank standardRuntime
+earlyProfile = BenchmarkProfile "early" (progression earlyLevels (withCoreQuests earlyQuests) (allDiaries Medium) True Set.empty Set.empty) emptyGameState basicPoh earlyLoadout earlyBank standardRuntime
 
 midProfile :: Set.Set String -> BenchmarkProfile
-midProfile allQuests = BenchmarkProfile "mid" (progression midLevels (withCoreQuests allQuests) (allDiaries Hard) True allPlatforms) emptyGameState midPoh midLoadout midBank standardRuntime
+midProfile allQuests = BenchmarkProfile "mid" (progression midLevels (withCoreQuests allQuests) (allDiaries Hard) True allPlatforms allBalloonDestinations) emptyGameState midPoh midLoadout midBank standardRuntime
 
 endProfile :: Set.Set String -> BenchmarkProfile
-endProfile allQuests = BenchmarkProfile "end" (progression (Map.insert "Quest" 327 endLevels) (withCoreQuests allQuests) endDiaries True allPlatforms) emptyGameState maxedPoh endLoadout endBank standardRuntime
+endProfile allQuests = BenchmarkProfile "end" (progression (Map.insert "Quest" 327 endLevels) (withCoreQuests allQuests) endDiaries True allPlatforms allBalloonDestinations) emptyGameState maxedPoh endLoadout endBank standardRuntime
 
 maxedProfile :: Set.Set String -> ItemCounts -> BenchmarkProfile
-maxedProfile allQuests allItems = BenchmarkProfile "maxed" (progression (Map.fromList [(skill, 99) | skill <- allSkills] <> Map.fromList [("Quest", 327), ("Total", 2376)]) (withCoreQuests allQuests) (allDiaries Elite) True allPlatforms) emptyGameState maxedPoh maxedLoadout (allItems <> endBank) standardRuntime
+maxedProfile allQuests allItems = BenchmarkProfile "maxed" (progression (Map.fromList [(skill, 99) | skill <- allSkills] <> Map.fromList [("Quest", 327), ("Total", 2376)]) (withCoreQuests allQuests) (allDiaries Elite) True allPlatforms allBalloonDestinations) emptyGameState maxedPoh maxedLoadout (allItems <> endBank) standardRuntime
 
 withCoreQuests :: Set.Set String -> Set.Set String
 withCoreQuests = Set.insert "Dragon Slayer I"
 
-progression :: ItemCounts -> Set.Set String -> Map.Map Diary DiaryTier -> Bool -> Set.Set QuetzalPlatform -> Progression
-progression levels quests diaries fairy platforms =
-  Progression levels quests Set.empty diaries fairy platforms
+progression :: ItemCounts -> Set.Set String -> Map.Map Diary DiaryTier -> Bool -> Set.Set QuetzalPlatform -> Set.Set HotAirBalloonDestination -> Progression
+progression levels quests diaries fairy platforms balloons =
+  Progression levels quests Set.empty diaries fairy platforms balloons
 
 allDiaries :: DiaryTier -> Map.Map Diary DiaryTier
 allDiaries tier = Map.fromList [(diary, tier) | diary <- [minBound .. maxBound]]
@@ -182,7 +194,7 @@ canonicalQuestUniverse = earlyQuests <> Set.fromList
   [ "Land of the Goblins", "Sins of the Father", "Dragon Slayer I"
   , "Making Friends with My Arm", "Cabin Fever", "The Depths of Despair"
   , "Zogre Flesh Eaters", "The Path of Glouphrie", "Troubled Tortugans"
-  , "Song of the Elves", "The Forsaken Tower"
+  , "Song of the Elves", "The Forsaken Tower", "Enlightened Journey"
   ]
 
 effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
@@ -210,6 +222,7 @@ compileProgressionVars :: Progression -> CompiledVars
 compileProgressionVars progress = mergeCompiledVars
   [ CompiledVars (diaryVarbits (progressionDiaries progress)) Map.empty
   , CompiledVars (compileQuestDerivedVarbits progress) Map.empty
+  , CompiledVars (compileHotAirBalloonVars (progressionHotAirBalloonDestinations progress)) Map.empty
   , CompiledVars Map.empty (compileQuetzalVars (progressionQuetzalPlatforms progress))
   , compileDefaultVars
   ]
@@ -240,6 +253,20 @@ forsakenTowerCompleteValue = 11
 
 compileQuetzalVars :: Set.Set QuetzalPlatform -> Map.Map VarPlayerId Int
 compileQuetzalVars platforms = Map.singleton quetzalsUnlockedVarPlayer (quetzalPlatformMask platforms)
+
+compileHotAirBalloonVars :: Set.Set HotAirBalloonDestination -> Map.Map VarbitId Int
+compileHotAirBalloonVars destinations = Map.fromList
+  [ (VB.zepMultiBasket, unlocked BalloonEntrana 2)
+  , (VB.zepMultiPiccard, unlocked BalloonTaverley 2)
+  , (VB.zepMultiCast, unlocked BalloonCastleWars 1)
+  , (VB.zepMultiGno, unlocked BalloonGrandTree 1)
+  , (VB.zepMultiCraft, unlocked BalloonCraftingGuild 1)
+  , (VB.zepMultiVarr, unlocked BalloonVarrock 1)
+  ]
+ where
+  unlocked destination value
+    | Set.member destination destinations = value
+    | otherwise = 0
 
 compileDefaultVars :: CompiledVars
 compileDefaultVars = CompiledVars Map.empty (Map.fromList
@@ -340,6 +367,9 @@ compileDiary tier vars = Map.fromList
 
 allPlatforms :: Set.Set QuetzalPlatform
 allPlatforms = Set.fromList [minBound .. maxBound]
+
+allBalloonDestinations :: Set.Set HotAirBalloonDestination
+allBalloonDestinations = Set.fromList [minBound .. maxBound]
 
 quetzalPlatformMask :: Set.Set QuetzalPlatform -> Int
 quetzalPlatformMask = Set.foldr ((.|.) . quetzalPlatformBit) 0
