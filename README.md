@@ -12,7 +12,11 @@ Generate the disposable DuckDB inspector database from the authoritative Haskell
 nix-shell --run 'cabal run world-facts'
 ```
 
-This writes `data/world-facts.duckdb`, containing `metadata`, `components`, `tiles`, `point_access`, `places`, and the derived `place_facts` view. Query it directly with `duckdb data/world-facts.duckdb`.
+This writes `data/world-facts.duckdb`, containing `metadata`, `components`,
+`tiles`, `point_access`, `places`, and the derived `place_facts` view. One point
+may have zero, one, or several `point_access` rows/components; these attachments
+and structural-reachability flags come directly from `ShortestPath.Topology`.
+Query it directly with `duckdb data/world-facts.duckdb`.
 
 ## Route benchmarks
 

@@ -10,9 +10,25 @@ The runtime has exactly two maintained routing implementations:
 * `ReferenceDijkstra` is the deliberately simple correctness oracle.
 
 Both consume account-filtered transports from `prepareQueryTransports` and the
-shared transition helpers in `ShortestPath.Pathfinder`. Their queues, distance
+authoritative `WorldTopology`, plus shared transition helpers in
+`ShortestPath.Pathfinder`. Their queues, distance
 maps, predecessor storage, state representation, and search loops remain
 independent so agreement is meaningful correctness evidence.
+
+## Authoritative world topology
+
+`ShortestPath.Topology` owns the maintained topology model:
+
+* `NaturalComponents` assigns every ordinary walkable tile a stable component
+  ID derived only from walking connectivity.
+* `pointAttachments` maps any routing-relevant point to zero, one, or multiple
+  natural components using the real endpoint-access semantics.
+* `StructuralReachability` is a separate set over those stable IDs. Production
+  reachability uses the explicit Lumbridge seed and rejects a missing seed.
+
+Account-specific transport availability and benchmark eligibility are higher
+layers; neither changes natural-component identity. `world-facts` reads this
+same model rather than reconstructing components or point adjacency.
 
 ## Virtual walls
 
@@ -20,8 +36,7 @@ independent so agreement is meaningful correctness evidence.
 `walkingNeighbors`. Current routing instead uses `walkingNeighborsRaw`, whose
 natural walking graph does not apply those manual barriers. Consequently
 `VIRTUAL_WALL` records are not legal transport relaxations in either maintained
-solver. This distinction is preserved explicitly; any redesign belongs with
-the later world/topology consolidation.
+solver. The structural-reachability policy excludes them explicitly.
 
 ## Transport-aware component heuristic
 
@@ -208,13 +223,14 @@ no real path to target
 
 A missing heuristic value is consequently not converted to `h = 0`; the state is discarded.
 
-The world is also prefiltered to natural components structurally reachable from the main world.
+Tile search storage is derived from the components marked structurally
+reachable; this filtering does not create or renumber component IDs.
 
 Together these rules prevent A* from flooding disconnected or unsupported regions.
 
 ## Component-indexed heuristic work
 
-Transport sites are grouped by natural component.
+Transport sites are grouped under every natural component they attach to.
 
 Reverse relaxed walking therefore considers only sites in the current component rather than scanning every transport site in the world.
 
@@ -245,11 +261,10 @@ rather than repeatedly interpreting skills/items/quests and other requirement ex
 
 ## Blocked transport origins
 
-Some usable transport origins are themselves blocked tiles.
-
-For heuristic component attachment, if the origin tile has no natural component, the implementation falls back to an adjacent legal walking component.
-
-This prevents transports such as blocked object-based origins from disappearing from the relaxed graph.
+Some routing sites are blocked tiles. Such a site retains every adjacent
+natural-component attachment; no first-neighbour choice is made. A site with no
+walking attachment remains an exact site-graph node, allowing pure transport
+chains while genuinely unreachable sites still receive no reverse distance.
 
 ## Sparse walking network
 

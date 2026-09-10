@@ -8,8 +8,9 @@ Key Haskell modules:
 
 * `src/ShortestPath/Exact/TileAStar.hs` — current primary tile A* implementation and heuristic/lifecycle logic.
 * `src/ShortestPath/Exact/ReferenceDijkstra.hs` — deliberately simple correctness/reference solver.
-* `src/World.hs` — walkability, collision, neighbours, natural components and world topology.
-* `src/Transport.hs` — transport definitions, parsing and requirements.
+* `src/ShortestPath/World.hs` — collision-backed walkability and authoritative walking neighbours.
+* `src/ShortestPath/Topology.hs` — natural components, point attachments and structural reachability.
+* `src/ShortestPath/Transport.hs` — transport definitions and parsing.
 * Hierarchical routing is historical/future experimental work, not maintained runtime architecture.
 
 Other important areas:
@@ -63,7 +64,19 @@ Do not turn missing heuristic information into `h = 0` when the relaxed model pr
 
 A transport site may itself be blocked but accessible from adjacent walkable tiles. Fairy rings exposed this bug previously.
 
-Do not assign transport sites/components using only `componentOf(siteTile)`. Reuse the same endpoint/access semantics as the real pathfinder.
+`NaturalComponentId` semantics are ordinary walking connectivity only; IDs do
+not encode structural reachability. A routing point may attach to zero, one, or
+multiple components. Use `pointAttachments` from `ShortestPath.Topology`; never
+select the first adjacent component or reconstruct attachment adjacency in a
+consumer.
+
+Structural reachability is a separate derived property with an explicit seed
+policy. Account-specific reachability and benchmark eligibility remain above
+that world layer. A missing production seed is an error, not permission to mark
+every component reachable.
+
+`world-facts` is derived from this same topology. Tile A* may relax it, but the
+heuristic and unreachable pruning must preserve every valid attachment.
 
 ### Bank/global lifecycle
 
