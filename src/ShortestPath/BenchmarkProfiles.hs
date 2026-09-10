@@ -5,6 +5,7 @@ module ShortestPath.BenchmarkProfiles
   , QuestMilestone(..)
   , QuetzalPlatform(..)
   , HotAirBalloonDestination(..)
+  , CatacombsEntrance(..)
   , CompiledVars(..)
   , GameStateSpec(..)
   , ItemLoadout(..)
@@ -14,6 +15,7 @@ module ShortestPath.BenchmarkProfiles
   , benchmarkNowMinutes
   , compileProgressionVars
   , compileHotAirBalloonVars
+  , compileCatacombsEntranceVars
   , effectiveQuestMilestones
   , diaryVarbitsFor
   , compileDiary
@@ -50,6 +52,12 @@ data HotAirBalloonDestination
   | BalloonVarrock
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
+data CatacombsEntrance
+  = CatacombsForthosDungeon
+  | CatacombsSurfaceEntrances
+  | CatacombsGiantsDen
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
+
 data Progression = Progression
   { progressionLevels :: ItemCounts
   , progressionQuests :: Set.Set String
@@ -58,6 +66,7 @@ data Progression = Progression
   , progressionFairyRings :: Bool
   , progressionQuetzalPlatforms :: Set.Set QuetzalPlatform
   , progressionHotAirBalloonDestinations :: Set.Set HotAirBalloonDestination
+  , progressionCatacombsEntrances :: Set.Set CatacombsEntrance
   }
   deriving stock (Eq, Show)
 
@@ -157,23 +166,23 @@ benchmarkProfileVariableGaps transports =
   ]
 
 earlyProfile :: BenchmarkProfile
-earlyProfile = BenchmarkProfile "early" (progression earlyLevels (withCoreQuests earlyQuests) (allDiaries Medium) True Set.empty Set.empty) emptyGameState basicPoh earlyLoadout earlyBank standardRuntime
+earlyProfile = BenchmarkProfile "early" (progression earlyLevels (withCoreQuests earlyQuests) (allDiaries Medium) True Set.empty Set.empty Set.empty) emptyGameState basicPoh earlyLoadout earlyBank standardRuntime
 
 midProfile :: Set.Set String -> BenchmarkProfile
-midProfile allQuests = BenchmarkProfile "mid" (progression midLevels (withCoreQuests allQuests) (allDiaries Hard) True allPlatforms allBalloonDestinations) emptyGameState midPoh midLoadout midBank standardRuntime
+midProfile allQuests = BenchmarkProfile "mid" (progression midLevels (withCoreQuests allQuests) (allDiaries Hard) True allPlatforms allBalloonDestinations allCatacombsEntrances) emptyGameState midPoh midLoadout midBank standardRuntime
 
 endProfile :: Set.Set String -> BenchmarkProfile
-endProfile allQuests = BenchmarkProfile "end" (progression (Map.insert "Quest" 327 endLevels) (withCoreQuests allQuests) endDiaries True allPlatforms allBalloonDestinations) emptyGameState maxedPoh endLoadout endBank standardRuntime
+endProfile allQuests = BenchmarkProfile "end" (progression (Map.insert "Quest" 327 endLevels) (withCoreQuests allQuests) endDiaries True allPlatforms allBalloonDestinations allCatacombsEntrances) emptyGameState maxedPoh endLoadout endBank standardRuntime
 
 maxedProfile :: Set.Set String -> ItemCounts -> BenchmarkProfile
-maxedProfile allQuests allItems = BenchmarkProfile "maxed" (progression (Map.fromList [(skill, 99) | skill <- allSkills] <> Map.fromList [("Quest", 327), ("Total", 2376)]) (withCoreQuests allQuests) (allDiaries Elite) True allPlatforms allBalloonDestinations) emptyGameState maxedPoh maxedLoadout (allItems <> endBank) standardRuntime
+maxedProfile allQuests allItems = BenchmarkProfile "maxed" (progression (Map.fromList [(skill, 99) | skill <- allSkills] <> Map.fromList [("Quest", 327), ("Total", 2376)]) (withCoreQuests allQuests) (allDiaries Elite) True allPlatforms allBalloonDestinations allCatacombsEntrances) emptyGameState maxedPoh maxedLoadout (allItems <> endBank) standardRuntime
 
 withCoreQuests :: Set.Set String -> Set.Set String
 withCoreQuests = Set.insert "Dragon Slayer I"
 
-progression :: ItemCounts -> Set.Set String -> Map.Map Diary DiaryTier -> Bool -> Set.Set QuetzalPlatform -> Set.Set HotAirBalloonDestination -> Progression
-progression levels quests diaries fairy platforms balloons =
-  Progression levels quests Set.empty diaries fairy platforms balloons
+progression :: ItemCounts -> Set.Set String -> Map.Map Diary DiaryTier -> Bool -> Set.Set QuetzalPlatform -> Set.Set HotAirBalloonDestination -> Set.Set CatacombsEntrance -> Progression
+progression levels quests diaries fairy platforms balloons catacombs =
+  Progression levels quests Set.empty diaries fairy platforms balloons catacombs
 
 allDiaries :: DiaryTier -> Map.Map Diary DiaryTier
 allDiaries tier = Map.fromList [(diary, tier) | diary <- [minBound .. maxBound]]
@@ -225,6 +234,7 @@ compileProgressionVars progress = mergeCompiledVars
   , CompiledVars (compileQuestDerivedVarbits progress) Map.empty
   , CompiledVars Map.empty (compileQuestDerivedVarPlayers progress)
   , CompiledVars (compileHotAirBalloonVars (progressionHotAirBalloonDestinations progress)) Map.empty
+  , CompiledVars (compileCatacombsEntranceVars (progressionCatacombsEntrances progress)) Map.empty
   , CompiledVars Map.empty (compileQuetzalVars (progressionQuetzalPlatforms progress))
   , compileDefaultVars
   ]
@@ -282,6 +292,17 @@ compileHotAirBalloonVars destinations = Map.fromList
  where
   unlocked destination value
     | Set.member destination destinations = value
+    | otherwise = 0
+
+compileCatacombsEntranceVars :: Set.Set CatacombsEntrance -> Map.Map VarbitId Int
+compileCatacombsEntranceVars entrances = Map.fromList
+  [ (VB.cataHole1, unlocked CatacombsForthosDungeon)
+  , (VB.cataHole2, unlocked CatacombsSurfaceEntrances)
+  , (VB.cataHoleGiantsDen, unlocked CatacombsGiantsDen)
+  ]
+ where
+  unlocked entrance
+    | Set.member entrance entrances = 1
     | otherwise = 0
 
 compileDefaultVars :: CompiledVars
@@ -386,6 +407,9 @@ allPlatforms = Set.fromList [minBound .. maxBound]
 
 allBalloonDestinations :: Set.Set HotAirBalloonDestination
 allBalloonDestinations = Set.fromList [minBound .. maxBound]
+
+allCatacombsEntrances :: Set.Set CatacombsEntrance
+allCatacombsEntrances = Set.fromList [minBound .. maxBound]
 
 quetzalPlatformMask :: Set.Set QuetzalPlatform -> Int
 quetzalPlatformMask = Set.foldr ((.|.) . quetzalPlatformBit) 0

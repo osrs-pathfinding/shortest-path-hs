@@ -139,6 +139,11 @@ mustProfile name Nothing = error ("missing benchmark profile: " <> name)
 
 semanticProfileChecks :: IO ()
 semanticProfileChecks = do
+  assert (compileCatacombsEntranceVars (Set.singleton CatacombsForthosDungeon) == Map.fromList
+    [ (VB.cataHole1, 1)
+    , (VB.cataHole2, 0)
+    , (VB.cataHoleGiantsDen, 0)
+    ])
   assert (compileHotAirBalloonVars (Set.singleton BalloonEntrana) == Map.fromList
     [ (VB.zepMultiBasket, 2)
     , (VB.zepMultiPiccard, 0)
@@ -210,6 +215,15 @@ semanticProfileChecks = do
     | account <- [mid, end, maxed]
     , (varbit, value) <- [(VB.zepMultiBasket, 2), (VB.zepMultiPiccard, 2), (VB.zepMultiCast, 1), (VB.zepMultiGno, 1), (VB.zepMultiCraft, 1), (VB.zepMultiVarr, 1)]
     ])
+  assert (all (== Just 0)
+    [ Map.lookup varbit (accountVarbits early)
+    | varbit <- [VB.cataHole1, VB.cataHole2, VB.cataHoleGiantsDen]
+    ])
+  assert (all (== Just 1)
+    [ Map.lookup varbit (accountVarbits account)
+    | account <- [mid, end, maxed]
+    , varbit <- [VB.cataHole1, VB.cataHole2, VB.cataHoleGiantsDen]
+    ])
   transports <- loadTransports defaultSourcePaths
   let context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       available account transport = case transportAvailability (context account) transport of
@@ -223,6 +237,10 @@ semanticProfileChecks = do
       legendsCaveShortcut = find (\transport -> varPlayers transport == [VarReq (GameVarPlayer VP.legendsquest) 6 VarGt]) transports
       kharaziShortcut = find (\transport -> varPlayers transport == [VarReq (GameVarPlayer VP.legendsquest) 49 VarGt] && items transport == Nothing) transports
       shiloCart = find (\transport -> varPlayers transport == [VarReq (GameVarPlayer VP.zombiequeen) 14 VarGt] && items transport == Nothing) transports
+      catacombsEntrances =
+        [ find (\transport -> varbits transport == [VarReq (GameVarbit varbit) 1 VarEq]) transports
+        | varbit <- [VB.cataHole1, VB.cataHole2, VB.cataHoleGiantsDen]
+        ]
       balloons = map (findTransport "HOT_AIR_BALLOON") ["Entrana", "Taverley", "Castle Wars", "Grand Tree", "Crafting Guild", "Varrock"]
       primio = find (\transport -> origin transport == Just (packTile 3280 3412 0) && destination transport == Just (packTile 1700 3141 0)) transports
   assert (maybe False (available early) base)
@@ -237,6 +255,8 @@ semanticProfileChecks = do
   assert (maybe False (available mid) kharaziShortcut)
   assert (maybe False (not . available early) shiloCart)
   assert (maybe False (available mid) shiloCart)
+  assert (all (maybe False (not . available early)) catacombsEntrances)
+  assert (all (maybe False (available mid)) catacombsEntrances)
   assert (all (maybe False (not . available early)) balloons)
   assert (all (maybe False (available mid)) balloons)
   assert (maybe False (available early) primio)
