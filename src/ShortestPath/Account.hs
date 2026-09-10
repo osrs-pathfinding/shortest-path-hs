@@ -1,10 +1,12 @@
 module ShortestPath.Account
   ( ItemCounts
   , AccountState(..)
+  , Diary(..)
   , DiaryTier(..)
   , PohLocation(..)
   , JewelleryBoxTier(..)
   , PohBuild(..)
+  , PohPortalAccess(..)
   , Spellbook(..)
   , RuntimeState(..)
   , CooldownState(..)
@@ -39,12 +41,17 @@ data AccountState = AccountState
   , accountEquipment :: ItemCounts
   , accountRunePouch :: ItemCounts
   , accountBank :: ItemCounts
-  , accountDiaries :: Map.Map String DiaryTier
+  , accountDiaries :: Map.Map Diary DiaryTier
   , accountPoh :: PohBuild
   , accountFairyRingsUnlocked :: Bool
   , accountRuntime :: RuntimeState
   }
   deriving stock (Eq, Show)
+
+data Diary = Ardougne | Desert | Falador | Fremennik | Kandarin | Karamja
+  | KourendKebos | LumbridgeDraynor | Morytania | Varrock
+  | WesternProvinces | Wilderness
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 data DiaryTier = NoDiary | Easy | Medium | Hard | Elite
   deriving stock (Eq, Ord, Show)
@@ -57,10 +64,13 @@ data PohLocation
   | Yanille | Prifddinas | Hosidius | Aldarin
   deriving stock (Eq, Ord, Show)
 
+data PohPortalAccess = SelectedPohPortals (Set.Set String) | AllPohPortals
+  deriving stock (Eq, Show)
+
 data PohBuild = PohBuild
   { pohLocation :: PohLocation
   , pohJewelleryBox :: JewelleryBoxTier
-  , pohPortalDestinations :: Set.Set String
+  , pohPortalDestinations :: PohPortalAccess
   , pohFairyRing :: Bool
   , pohSpiritTree :: Bool
   , pohObelisk :: Bool
@@ -114,7 +124,7 @@ emptyAccountState =
   AccountState Map.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty emptyPoh False (RuntimeState Standard CooldownReady True)
 
 emptyPoh :: PohBuild
-emptyPoh = PohBuild Rimmington NoJewelleryBox Set.empty False False False False False False False
+emptyPoh = PohBuild Rimmington NoJewelleryBox (SelectedPohPortals Set.empty) False False False False False False False
 
 availableItems :: AccountState -> ItemAccess -> ItemCounts
 availableItems account access =
@@ -155,14 +165,18 @@ specialFailures context transport =
       | "Fancy" `isInfixOf` displayInfo transport && pohJewelleryBox poh < FancyJewelleryBox -> [MissingCapability "Fancy jewellery box is not built"]
       | otherwise -> []
     "TELEPORTATION_PORTAL_POH"
-      | Set.member "*" (pohPortalDestinations poh) || Set.member (displayInfo transport) (pohPortalDestinations poh) -> []
+      | hasPohPortal (displayInfo transport) (pohPortalDestinations poh) -> []
       | otherwise -> [MissingCapability "POH portal is not built"]
     _ -> []
  where
   account = requirementAccount context
   poh = accountPoh account
-  hasLumbridgeElite = Map.findWithDefault NoDiary "Lumbridge & Draynor" (accountDiaries account) >= Elite
+  hasLumbridgeElite = Map.findWithDefault NoDiary LumbridgeDraynor (accountDiaries account) >= Elite
   hasItem item = Map.findWithDefault 0 item (availableItems account (requirementItemAccess context)) > 0
+
+hasPohPortal :: String -> PohPortalAccess -> Bool
+hasPohPortal _ AllPohPortals = True
+hasPohPortal destination (SelectedPohPortals destinations) = Set.member destination destinations
 
 requirementsSatisfied :: RequirementContext -> Transport -> Bool
 requirementsSatisfied context transport = transportAvailability context transport == Available

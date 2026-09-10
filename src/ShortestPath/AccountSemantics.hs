@@ -2,7 +2,6 @@ module ShortestPath.AccountSemantics
   ( AccountSpec(..)
   , AccountCompileError(..)
   , Progression(..)
-  , Diary(..)
   , QuestMilestone(..)
   , QuetzalPlatform(..)
   , HotAirBalloonDestination(..)
@@ -104,11 +103,6 @@ data Progression = Progression
   }
   deriving stock (Eq, Show)
 
-data Diary = Ardougne | Desert | Falador | Fremennik | Kandarin | Karamja
-  | KourendKebos | LumbridgeDraynor | Morytania | Varrock
-  | WesternProvinces | Wilderness
-  deriving stock (Eq, Ord, Show, Enum, Bounded)
-
 data QuestMilestone
   = LandOfTheGoblinsYuBiuskAccess
   | SinsOfTheFatherSlepeBoatAccess
@@ -143,14 +137,6 @@ data AccountSpec = AccountSpec
   }
   deriving stock (Eq, Show)
 
-diaryName :: Diary -> String
-diaryName = \case
-  Ardougne -> "Ardougne"; Desert -> "Desert"; Falador -> "Falador"
-  Fremennik -> "Fremennik"; Kandarin -> "Kandarin"; Karamja -> "Karamja"
-  KourendKebos -> "Kourend & Kebos"; LumbridgeDraynor -> "Lumbridge & Draynor"
-  Morytania -> "Morytania"; Varrock -> "Varrock"
-  WesternProvinces -> "Western Provinces"; Wilderness -> "Wilderness"
-
 effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
 effectiveQuestMilestones progress = progressionMilestones progress <> Set.fromList
   [ LandOfTheGoblinsYuBiuskAccess | Set.member "Land of the Goblins" quests ]
@@ -182,8 +168,7 @@ compileAccount now spec = do
     , accountEquipment = loadoutEquipment loadout
     , accountRunePouch = loadoutRunePouch loadout
     , accountBank = accountSpecBank spec
-    , accountDiaries = Map.fromList
-        [(diaryName diary, tier) | (diary, tier) <- Map.toList (progressionDiaries progress)]
+    , accountDiaries = progressionDiaries progress
     , accountPoh = accountSpecPoh spec
     , accountFairyRingsUnlocked = progressionFairyRings progress
     , accountRuntime = accountSpecRuntime spec

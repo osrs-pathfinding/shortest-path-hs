@@ -35,7 +35,7 @@ import ShortestPath.Exact.TileAStar
 import ShortestPath.Heuristic.Region (RegionTable, buildRegionGraph, buildRegionTable)
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
 import ShortestPath.Account
-  ( AccountState(..), CooldownState(..), PohBuild(..), RequirementMode(..), RuntimeState(..) )
+  ( AccountState(..), CooldownState(..), PohBuild(..), PohPortalAccess(..), RequirementMode(..), RuntimeState(..) )
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkNowMinutes)
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess (preprocessHierarchy)
@@ -537,7 +537,7 @@ serveRequest world tileAStar hierarchical line =
     , "equipment" .= accountEquipment account
     , "runePouch" .= accountRunePouch account
     , "bank" .= accountBank account
-    , "diaries" .= Map.map show (accountDiaries account)
+    , "diaries" .= Map.fromList [(show diary, show tier) | (diary, tier) <- Map.toList (accountDiaries account)]
     , "fairyRings" .= accountFairyRingsUnlocked account
     , "poh" .= pohJson (accountPoh account)
     , "runtime" .= runtimeJson (accountRuntime account)
@@ -545,7 +545,9 @@ serveRequest world tileAStar hierarchical line =
   pohJson poh = object
     [ "location" .= show (pohLocation poh)
     , "jewelleryBox" .= show (pohJewelleryBox poh)
-    , "portals" .= Set.toAscList (pohPortalDestinations poh)
+    , "portals" .= case pohPortalDestinations poh of
+        AllPohPortals -> ["*"]
+        SelectedPohPortals destinations -> Set.toAscList destinations
     , "fairyRing" .= pohFairyRing poh
     , "spiritTree" .= pohSpiritTree poh
     , "obelisk" .= pohObelisk poh

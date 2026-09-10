@@ -135,9 +135,9 @@ earlyQuests :: Set.Set String
 earlyQuests = Set.fromList ["Another Slice of H.A.M.", "Biohazard", "Bone Voyage", "Children of the Sun", "Client of Kourend", "Creature of Fenkenstrain", "Death to the Dorgeshuun", "Enter the Abyss", "Garden of Tranquillity", "Haunted Mine", "Holy Grail", "In Search of the Myreque", "Lost City", "Monkey Madness I", "Nature Spirit", "Observatory Quest", "Plague City", "Priest in Peril", "Regicide", "Sea Slug", "Shades of Mort'ton", "Tai Bwo Wannai Trio", "The Corsair Curse", "The Fremennik Trials", "The Giant Dwarf", "The Grand Tree", "The Lost Tribe", "Tree Gnome Village", "Twilight's Promise", "Watchtower"]
 
 basicPoh, midPoh, maxedPoh :: PohBuild
-basicPoh = PohBuild Rimmington NoJewelleryBox Set.empty False False False False False False False
-midPoh = PohBuild Rimmington FancyJewelleryBox (Set.fromList ["Varrock Portal", "Falador Portal", "Camelot Portal", "Ardougne Portal", "Kourend Portal", "Barrows Portal"]) False False False True True True True
-maxedPoh = PohBuild Rimmington OrnateJewelleryBox (Set.singleton "*") True True True True True True True
+basicPoh = PohBuild Rimmington NoJewelleryBox (SelectedPohPortals Set.empty) False False False False False False False
+midPoh = PohBuild Rimmington FancyJewelleryBox (SelectedPohPortals (Set.fromList ["Varrock Portal", "Falador Portal", "Camelot Portal", "Ardougne Portal", "Kourend Portal", "Barrows Portal"])) False False False True True True True
+maxedPoh = PohBuild Rimmington OrnateJewelleryBox AllPohPortals True True True True True True True
 
 standardRuntime :: RuntimeState
 standardRuntime = RuntimeState Standard CooldownReady True
