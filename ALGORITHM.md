@@ -2,6 +2,27 @@
 
 The pathfinder is a direct tile A*, but much of its performance comes from modelling OSRS-specific transport structure in the heuristic and search state.
 
+## Maintained solvers
+
+The runtime has exactly two maintained routing implementations:
+
+* `TileAStar` is the current optimised solver.
+* `ReferenceDijkstra` is the deliberately simple correctness oracle.
+
+Both consume account-filtered transports from `prepareQueryTransports` and the
+shared transition helpers in `ShortestPath.Pathfinder`. Their queues, distance
+maps, predecessor storage, state representation, and search loops remain
+independent so agreement is meaningful correctness evidence.
+
+## Virtual walls
+
+`VIRTUAL_WALL` records support the older wall-aware topology exposed by
+`walkingNeighbors`. Current routing instead uses `walkingNeighborsRaw`, whose
+natural walking graph does not apply those manual barriers. Consequently
+`VIRTUAL_WALL` records are not legal transport relaxations in either maintained
+solver. This distinction is preserved explicitly; any redesign belongs with
+the later world/topology consolidation.
+
 ## Transport-aware component heuristic
 
 Ordinary geometric distance is too weak for OSRS: the best route may initially walk away from the target to reach a teleport, bank, fairy ring, etc.
@@ -259,4 +280,3 @@ global dominance information
 strongly enough that A* can avoid exploring large parts of the tile graph.
 
 The bank Boolean is especially important: rather than merely recording whether the player has visited a bank, its two heuristic layers provide reusable lower bounds corresponding to different capability relaxations. Dynamic dominance can then combine those bounds to represent a third effective phase without paying for another search-state dimension.
-

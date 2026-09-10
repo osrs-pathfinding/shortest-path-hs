@@ -1,4 +1,6 @@
-# Build an Exact Hierarchical OSRS Pathfinder
+# Build an Exact Hierarchical OSRS Pathfinder (Historical)
+
+This plan describes a removed prototype and is retained only as research history.
 
 ## Goal
 
@@ -930,4 +932,3 @@ Once this works, report:
 The immediate goal is not production performance.
 
 The immediate goal is to establish a **correct, measurable hierarchical model of the OSRS graph** on which we can safely experiment.
-
