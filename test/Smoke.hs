@@ -139,6 +139,7 @@ mustProfile name Nothing = error ("missing benchmark profile: " <> name)
 
 semanticProfileChecks :: IO ()
 semanticProfileChecks = do
+  assert (compilePermanentUnlockVars Set.empty == Map.singleton VB.raidsGuideTravelUnlock 0)
   assert (compileCatacombsEntranceVars (Set.singleton CatacombsForthosDungeon) == Map.fromList
     [ (VB.cataHole1, 1)
     , (VB.cataHole2, 0)
@@ -233,6 +234,8 @@ semanticProfileChecks = do
     | account <- [mid, end, maxed]
     , varbit <- [VB.cataHole1, VB.cataHole2, VB.cataHoleGiantsDen]
     ])
+  assert (Map.lookup VB.raidsGuideTravelUnlock (accountVarbits early) == Just 0)
+  assert (all (== Just 1) [Map.lookup VB.raidsGuideTravelUnlock (accountVarbits account) | account <- [mid, end, maxed]])
   transports <- loadTransports defaultSourcePaths
   let context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       available account transport = case transportAvailability (context account) transport of
@@ -256,6 +259,7 @@ semanticProfileChecks = do
         [ find (\transport -> varbits transport == [VarReq (GameVarbit varbit) 1 VarEq]) transports
         | varbit <- [VB.cataHole1, VB.cataHole2, VB.cataHoleGiantsDen]
         ]
+      mountainGuideTravel = find (\transport -> varbits transport == [VarReq (GameVarbit VB.raidsGuideTravelUnlock) 1 VarEq]) transports
       balloons = map (findTransport "HOT_AIR_BALLOON") ["Entrana", "Taverley", "Castle Wars", "Grand Tree", "Crafting Guild", "Varrock"]
       primio = find (\transport -> origin transport == Just (packTile 3280 3412 0) && destination transport == Just (packTile 1700 3141 0)) transports
   assert (maybe False (available early) base)
@@ -278,6 +282,8 @@ semanticProfileChecks = do
   assert (maybe False (available mid) fishingContestAccess)
   assert (all (maybe False (not . available early)) catacombsEntrances)
   assert (all (maybe False (available mid)) catacombsEntrances)
+  assert (maybe False (not . available early) mountainGuideTravel)
+  assert (maybe False (available mid) mountainGuideTravel)
   assert (all (maybe False (not . available early)) balloons)
   assert (all (maybe False (available mid)) balloons)
   assert (maybe False (available early) primio)
