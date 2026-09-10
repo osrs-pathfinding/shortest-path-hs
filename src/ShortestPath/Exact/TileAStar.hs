@@ -14,6 +14,9 @@ module ShortestPath.Exact.TileAStar
   , ReversePathEdge(..)
   , SparseWalkingNetwork(..)
   , buildTileAStar
+  , buildTileAStarWithPolicy
+  , buildTileAStarFromTopology
+  , tileTopology
   , buildSparseWalkingNetwork
   , sparseWalkingDistance
   , chebyshevTransform
@@ -70,6 +73,8 @@ import Text.Printf (printf)
 
 import ShortestPath.Pathfinder
 import ShortestPath.Tile
+import ShortestPath.Topology hiding (componentFacts, tileFacts)
+import qualified ShortestPath.Topology as Topology
 import ShortestPath.Transport
 import ShortestPath.World
 
@@ -79,58 +84,29 @@ foreign import ccall unsafe "spm_chebyshev_transform"
 foreign import ccall unsafe "spm_rgba_tile"
   c_rgbaTile :: Int -> Ptr Int -> Ptr Int -> Ptr Int -> Int -> Int -> Int -> Int -> Int -> Ptr Word8 -> IO ()
 
-data TileAStar = TileAStar World NaturalComponents TileStatic
+data TileAStar = TileAStar WorldTopology TileStatic
 
 tileWorld :: TileAStar -> World
-tileWorld (TileAStar world _ _) = world
+tileWorld = topologyWorld . tileTopology
 
-data NaturalComponents = NaturalComponents
-  { componentOwnerTiles :: Vector.Vector Int
-  , componentOwnerIds :: Vector.Vector Int
-  , componentIds :: Vector.Vector Int
-  , maxComponentId :: !Int
-  , allComponentOwnerTiles :: Vector.Vector Int
-  , allComponentOwnerIds :: Vector.Vector Int
-  , allComponentIds :: Vector.Vector Int
-  , structurallyReachableIds :: IntSet.IntSet
-  }
-
-instance Binary NaturalComponents where
-  put components = do
-    put (Vector.toList (componentOwnerTiles components))
-    put (Vector.toList (componentOwnerIds components))
-    put (Vector.toList (componentIds components))
-    put (maxComponentId components)
-    put (Vector.toList (allComponentOwnerTiles components))
-    put (Vector.toList (allComponentOwnerIds components))
-    put (Vector.toList (allComponentIds components))
-    put (IntSet.toList (structurallyReachableIds components))
-  get =
-    NaturalComponents
-      <$> (Vector.fromList <$> get)
-      <*> (Vector.fromList <$> get)
-      <*> (Vector.fromList <$> get)
-      <*> get
-      <*> (Vector.fromList <$> get)
-      <*> (Vector.fromList <$> get)
-      <*> (Vector.fromList <$> get)
-      <*> (IntSet.fromList <$> get)
+tileTopology :: TileAStar -> WorldTopology
+tileTopology (TileAStar topology _) = topology
 
 data TileStatic = TileStatic
   { staticTiles :: Vector.Vector Int
-  , staticComponents :: Vector.Vector Int
+  , staticComponents :: Boxed.Vector (Vector.Vector Int)
   , staticWalkingNetwork :: SparseWalkingNetwork
   }
 
 instance Binary TileStatic where
   put value = do
     put (Vector.toList (staticTiles value))
-    put (Vector.toList (staticComponents value))
+    put (map Vector.toList (Boxed.toList (staticComponents value)))
     put (staticWalkingNetwork value)
   get =
     TileStatic
       <$> (Vector.fromList <$> get)
-      <*> (Vector.fromList <$> get)
+      <*> (Boxed.fromList . map Vector.fromList <$> get)
       <*> get
 
 data SparseWalkingNetwork = SparseWalkingNetwork
@@ -219,7 +195,7 @@ data HeuristicTile = HeuristicTile
   deriving stock (Eq, Show)
 
 tileStaticStats :: TileAStar -> (Int, Int, Int, Int)
-tileStaticStats (TileAStar _ _ static) =
+tileStaticStats (TileAStar _ static) =
   ( Vector.length (staticTiles static)
   , sparseSteinerCount network
   , sparseVertexCount network
@@ -323,7 +299,7 @@ data Heuristic = Heuristic
 data SiteGraph = SiteGraph
   { siteTiles :: Vector.Vector Int
   , siteTileIndex :: IntMap.IntMap Int
-  , siteComponents :: Vector.Vector Int
+  , siteComponents :: Boxed.Vector (Vector.Vector Int)
   , siteStaticCount :: !Int
   , siteSparseNetwork :: SparseWalkingNetwork
   , siteComponentSiteIds :: Boxed.Vector (Vector.Vector Int)
@@ -335,13 +311,19 @@ instance RouteFinder TileAStar where
   findRoute astar q = unsafePerformIO (fst <$> findRouteProfiledTileAStar astar q)
 
 buildTileAStar :: World -> IO TileAStar
-buildTileAStar world = do
-  components <- naturalComponents world
-  let static = buildTileStatic world components
-  pure (TileAStar world components static)
+buildTileAStar world = buildWorldTopology world >>= buildTileAStarFromTopology
+
+buildTileAStarWithPolicy :: StructuralReachabilityPolicy -> World -> IO (Either ReachabilityError TileAStar)
+buildTileAStarWithPolicy policy world = do
+  topology <- buildWorldTopologyWithPolicy policy world
+  traverse buildTileAStarFromTopology topology
+
+buildTileAStarFromTopology :: WorldTopology -> IO TileAStar
+buildTileAStarFromTopology topology =
+  pure (TileAStar topology (buildTileStatic topology))
 
 forceTileAStar :: TileAStar -> IO TileAStar
-forceTileAStar astar@(TileAStar _ components static) = do
+forceTileAStar astar@(TileAStar topology static) = do
   _ <- evaluate
     ( Vector.length (componentOwnerTiles components)
         + Vector.length (componentOwnerIds components)
@@ -352,6 +334,8 @@ forceTileAStar astar@(TileAStar _ components static) = do
         + sparseWalkingEdgeCount (staticWalkingNetwork static)
     )
   pure astar
+ where
+  components = topologyNaturalComponents topology
 
 findRouteProfiledTileAStar :: TileAStar -> Query -> IO (Route, TileAStarTimings)
 findRouteProfiledTileAStar astar query = do
@@ -359,7 +343,7 @@ findRouteProfiledTileAStar astar query = do
   pure (route, timings)
 
 findRouteProfiledTileAStarWithTrace :: Bool -> TileAStar -> Query -> IO (Route, TileAStarTimings, [(Tile, Bool)])
-findRouteProfiledTileAStarWithTrace trace astar@(TileAStar _ _ _) query =
+findRouteProfiledTileAStarWithTrace trace astar query =
   do
     let availability = prepareQueryTransports (tileWorld astar) query
     (heuristic, setupMs) <- timedIO forceHeuristic (buildHeuristic astar query availability)
@@ -379,7 +363,7 @@ findRouteProfiledTileAStarWithTrace trace astar@(TileAStar _ _ _) query =
       )
 
 search :: Bool -> TileAStar -> Query -> QueryTransportAvailability -> Heuristic -> (Route, TileAStarCounters, [(Tile, Bool)])
-search trace astar@(TileAStar world components _) q availability heuristic = runST $ do
+search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
   best <- Mutable.replicate stateCount maxBound
   prevState <- Mutable.replicate stateCount maxBound
   prevStep <- BoxedMutable.replicate stateCount Nothing
@@ -419,7 +403,7 @@ search trace astar@(TileAStar world components _) q availability heuristic = run
   startNode = maybe 0 id (nodeFor (queryStart q))
   startState = stateId startNode False
   target = queryTarget q
-  reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
+  reachableBanks = Set.filter (not . null . structurallyReachablePointAttachments topology) (worldBanks world)
   bankGlobalRelevant = allowTransports q && bankPathEnabled q
   isBankCandidate state = bankGlobalRelevant && not (stateBanked state) && Set.member (stateTile state) reachableBanks
   initialStates = (startState, 0, Nothing) :
@@ -524,16 +508,16 @@ search trace astar@(TileAStar world components _) q availability heuristic = run
   effectiveHeuristic bestBank cost state =
     let unresolved = not (stateBanked state)
         dominated = bankGlobalRelevant && unresolved && cost > bestBank
-        unbanked = heuristicAt world components heuristic (State (stateTile state) False)
-        resolved = heuristicAt world components heuristic (State (stateTile state) True)
+        unbanked = heuristicAt topology heuristic (State (stateTile state) False)
+        resolved = heuristicAt topology heuristic (State (stateTile state) True)
      in case if unresolved then unbanked else resolved of
       Nothing -> Nothing
       Just value -> Just (if dominated then maybe value (max value) resolved else value, dominated)
   countHeuristicPrune tile counters =
     counters
       { tileHeuristicUnreachable = tileHeuristicUnreachable counters + 1
-      , tileUnknownComponentPrunes = tileUnknownComponentPrunes counters + if heuristicComponent world components tile == Nothing then 1 else 0
-      , tileNoReverseSeedPrunes = tileNoReverseSeedPrunes counters + if heuristicComponent world components tile == Nothing then 0 else 1
+      , tileUnknownComponentPrunes = tileUnknownComponentPrunes counters + if null (structurallyReachablePointAttachments topology tile) then 1 else 0
+      , tileNoReverseSeedPrunes = tileNoReverseSeedPrunes counters + if null (structurallyReachablePointAttachments topology tile) then 0 else 1
       }
 
   neighbors bestBank cost state =
@@ -585,6 +569,7 @@ search trace astar@(TileAStar world components _) q availability heuristic = run
   nodeFor tile = searchNodeFor space tile
   stateTile state = Tile (searchTileAt space (state `div` 2))
   stateBanked state = odd state
+  world = topologyWorld topology
 
   reconstruct ::
     Mutable.MVector s Int ->
@@ -626,10 +611,10 @@ emptyReverseCounters :: TileReverseCounters
 emptyReverseCounters = TileReverseCounters 0 0 0 0 0 0 0 0 0
 
 searchSpace :: TileAStar -> Query -> SearchSpace
-searchSpace (TileAStar world components _) q =
+searchSpace (TileAStar topology _) q =
   SearchSpace base extras (Vector.length base + Vector.length extras)
  where
-  base = componentOwnerTiles components
+  base = Vector.fromList (map fst (reachableComponentTiles topology))
   endpoints =
     queryStart q : queryTarget q : Set.toList (worldBanks world) <>
       [ tile
@@ -642,6 +627,7 @@ searchSpace (TileAStar world components _) q =
       | packed <- IntSet.toAscList (IntSet.fromList (map unTile endpoints))
       , binarySearch packed base == Nothing
       ]
+  world = topologyWorld topology
 
 searchNodeFor :: SearchSpace -> Tile -> Maybe Int
 searchNodeFor space tile =
@@ -748,7 +734,7 @@ writeQueueEntry queue ix (priority, state, cost) = do
   Mutable.write (queueCosts queue) ix cost
 
 buildHeuristic :: TileAStar -> Query -> QueryTransportAvailability -> IO Heuristic
-buildHeuristic astar@(TileAStar _ components _) q availability =
+buildHeuristic astar q availability =
   transportAware
  where
   target = queryTarget q
@@ -768,9 +754,10 @@ buildHeuristic astar@(TileAStar _ components _) q availability =
         else timedIO forceReverseResult (pure (reverseDijkstraUncounted graph (targetSeeds graph target), emptyReverseCounters))
     (table, seedMs) <- timedIO forceSeedTable (pure (seedTableFromDistances components graph distances))
     pure (heuristicFromSeedTable table graph distances reverseMs seedMs counters)
+  components = topologyNaturalComponents (tileTopology astar)
 
 reversePathDebug :: TileAStar -> Query -> ReversePathDebug
-reversePathDebug astar@(TileAStar world components _) q =
+reversePathDebug astar q =
   ReversePathDebug (queryStart q) (queryTarget q) (map stateDebug [False, True])
  where
   availability = prepareQueryTransports world q
@@ -785,7 +772,7 @@ reversePathDebug astar@(TileAStar world components _) q =
         let sourceState = stateId node banked
             distance = distances Vector.! sourceState
             route = forwardPath sourceState
-         in ReversePathState banked (Just (queryStart q)) distance (maybe 0 id (heuristicAt world components heuristic (State (queryStart q) banked))) (distance == maxBound) route
+         in ReversePathState banked (Just (queryStart q)) distance (maybe 0 id (heuristicAt topology heuristic (State (queryStart q) banked))) (distance == maxBound) route
   forwardPath source = runST $ do
     best <- Mutable.replicate stateCount maxBound
     prevState <- Mutable.replicate stateCount maxBound
@@ -838,10 +825,7 @@ reversePathDebug astar@(TileAStar world components _) q =
     node = state `div` 2
     banked = odd state
     tile = Tile (siteTiles graph Vector.! node)
-    component = siteComponents graph Vector.! node
-    componentSites
-      | component < 0 = Vector.empty
-      | otherwise = siteComponentSiteIds graph Boxed.! component
+    componentSites = attachedSites graph node
     walkingEdges =
       [ DebugEdge (stateId other banked) tile (Tile otherTile) banked banked "component-walk" "component walk" (chebyshevPacked (unTile tile) otherTile)
       | other <- Vector.toList componentSites
@@ -867,7 +851,10 @@ reversePathDebug astar@(TileAStar world components _) q =
       , Just (dst, stepCost, _) <- [preparedTransport q t]
       , Just to <- [IntMap.lookup (unTile dst) (siteTileIndex graph)]
       ]
-  reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
+  reachableBanks = Set.filter (not . null . structurallyReachablePointAttachments topology) (worldBanks world)
+  topology = tileTopology astar
+  world = topologyWorld topology
+  components = topologyNaturalComponents topology
 
 data DebugEdge = DebugEdge
   { debugEdgeToState :: !Int
@@ -881,7 +868,7 @@ data DebugEdge = DebugEdge
   }
 
 renderHeuristicTiles :: TileAStar -> Query -> FilePath -> String -> IO HeuristicRender
-renderHeuristicTiles astar@(TileAStar _ components _) q outputRoot urlRoot = do
+renderHeuristicTiles astar q outputRoot urlRoot = do
   createDirectoryIfMissing True outputRoot
   useCTransform <- (== Just "c") <$> lookupEnv "SPM_HEURISTIC_TRANSFORM"
   prepared <- mapM (prepareLayer useCTransform) [("no-bank", "Banking disabled", False), ("bank", "Banking enabled", True)]
@@ -891,6 +878,7 @@ renderHeuristicTiles astar@(TileAStar _ components _) q outputRoot urlRoot = do
   layers <- concat <$> mapM (renderPreparedLayers minimumValue maximumValue) prepared
   pure (HeuristicRender imageTileSize layers)
  where
+  components = topologyNaturalComponents (tileTopology astar)
   groups = componentTileGroups components
   transform useCTransform box seeds =
     (if useCTransform then chebyshevTransformC else chebyshevTransform) box seeds
@@ -928,7 +916,7 @@ renderHeuristicTiles astar@(TileAStar _ components _) q outputRoot urlRoot = do
     pure (HeuristicLayer key title banking minimumValue maximumValue heuristicMs transformMs writeMs seedsForLayer tiles)
 
 renderComponentTiles :: TileAStar -> FilePath -> String -> IO HeuristicRender
-renderComponentTiles (TileAStar world components _) outputRoot urlRoot = do
+renderComponentTiles astar outputRoot urlRoot = do
   createDirectoryIfMissing True outputRoot
   allLayer <- renderLayer "reachable-components" "Reachable components" allPoints
   largestLayer <- renderLayer "largest-component" ("Largest component " <> show largestCid) largestPoints
@@ -940,7 +928,7 @@ renderComponentTiles (TileAStar world components _) outputRoot urlRoot = do
   transports = concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
   originTiles = Set.fromList [tile | transport <- transports, Just tile <- [origin transport]]
   destinationTiles = Set.fromList [tile | transport <- transports, Just tile <- [destination transport]]
-  touchesLargest tile = any ((== Just largestCid) . componentOf components) (tile : walkingNeighborsRaw world tile)
+  touchesLargest tile = largestCid `elem` pointAttachments topology tile
   interestingTiles = Set.filter touchesLargest (originTiles <> destinationTiles <> worldBanks world)
   allPoints =
     [ (packed, cid)
@@ -976,6 +964,9 @@ renderComponentTiles (TileAStar world components _) outputRoot urlRoot = do
     createDirectoryIfMissing True layerDir
     (tiles, writeMs) <- timedIO (evaluate . length) (writeMarkerImageTiles layerDir layerUrl points)
     pure (HeuristicLayer key title False (minimumDefault 0 values) (maximumDefault 0 values) 0 0 writeMs [] tiles)
+  topology = tileTopology astar
+  world = topologyWorld topology
+  components = topologyNaturalComponents topology
 
 componentTileGroups :: NaturalComponents -> Boxed.Vector (Vector.Vector Int)
 componentTileGroups components = runST $ do
@@ -996,20 +987,22 @@ componentTileGroups components = runST $ do
  where
   groupCount = maxComponentId components + 1
 
-buildTileStatic :: World -> NaturalComponents -> TileStatic
-buildTileStatic world components =
+buildTileStatic :: WorldTopology -> TileStatic
+buildTileStatic topology =
   TileStatic tiles comps network
  where
   sites = Set.toAscList (Set.fromList (staticEndpoints <> Set.toList reachableBanks))
-  reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
+  reachableBanks = Set.filter (not . null . structurallyReachablePointAttachments topology) (worldBanks world)
   staticEndpoints =
     [ tile
     | t <- concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
     , Just tile <- [origin t] <> [destination t]
     ]
   tiles = Vector.fromList (map unTile sites)
-  comps = Vector.map (\packed -> maybe (-1) id (heuristicComponent world components (Tile packed))) tiles
-  network = buildSparseWalkingNetworkComponents (Vector.length tiles) [(comps Vector.! ix, ix, Tile packed) | (ix, packed) <- Vector.toList (Vector.indexed tiles), comps Vector.! ix >= 0]
+  comps = Boxed.fromList [Vector.fromList (structurallyReachablePointAttachments topology (Tile packed)) | packed <- Vector.toList tiles]
+  network = buildSparseWalkingNetworkComponents (Vector.length tiles)
+    [(cid, ix, Tile packed) | (ix, packed) <- Vector.toList (Vector.indexed tiles), cid <- Vector.toList (comps Boxed.! ix)]
+  world = topologyWorld topology
 
 data ManhattanPoint = ManhattanPoint
   { pointOriginal :: !Int
@@ -1320,13 +1313,9 @@ decodeImageTileKey encoded = (encoded `shiftR` 58, (encoded `shiftR` 29) .&. til
 tileCoordMask :: Int
 tileCoordMask = (1 `shiftL` 29) - 1
 
-heuristicAt :: World -> NaturalComponents -> Heuristic -> State -> Maybe Int
-heuristicAt world components heuristic (State tile banked) =
-  case heuristicComponent world components tile of
-    Nothing -> exactSiteDistance
-    Just cid ->
-      let seeds = heuristicSeeds heuristic Boxed.! seedKey cid banked
-       in if Vector.null seeds then exactSiteDistance else Just (Vector.minimum (Vector.map seedDistance seeds))
+heuristicAt :: WorldTopology -> Heuristic -> State -> Maybe Int
+heuristicAt topology heuristic (State tile banked) =
+  minimumMaybe (exactSiteDistance : map componentDistance (structurallyReachablePointAttachments topology tile))
  where
   exactSiteDistance = do
     node <- IntMap.lookup (unTile tile) (heuristicSiteIndex heuristic)
@@ -1334,6 +1323,12 @@ heuristicAt world components heuristic (State tile banked) =
     distance <- heuristicSiteDistances heuristic Vector.!? distanceIndex
     if distance == maxBound then Nothing else Just distance
   seedDistance (packed, cost) = addCostDefault maxBound cost (chebyshevPacked (unTile tile) packed)
+  componentDistance cid =
+    let seeds = heuristicSeeds heuristic Boxed.! seedKey cid banked
+     in if Vector.null seeds then Nothing else Just (Vector.minimum (Vector.map seedDistance seeds))
+  minimumMaybe values = case [value | Just value <- values] of
+    [] -> Nothing
+    finite -> Just (minimum finite)
 
 heuristicFromDistances :: NaturalComponents -> SiteGraph -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
 heuristicFromDistances components graph distances reverseMs seedMs counters =
@@ -1353,8 +1348,7 @@ seedTableFromDistances :: NaturalComponents -> SiteGraph -> Vector.Vector Int ->
 seedTableFromDistances components graph distances = runST $ do
   table <- Boxed.thaw emptySeedLists
   Vector.iforM_ (siteTiles graph) $ \node packed -> do
-    let cid = siteComponents graph Vector.! node
-    when (cid >= 0) $ do
+    Vector.forM_ (siteComponents graph Boxed.! node) $ \cid -> do
       addSeed table cid False packed (distances Vector.! stateId node False)
       addSeed table cid True packed (distances Vector.! stateId node True)
   lists <- Boxed.freeze table
@@ -1370,7 +1364,7 @@ seedKey :: Int -> Bool -> Int
 seedKey cid banked = cid * 2 + if banked then 1 else 0
 
 siteGraph :: TileAStar -> Query -> QueryTransportAvailability -> SiteGraph
-siteGraph (TileAStar world components static) q availability =
+siteGraph (TileAStar topology static) q availability =
   SiteGraph tiles tileIndex comps staticCount (staticWalkingNetwork static) componentSites reverseEdges
  where
   staticCount = Vector.length (staticTiles static)
@@ -1381,13 +1375,15 @@ siteGraph (TileAStar world components static) q availability =
     ]
   tiles = staticTiles static <> Vector.fromList queryExtras
   tileIndex = IntMap.fromList [(packed, ix) | (ix, packed) <- Vector.toList (Vector.indexed tiles)]
-  extraComps = Vector.fromList [maybe (-1) id (heuristicComponent world components (Tile packed)) | packed <- queryExtras]
+  extraComps = Boxed.fromList [Vector.fromList (structurallyReachablePointAttachments topology (Tile packed)) | packed <- queryExtras]
   comps = staticComponents static <> extraComps
   componentSites = siteComponentGroups (maxComponentId components) comps
   nodeCount = Vector.length tiles
   edges = localEdges <> bankEdges <> bankGlobalEdges
   reverseEdges = reverseAdjacency (nodeCount * 2) edges
-  reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
+  reachableBanks = Set.filter (not . null . structurallyReachablePointAttachments topology) (worldBanks world)
+  world = topologyWorld topology
+  components = topologyNaturalComponents topology
 
   localEdges =
     [ (stateId from banked, stateId to banked, stepCost)
@@ -1420,15 +1416,22 @@ siteGraph (TileAStar world components static) q availability =
     ]
 
   nodeFor tile = IntMap.lookup (unTile tile) tileIndex
-siteComponentGroups :: Int -> Vector.Vector Int -> Boxed.Vector (Vector.Vector Int)
+siteComponentGroups :: Int -> Boxed.Vector (Vector.Vector Int) -> Boxed.Vector (Vector.Vector Int)
 siteComponentGroups highestComponent comps = runST $ do
   groups <- BoxedMutable.replicate (highestComponent + 1) []
-  Vector.iforM_ comps $ \node cid ->
-    when (cid >= 0) $ do
+  Boxed.iforM_ comps $ \node attachments ->
+    Vector.forM_ attachments $ \cid -> do
       nodes <- BoxedMutable.read groups cid
       BoxedMutable.write groups cid (node : nodes)
   frozen <- Boxed.freeze groups
   pure (Boxed.map Vector.fromList frozen)
+
+attachedSites :: SiteGraph -> Int -> Vector.Vector Int
+attachedSites graph node = Vector.fromList (IntSet.toList (IntSet.fromList
+  [ site
+  | cid <- Vector.toList (siteComponents graph Boxed.! node)
+  , site <- Vector.toList (siteComponentSiteIds graph Boxed.! cid)
+  ]))
 
 targetSeeds :: SiteGraph -> Tile -> [(Int, Int)]
 targetSeeds graph target =
@@ -1494,10 +1497,7 @@ reverseDijkstra graph seeds = runST $ do
       site = node `div` 2
       banked = odd node
       sourceTile = siteTiles graph Vector.! site
-      sourceComponent = siteComponents graph Vector.! site
-      sameComponentSites
-        | sourceComponent < 0 = Vector.empty
-        | otherwise = siteComponentSiteIds graph Boxed.! sourceComponent
+      sameComponentSites = attachedSites graph site
       scanned = Vector.length sameComponentSites
       counters' = counters
         { reverseSameComponentSiteScans = reverseSameComponentSiteScans counters + 1
@@ -1556,10 +1556,7 @@ reverseDijkstraUncounted graph seeds = runST $ do
     site = node `div` 2
     banked = odd node
     sourceTile = siteTiles graph Vector.! site
-    sourceComponent = siteComponents graph Vector.! site
-    sameComponentSites
-      | sourceComponent < 0 = Vector.empty
-      | otherwise = siteComponentSiteIds graph Boxed.! sourceComponent
+    sameComponentSites = attachedSites graph site
     scanned = Vector.length sameComponentSites
     go ix
       | ix >= scanned = pure ()
@@ -1641,10 +1638,7 @@ reverseDijkstraManhattanUncounted graph seeds = runST $ do
     go 0
    where
     vertexTile = siteTiles graph Vector.! vertex
-    vertexComponent = siteComponents graph Vector.! vertex
-    componentSites
-      | vertexComponent < 0 = Vector.empty
-      | otherwise = siteComponentSiteIds graph Boxed.! vertexComponent
+    componentSites = attachedSites graph vertex
     count = Vector.length componentSites
     go ix
       | ix >= count = pure ()
@@ -1771,132 +1765,24 @@ chebyshevTransformSlow box seeds = Vector.generate size valueAt
         tile = packTile (boxMinX box + dx) (boxMinY box + dy) (boxPlane box)
      in minimumDefault maxBound [addCostDefault maxBound cost distance | (seed, cost) <- seeds, Just distance <- [chebyshev2 tile seed]]
 
-naturalComponents :: World -> IO NaturalComponents
-naturalComponents world = do
-  let walkable = IntSet.fromList (map unTile (collisionTiles (worldCollision world)))
-  queue <- Mutable.new (max 1 (IntSet.size walkable))
-  owner <- go queue 1 walkable IntMap.empty
-  let reachable = reachableComponents world owner
-      pairs = [(tile, cid) | (tile, cid) <- IntMap.toAscList owner, IntSet.member cid reachable]
-      ids = IntSet.toAscList (IntSet.fromList (map snd pairs))
-      allPairs = IntMap.toAscList owner
-      allIds = IntSet.toAscList (IntSet.fromList (map snd allPairs))
-  pure
-    NaturalComponents
-      { componentOwnerTiles = Vector.fromList (map fst pairs)
-      , componentOwnerIds = Vector.fromList (map snd pairs)
-      , componentIds = Vector.fromList ids
-      , maxComponentId = maximumDefault 0 ids
-      , allComponentOwnerTiles = Vector.fromList (map fst allPairs)
-      , allComponentOwnerIds = Vector.fromList (map snd allPairs)
-      , allComponentIds = Vector.fromList allIds
-      , structurallyReachableIds = reachable
-      }
- where
-  go queue cid remaining owner =
-    case IntSet.minView remaining of
-      Nothing -> pure owner
-      Just (start, rest) -> do
-        Mutable.write queue 0 start
-        (owner', rest') <- flood queue cid rest (IntMap.insert start cid owner) 0 1
-        go queue (cid + 1) rest' owner'
-
-  flood queue cid remaining owner readIx writeIx
-    | readIx == writeIx = pure (owner, remaining)
-    | otherwise = do
-        packed <- Mutable.read queue readIx
-        let next =
-              [ unTile tile
-              | tile <- walkingNeighborsRaw world (Tile packed)
-              , IntSet.member (unTile tile) remaining
-              ]
-            remaining' = foldr IntSet.delete remaining next
-            owner' = foldr (`IntMap.insert` cid) owner next
-        forM_ (zip [writeIx ..] next) (uncurry (Mutable.write queue))
-        flood queue cid remaining' owner' (readIx + 1) (writeIx + length next)
-
-reachableComponents :: World -> IntMap.IntMap Int -> IntSet.IntSet
-reachableComponents world owner =
-  case IntMap.lookup (unTile (packTile 3221 3218 0)) owner of
-    Nothing -> IntSet.fromList (IntMap.elems owner)
-    Just start -> close (IntSet.singleton start) [start]
- where
-  localEdges =
-    [ (a, b)
-    | transport <- concat (Map.elems (worldTransports world))
-    , transportType transport `notElem` ["VIRTUAL_WALL", "SEASONAL_TRANSPORTS"]
-    , Just originTile <- [origin transport]
-    , Just destinationTile <- [destination transport]
-    , a <- componentsAt originTile
-    , b <- componentsAt destinationTile
-    ]
-  globalDestinations =
-    IntSet.fromList
-      [ component
-      | transport <- worldGlobalTeleports world
-      , transportType transport `notElem` ["VIRTUAL_WALL", "SEASONAL_TRANSPORTS"]
-      , Just destinationTile <- [destination transport]
-      , component <- componentsAt destinationTile
-      ]
-  componentsAt tile = IntSet.toList (IntSet.fromList
-    [ component
-    | candidate <- tile : walkingNeighborsRaw world tile
-    , Just component <- [IntMap.lookup (unTile candidate) owner]
-    ])
-  close seen [] = seen
-  close seen (component:rest) =
-    let next = [b | (a, b) <- localEdges, a == component] <> IntSet.toList globalDestinations
-        fresh = filter (`IntSet.notMember` seen) next
-     in close (foldr IntSet.insert seen fresh) (fresh <> rest)
-
-componentOf :: NaturalComponents -> Tile -> Maybe Int
-componentOf components tile = (componentOwnerIds components Vector.!?) =<< binarySearch (unTile tile) (componentOwnerTiles components)
-
 componentFacts :: TileAStar -> [(Int, Int, Bool, Int, Int, Int, Int, Int, Int)]
-componentFacts (TileAStar _ components _) =
-  [ (cid, count, IntSet.member cid reachable, loX, hiX, loY, hiY, loP, hiP) | (cid, (count, loX, hiX, loY, hiY, loP, hiP)) <- IntMap.toAscList stats ]
- where
-  reachable = structurallyReachableIds components
-  stats = foldl' add IntMap.empty (zip (Vector.toList (allComponentOwnerTiles components)) (Vector.toList (allComponentOwnerIds components)))
-  add acc (packed, cid) = IntMap.insertWith combine cid (1, x, x, y, y, p, p) acc
-   where
-    (x, y, p) = unpackTile (Tile packed)
-  combine (count, loX, hiX, loY, hiY, loP, hiP) (count', loX', hiX', loY', hiY', loP', hiP') =
-    (count + count', min loX loX', max hiX hiX', min loY loY', max hiY hiY', min loP loP', max hiP hiP')
+componentFacts = Topology.componentFacts . tileTopology
 
 tileFacts :: TileAStar -> [(Tile, Int)]
-tileFacts (TileAStar _ components _) =
-  [(Tile tile, cid) | (tile, cid) <- zip (Vector.toList (allComponentOwnerTiles components)) (Vector.toList (allComponentOwnerIds components))]
+tileFacts = Topology.tileFacts . tileTopology
 
 pointAccessFacts :: TileAStar -> Tile -> [(Tile, Maybe Int, String)]
-pointAccessFacts (TileAStar world components _) point =
+pointAccessFacts astar point =
   [(resolved, Just cid, accessKind) | (resolved, cid) <- attachments] <> unresolved
  where
-  owner = allComponentOwnerIds components
-  tiles = allComponentOwnerTiles components
-  componentAt tile = (owner Vector.!?) =<< binarySearch (unTile tile) tiles
-  neighbours = walkingNeighborsRaw world point
-  attachments = case componentAt point of
-    Just cid -> [(point, cid)]
-    Nothing -> [(tile, cid) | tile <- neighbours, Just cid <- [componentAt tile]]
+  topology = tileTopology astar
+  world = topologyWorld topology
+  attachments = pointAttachmentDetails topology point
   unresolved = [(point, Nothing, "unresolved") | null attachments]
   accessKind
     | isWalkable (worldCollision world) point = "walkable"
     | Map.member point (worldTransports world) = "adjacent_transport_origin"
     | otherwise = "snapped"
-
--- A blocked transport origin is reachable from an adjacent natural tile.
-heuristicComponent :: World -> NaturalComponents -> Tile -> Maybe Int
-heuristicComponent world components tile =
-  case componentOf components tile of
-    Just cid -> Just cid
-    Nothing -> firstComponent (walkingNeighborsRaw world tile)
- where
-  firstComponent [] = Nothing
-  firstComponent (next:rest) =
-    case componentOf components next of
-      Just cid -> Just cid
-      Nothing -> firstComponent rest
 
 offset :: Box -> Tile -> Maybe Int
 offset box tile =

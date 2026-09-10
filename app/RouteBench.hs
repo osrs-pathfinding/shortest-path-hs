@@ -27,6 +27,7 @@ import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..))
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Pathfinder hiding (routeName)
 import ShortestPath.Tile
+import ShortestPath.Topology
 import ShortestPath.Transport (Transport, defaultSourcePaths)
 import ShortestPath.World
 
@@ -84,12 +85,13 @@ main = do
   cases <- maybe id take (routeLimit options) . filterTier (benchmarkTier options) <$> loadCases options
   when (null cases) (die "no benchmark routes; select routes for benchmarks/corpus/routes-v1.json first")
   world <- loadWorld defaultSourcePaths
+  topology <- buildWorldTopology world
   when (strictProfileVars options) $ do
     let gaps = benchmarkProfileVariableGaps (allTransports world)
     when (not (null gaps)) $ die (unlines ("unmodelled benchmark profile variables:" : [name <> ": " <> show (length requirements) | (name, requirements) <- gaps]))
   if writeOracle options
-    then writeOracles options world cases
-    else buildTileAStar world >>= forceTileAStar >>= \astar -> runBench options world astar cases
+    then writeOracles options topology cases
+    else buildTileAStarFromTopology topology >>= forceTileAStar >>= \astar -> runBench options world astar cases
 
 parseOptions :: [String] -> IO Options
 parseOptions = go defaultOptions
@@ -130,8 +132,8 @@ filterTier :: String -> [RouteCase] -> [RouteCase]
 filterTier "full" = id
 filterTier tier = filter (elem tier . routeTiers)
 
-writeOracles :: Options -> World -> [RouteCase] -> IO ()
-writeOracles options world cases = do
+writeOracles :: Options -> WorldTopology -> [RouteCase] -> IO ()
+writeOracles options topology cases = do
   let profiles = [(name, benchmarkAccount name (allTransports world)) | name <- benchmarkProfileNames]
       work = [(route, name, profile) | route <- indexed cases, (name, profile) <- profiles]
       total = length work
@@ -167,13 +169,14 @@ writeOracles options world cases = do
 
   oracleFor route profile = do
     started <- getMonotonicTimeNSec
-    let result = findRoute (ReferenceDijkstra world) (query route profile)
+    let result = findRoute (ReferenceDijkstra topology) (query route profile)
         cost = routeCost result
     resolvedCost <- evaluate cost
     finished <- getMonotonicTimeNSec
     let reachable = resolvedCost /= maxBound
         oracle = Oracle reachable (if reachable then Just resolvedCost else Nothing)
     pure (oracle, milliseconds started finished)
+  world = topologyWorld topology
 
 runBench :: Options -> World -> TileAStar -> [RouteCase] -> IO ()
 runBench options world astar cases = do
@@ -220,7 +223,7 @@ runBench options world astar cases = do
         ]
       when (diagnostic options) $ do
         started <- getMonotonicTimeNSec
-        let raw = findRoute (ReferenceDijkstra world) (query route profile)
+        let raw = findRoute (ReferenceDijkstra (tileTopology astar)) (query route profile)
         voidRoute raw
         finished <- getMonotonicTimeNSec
         when (routeCost raw /= routeCost result) (die ("raw Dijkstra mismatch for " <> key route profileName))

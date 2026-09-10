@@ -32,6 +32,7 @@ import ShortestPath.Account
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkNowMinutes)
 import ShortestPath.Pathfinder
 import ShortestPath.Tile
+import ShortestPath.Topology
 import ShortestPath.Transport
 import ShortestPath.World
 
@@ -94,7 +95,7 @@ parseCommand _ = do
   exitFailure
 
 writeComponentTransformReport :: TileAStar -> IO ()
-writeComponentTransformReport (TileAStar _ components _) = do
+writeComponentTransformReport astar = do
   createDirectoryIfMissing True "out"
   let rows = componentTransformRows components
       csvPath = "out/component-transform-report.csv"
@@ -107,6 +108,8 @@ writeComponentTransformReport (TileAStar _ components _) = do
     (length rows)
     (sum (map componentTransformArea rows))
     (sum (map componentTransformTiles rows))
+ where
+  components = topologyNaturalComponents (tileTopology astar)
 
 writeTileStaticReport :: TileAStar -> IO ()
 writeTileStaticReport astar = do
@@ -277,7 +280,7 @@ serveRequest world tileAStar line =
           case maybe "tile-full" id (requestFinder request) of
             "reference" -> do
               started <- getMonotonicTimeNSec
-              let route = findRoute (ReferenceDijkstra world) query
+              let route = findRoute (ReferenceDijkstra (tileTopology tileAStar)) query
               _ <- evaluate (routeCost route + routeExpandedNodes route + length (routeSteps route))
               finished <- getMonotonicTimeNSec
               pure (routeResponse request route [] [] (rawTimingsJson route started finished))
@@ -541,9 +544,13 @@ loadOrBuildTileAStar world = do
   fresh <- tileComponentCacheIsFresh
   cached <- if fresh then loadTileComponentCache else pure Nothing
   case cached of
-    Just (components, static) -> timedPhase "force cached tile astar components" (forceTileAStar (TileAStar world components static))
+    Just (components, static) ->
+      case worldTopologyFromComponents productionStructuralReachabilityPolicy world components of
+        Left err -> fail (show err)
+        Right topology -> timedPhase "force cached tile astar components" (forceTileAStar (TileAStar topology static))
     Nothing -> do
-      tileAStar@(TileAStar _ components static) <- timedPhase "build tile astar components" (buildTileAStar world)
+      tileAStar@(TileAStar topology static) <- timedPhase "build tile astar components" (buildTileAStar world)
+      let components = topologyNaturalComponents topology
       createDirectoryIfMissing True "out"
       timedPhase "write tile astar component cache" (encodeFile tileComponentCachePath (TileComponentCache tileComponentCacheVersion components static))
       pure tileAStar
@@ -579,7 +586,7 @@ filesBelow path = do
       pure (files <> nested)
 
 tileComponentCacheVersion :: Word64
-tileComponentCacheVersion = 6
+tileComponentCacheVersion = 7
 
 tileComponentCachePath, heuristicTileRoot, componentTileRoot :: FilePath
 tileComponentCachePath = "out/tile-astar-components.bin"
@@ -590,6 +597,7 @@ tileComponentCacheInputRoots :: [FilePath]
 tileComponentCacheInputRoots =
   [ resourcesDir defaultSourcePaths
   , "src/ShortestPath/Exact/TileAStar.hs"
+  , "src/ShortestPath/Topology.hs"
   , "src/ShortestPath/Tile.hs"
   , "src/ShortestPath/World.hs"
   ]

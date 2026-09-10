@@ -7,9 +7,10 @@ import qualified Data.Set as Set
 
 import ShortestPath.Pathfinder
 import ShortestPath.Tile
+import ShortestPath.Topology
 import ShortestPath.World
 
-newtype ReferenceDijkstra = ReferenceDijkstra World
+newtype ReferenceDijkstra = ReferenceDijkstra WorldTopology
 
 data State = State Tile Bool
   deriving stock (Eq, Ord, Show)
@@ -19,8 +20,9 @@ data Prev = Prev State RouteStep
 
 instance RouteFinder ReferenceDijkstra where
   routeName _ = "reference-dijkstra"
-  findRoute (ReferenceDijkstra world) q = search (Set.singleton (0, start)) (Map.singleton start 0) Map.empty Set.empty 0
+  findRoute (ReferenceDijkstra topology) q = search (Set.singleton (0, start)) (Map.singleton start 0) Map.empty Set.empty 0
    where
+    world = topologyWorld topology
     availability = prepareQueryTransports world q
     start = State (queryStart q) False
     targetTile = queryTarget q

@@ -20,6 +20,7 @@ library
     ShortestPath.Pathfinder
     ShortestPath.Requirements
     ShortestPath.Tile
+    ShortestPath.Topology
     ShortestPath.Transport
     ShortestPath.Tsv
     ShortestPath.World

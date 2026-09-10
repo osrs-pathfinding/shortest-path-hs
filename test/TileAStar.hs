@@ -4,18 +4,56 @@ import Data.Bits (setBit)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.IntSet as IntSet
 
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Tile
+import ShortestPath.Topology hiding (componentFacts, tileFacts)
 import ShortestPath.Transport
 import ShortestPath.World
 
 main :: IO ()
 main = do
+  checkTopologySemantics
   checkSeasonalReachability
   mapM_ check cases
   mapM_ checkSparse sparseCases
   putStrLn "tile astar transform/sparse walking: pass"
+
+checkTopologySemantics :: IO ()
+checkTopologySemantics = do
+  let a = packTile 10 10 0
+      point = packTile 11 10 0
+      b = packTile 12 10 0
+      c = packTile 20 20 0
+      zero = packTile 30 30 0
+      transports = Map.fromList
+        [ (point, [transport "SHARED_1" point zero, transport "SHARED_2" point a])
+        , (a, [transport "A_TO_B" a b])
+        ]
+      world = World (collisionMap [a, b, c]) transports [] Set.empty
+      policy = StructuralReachabilityPolicy [a] Set.empty
+  topology <- either (fail . show) pure =<< buildWorldTopologyWithPolicy policy world
+  let components = topologyNaturalComponents topology
+      component tile = maybe (error "missing component") id (componentOfTile components tile)
+      reachable = structurallyReachableIds (topologyStructuralReachability topology)
+  assert (pointAttachments topology a == [component a])
+  assert (Set.fromList (pointAttachments topology point) == Set.fromList [component a, component b])
+  assert (pointAttachments topology zero == [])
+  assert (IntSet.member (component a) reachable)
+  assert (IntSet.member (component b) reachable)
+  assert (IntSet.notMember (component c) reachable)
+  missing <- buildWorldTopologyWithPolicy (StructuralReachabilityPolicy [zero] Set.empty) world
+  case missing of
+    Left (MissingStructuralReachabilitySeed tile) -> assert (tile == zero)
+    Left err -> fail (show err)
+    Right _ -> fail "missing structural seed was accepted"
+  noSeeds <- buildWorldTopologyWithPolicy (StructuralReachabilityPolicy [] Set.empty) world
+  case noSeeds of
+    Left NoStructuralReachabilitySeeds -> pure ()
+    _ -> fail "empty structural seed policy was accepted"
+ where
+  transport kind from to = Transport kind (Just from) (Just to) 1 kind "" False Nothing [] Nothing [] [] [] "synthetic"
 
 checkSeasonalReachability :: IO ()
 checkSeasonalReachability = do

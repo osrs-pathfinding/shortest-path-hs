@@ -11,6 +11,7 @@ import ShortestPath.Account
 import ShortestPath.Pathfinder
 import ShortestPath.Requirements
 import ShortestPath.Tile
+import ShortestPath.Topology
 import ShortestPath.Transport
 import ShortestPath.World
 
@@ -20,8 +21,8 @@ main = do
       defaults = defaultQuery (tA0 tiles) (tA1 tiles)
   assert (not (Set.member "SEASONAL_TRANSPORTS" (enabledTransportTypes defaults)))
   assert (Set.member "TELEPORTATION_ITEM" (enabledTransportTypes defaults))
-  let reference = ReferenceDijkstra world
-  tileAStar <- buildTileAStar world
+  tileAStar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy (tA0 tiles)) world
+  let reference = ReferenceDijkstra (tileTopology tileAStar)
   mapM_ (checkRoute reference tileAStar world) (cases tiles)
   let globalQuery = query (tA3 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
       rawGlobalRoute = findRoute reference globalQuery
@@ -41,14 +42,18 @@ checkMultiplePointAttachments = do
       right = packTile 12 10 0
       dead = packTile 20 20 0
       bridge = local "SYNTHETIC_SHARED_POINT" point dead 1
-      world = World (collisionMap [left, right]) (Map.singleton point [bridge]) [] Set.empty
+      shared = local "SYNTHETIC_SHARED_POINT_2" point left 1
+      world = World (collisionMap [left, right]) (Map.singleton point [bridge, shared]) [] Set.empty
       routeQuery = query left right (Set.singleton "SYNTHETIC_SHARED_POINT") False
-      reference = ReferenceDijkstra world
-  tileAStar <- buildTileAStar world
-  let attachments = [cid | (_, Just cid, _) <- pointAccessFacts tileAStar point]
-  assert (length attachments == 2)
-  assert (routeCost (findRoute reference routeQuery) == 2)
-  assert (routeCost (findRoute tileAStar routeQuery) == 2)
+  tileAStar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy left) world
+  let reference = ReferenceDijkstra (tileTopology tileAStar)
+      attachments = [cid | (_, Just cid, _) <- pointAccessFacts tileAStar point]
+      referenceRoute = findRoute reference routeQuery
+      tileRoute = findRoute tileAStar routeQuery
+  assertMsg ("attachments: " <> show attachments) (length attachments == 2)
+  assertMsg ("reference route: " <> show referenceRoute) (routeCost referenceRoute == 2)
+  assertMsg ("tile route: " <> show tileRoute) (routeCost tileRoute == 2)
+  assertMsg "reverse shared-point route" (routeCost (findRoute tileAStar (query right left (Set.singleton "SYNTHETIC_SHARED_POINT") False)) == 2)
 
 collisionMap :: [Tile] -> CollisionMap
 collisionMap tiles = CollisionMap (Map.fromList [(region, bytes region) | region <- Set.toList (Set.fromList (map tileRegion tiles))])
@@ -59,6 +64,12 @@ collisionMap tiles = CollisionMap (Map.fromList [(region, bytes region) | region
   set bit value = setBit value (bit `mod` 8)
   collisionBit tile = ((plane * 4096 + (y `mod` 64) * 64 + (x `mod` 64)) * 2)
    where (x, y, plane) = unpackTile tile
+
+syntheticPolicy :: Tile -> StructuralReachabilityPolicy
+syntheticPolicy seed = StructuralReachabilityPolicy [seed] Set.empty
+
+mustRight :: Show e => Either e a -> IO a
+mustRight = either (fail . show) pure
 
 synthetic :: (World, Tiles)
 synthetic =
