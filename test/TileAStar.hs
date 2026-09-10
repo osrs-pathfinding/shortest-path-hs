@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Control.Monad.ST (runST)
 import Data.Bits (setBit)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
@@ -7,6 +8,7 @@ import qualified Data.Set as Set
 import qualified Data.IntSet as IntSet
 
 import ShortestPath.Exact.TileAStar
+import ShortestPath.Internal.MutableHeap
 import ShortestPath.Tile
 import ShortestPath.Topology
 import ShortestPath.Transport
@@ -14,11 +16,21 @@ import ShortestPath.World
 
 main :: IO ()
 main = do
+  checkHeapGrowth
   checkTopologySemantics
   checkSeasonalReachability
   mapM_ check cases
   mapM_ checkSparse sparseCases
   putStrLn "tile astar transform/sparse walking: pass"
+
+checkHeapGrowth :: IO ()
+checkHeapGrowth =
+  assert (runST $ do
+    heap <- heapNew 1
+    mapM_ (\(priority, state, cost) -> heapPush heap priority state cost)
+      [(2, 10, 1), (1, 30, 5), (1, 20, 5), (1, 15, 7)]
+    sequence [heapPop heap, heapPop heap, heapPop heap, heapPop heap, heapPop heap]
+      >>= pure . (== map Just [(1, 20, 5), (1, 30, 5), (1, 15, 7), (2, 10, 1)] <> [Nothing]))
 
 checkTopologySemantics :: IO ()
 checkTopologySemantics = do

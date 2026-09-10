@@ -69,6 +69,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Text.Printf (printf)
 
 import ShortestPath.Pathfinder
+import ShortestPath.Internal.MutableHeap
 import ShortestPath.Tile
 import ShortestPath.Topology
 import ShortestPath.Transport
@@ -151,13 +152,6 @@ data SearchSpace = SearchSpace
   { searchBaseTiles :: Vector.Vector Int
   , searchExtraTiles :: Vector.Vector Int
   , searchSize :: !Int
-  }
-
-data MutableQueue s = MutableQueue
-  { queuePriorities :: Mutable.MVector s Int
-  , queueStates :: Mutable.MVector s Int
-  , queueCosts :: Mutable.MVector s Int
-  , queueSizeRef :: STRef s Int
   }
 
 data HeuristicRender = HeuristicRender
@@ -365,8 +359,7 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
   prevStep <- BoxedMutable.replicate stateCount Nothing
   exploredRef <- newSTRef []
   bestBankRef <- newSTRef maxBound
-  -- ponytail: fixed initial heap cap; switch to a growable heap when benchmark routes exceed it.
-  queue <- queueNew (min stateCount 262144)
+  queue <- heapNew (min stateCount 262144)
   counters <- foldM (\counters (state, cost, step) -> do
         known <- Mutable.read best state
         if cost >= known
@@ -385,7 +378,7 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
                   Just value -> do
                     Mutable.write prevState state startState
                     BoxedMutable.write prevStep state (Just value)
-                queuePush queue (addCostDefault maxBound cost (weightedHeuristic h)) state cost
+                heapPush queue (addCostDefault maxBound cost (weightedHeuristic h)) state cost
                 pure counters'
                   { tilePqPushes = tilePqPushes counters' + 1
                   , tileUniqueStatesReached = tileUniqueStatesReached counters' + if known == maxBound then 1 else 0
@@ -415,12 +408,12 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
     Mutable.MVector s Int ->
     Mutable.MVector s Int ->
     BoxedMutable.MVector s (Maybe RouteStep) ->
-    MutableQueue s ->
+    MutableHeap s ->
     STRef s Int ->
     TileAStarCounters ->
     ST s (Route, TileAStarCounters, [(Tile, Bool)])
   go exploredRef best prevState prevStep queue bestBankRef counters = do
-    popped <- queuePop queue
+    popped <- heapPop queue
     case popped of
       Nothing -> do
         explored <- reverse <$> readSTRef exploredRef
@@ -437,7 +430,7 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
               Nothing -> go exploredRef best prevState prevStep queue bestBankRef (countHeuristicPrune (stateTile state) counters)
               Just (h, dominated)
                 | addCostDefault maxBound cost (weightedHeuristic h) > priority -> do
-                    queuePush queue (addCostDefault maxBound cost (weightedHeuristic h)) state cost
+                    heapPush queue (addCostDefault maxBound cost (weightedHeuristic h)) state cost
                     go exploredRef best prevState prevStep queue bestBankRef counters
                       { tileBankBoundPQRekeys = tileBankBoundPQRekeys counters + 1
                       , tileBankDominatedHeuristicEvaluations = tileBankDominatedHeuristicEvaluations counters + if dominated then 1 else 0
@@ -466,7 +459,7 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
 
   relax ::
     Mutable.MVector s Int -> Mutable.MVector s Int -> BoxedMutable.MVector s (Maybe RouteStep) ->
-    MutableQueue s -> STRef s Int -> Int -> Int -> TileAStarCounters ->
+    MutableHeap s -> STRef s Int -> Int -> Int -> TileAStarCounters ->
     (Int, Int, RouteStep, EdgeKind) -> ST s TileAStarCounters
   relax best prevState prevStep queue bestBankRef cost state counters (next, stepCost, step, kind) =
     case addCost cost stepCost of
@@ -494,7 +487,7 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
                       , tileHeuristicEvaluations = tileHeuristicEvaluations counted + 1
                       , tileBankDominatedHeuristicEvaluations = tileBankDominatedHeuristicEvaluations counted + if dominated then 1 else 0
                       }
-                queuePush queue (addCostDefault maxBound newCost (weightedHeuristic h)) next newCost
+                heapPush queue (addCostDefault maxBound newCost (weightedHeuristic h)) next newCost
                 pure counters''
 
   countKind WalkingEdge counters = counters {tileWalkingRelaxations = tileWalkingRelaxations counters + 1}
@@ -640,95 +633,6 @@ searchTileAt space node
  where
   baseLength = Vector.length (searchBaseTiles space)
 
-queueNew :: Int -> ST s (MutableQueue s)
-queueNew capacity = do
-  priorities <- Mutable.new (max 1 capacity)
-  states <- Mutable.new (max 1 capacity)
-  costs <- Mutable.new (max 1 capacity)
-  size <- newSTRef 0
-  pure (MutableQueue priorities states costs size)
-
-queuePush :: MutableQueue s -> Int -> Int -> Int -> ST s ()
-queuePush queue priority state cost = do
-  size <- readSTRef (queueSizeRef queue)
-  when (size >= Mutable.length (queuePriorities queue)) (error "tile astar priority queue capacity exceeded")
-  Mutable.write (queuePriorities queue) size priority
-  Mutable.write (queueStates queue) size state
-  Mutable.write (queueCosts queue) size cost
-  writeSTRef (queueSizeRef queue) (size + 1)
-  queueBubbleUp queue size
-
-queuePop :: MutableQueue s -> ST s (Maybe (Int, Int, Int))
-queuePop queue = do
-  size <- readSTRef (queueSizeRef queue)
-  if size == 0
-    then pure Nothing
-    else do
-      priority <- Mutable.read (queuePriorities queue) 0
-      state <- Mutable.read (queueStates queue) 0
-      cost <- Mutable.read (queueCosts queue) 0
-      let lastIx = size - 1
-      writeSTRef (queueSizeRef queue) lastIx
-      when (lastIx > 0) $ do
-        moveQueueEntry queue lastIx 0
-        queueBubbleDown queue 0
-      pure (Just (priority, state, cost))
-
-queueBubbleUp :: MutableQueue s -> Int -> ST s ()
-queueBubbleUp queue ix
-  | ix <= 0 = pure ()
-  | otherwise = do
-      let parent = (ix - 1) `div` 2
-      childEntry <- queueEntry queue ix
-      parentEntry <- queueEntry queue parent
-      if queueEntryLess childEntry parentEntry
-        then swapQueueEntries queue ix parent >> queueBubbleUp queue parent
-        else pure ()
-
-queueBubbleDown :: MutableQueue s -> Int -> ST s ()
-queueBubbleDown queue ix = do
-  size <- readSTRef (queueSizeRef queue)
-  let left = ix * 2 + 1
-      right = left + 1
-  if left >= size
-    then pure ()
-    else do
-      smallest <- do
-        leftEntry <- queueEntry queue left
-        if right >= size
-          then pure left
-          else do
-            rightEntry <- queueEntry queue right
-            pure (if queueEntryLess rightEntry leftEntry then right else left)
-      here <- queueEntry queue ix
-      child <- queueEntry queue smallest
-      if queueEntryLess child here
-        then swapQueueEntries queue ix smallest >> queueBubbleDown queue smallest
-        else pure ()
-
-queueEntry :: MutableQueue s -> Int -> ST s (Int, Int, Int)
-queueEntry queue ix = do
-  (,,) <$> Mutable.read (queuePriorities queue) ix <*> Mutable.read (queueStates queue) ix <*> Mutable.read (queueCosts queue) ix
-
-queueEntryLess :: (Int, Int, Int) -> (Int, Int, Int) -> Bool
-queueEntryLess (leftPriority, leftState, leftCost) (rightPriority, rightState, rightCost) =
-  (leftPriority, leftCost, leftState) < (rightPriority, rightCost, rightState)
-
-swapQueueEntries :: MutableQueue s -> Int -> Int -> ST s ()
-swapQueueEntries queue left right = do
-  entry <- queueEntry queue left
-  moveQueueEntry queue right left
-  writeQueueEntry queue right entry
-
-moveQueueEntry :: MutableQueue s -> Int -> Int -> ST s ()
-moveQueueEntry queue from to = queueEntry queue from >>= writeQueueEntry queue to
-
-writeQueueEntry :: MutableQueue s -> Int -> (Int, Int, Int) -> ST s ()
-writeQueueEntry queue ix (priority, state, cost) = do
-  Mutable.write (queuePriorities queue) ix priority
-  Mutable.write (queueStates queue) ix state
-  Mutable.write (queueCosts queue) ix cost
-
 buildHeuristic :: TileAStar -> Query -> QueryTransportAvailability -> IO Heuristic
 buildHeuristic astar q availability =
   transportAware
@@ -773,11 +677,11 @@ reversePathDebug astar q =
     best <- Mutable.replicate stateCount maxBound
     prevState <- Mutable.replicate stateCount maxBound
     prevEdge <- BoxedMutable.replicate stateCount Nothing
-    queue <- queueNew (max 262144 (stateCount * 16))
+    queue <- heapNew (max 262144 (stateCount * 16))
     Mutable.write best source 0
-    queuePush queue 0 source 0
+    heapPush queue 0 source 0
     let go = do
-          popped <- queuePop queue
+          popped <- heapPop queue
           case popped of
             Nothing -> pure []
             Just (_, state, cost) -> do
@@ -799,7 +703,7 @@ reversePathDebug astar q =
           Mutable.write best (debugEdgeToState edge) newCost
           Mutable.write prevState (debugEdgeToState edge) state
           BoxedMutable.write prevEdge (debugEdgeToState edge) (Just edge)
-          queuePush queue newCost (debugEdgeToState edge) newCost
+          heapPush queue newCost (debugEdgeToState edge) newCost
   reconstruct best prevState prevEdge state = reverse <$> collect state
    where
     collect current = do
@@ -1033,11 +937,11 @@ sparseWalkingDistance network source target
     | otherwise = Just value
   dijkstra start = runST $ do
     result <- Mutable.replicate (sparseVertexCount network) maxBound
-    queue <- queueNew (max 1 (sparseWalkingEdgeCount network * 4 + 1))
+    queue <- heapNew (max 1 (sparseWalkingEdgeCount network * 4 + 1))
     Mutable.write result start 0
-    queuePush queue 0 start 0
+    heapPush queue 0 start 0
     let go = do
-          popped <- queuePop queue
+          popped <- heapPop queue
           case popped of
             Nothing -> Vector.freeze result
             Just (_, node, cost) -> do
@@ -1048,7 +952,7 @@ sparseWalkingDistance network source target
                   relaxEdges result queue cost node
                   go
     go
-  relaxEdges :: Mutable.MVector s Int -> MutableQueue s -> Int -> Int -> ST s ()
+  relaxEdges :: Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> ST s ()
   relaxEdges result queue cost node =
     goEdges (sparseOffsets network Vector.! node)
    where
@@ -1064,7 +968,7 @@ sparseWalkingDistance network source target
               old <- Mutable.read result next
               when (newCost < old) $ do
                 Mutable.write result next newCost
-                queuePush queue newCost next newCost
+                heapPush queue newCost next newCost
           goEdges (ix + 1)
 
 buildSparseWalkingNetworkComponents :: Int -> [(Int, Int, Tile)] -> SparseWalkingNetwork
@@ -1445,10 +1349,10 @@ targetSeedsManhattan = targetSeeds
 reverseDijkstra :: SiteGraph -> [(Int, Int)] -> (Vector.Vector Int, TileReverseCounters)
 reverseDijkstra graph seeds = runST $ do
   result <- Mutable.replicate stateCount maxBound
-  queue <- queueNew (max 262144 (stateCount * 16))
+  queue <- heapNew (max 262144 (stateCount * 16))
   counters <- foldM (seed result queue) emptyReverseCounters seeds
   let searchReverse currentCounters = do
-        popped <- queuePop queue
+        popped <- heapPop queue
         case popped of
           Nothing -> do
             distances <- Vector.freeze result
@@ -1468,12 +1372,12 @@ reverseDijkstra graph seeds = runST $ do
  where
   siteCount = Vector.length (siteTiles graph)
   stateCount = siteCount * 2
-  seed :: Mutable.MVector s Int -> MutableQueue s -> TileReverseCounters -> (Int, Int) -> ST s TileReverseCounters
+  seed :: Mutable.MVector s Int -> MutableHeap s -> TileReverseCounters -> (Int, Int) -> ST s TileReverseCounters
   seed result queue counters (node, cost) = do
     Mutable.write result node cost
-    queuePush queue cost node cost
+    heapPush queue cost node cost
     pure counters {reversePqPushes = reversePqPushes counters + 1}
-  relax :: Mutable.MVector s Int -> MutableQueue s -> Int -> Bool -> TileReverseCounters -> (Int, Int) -> ST s TileReverseCounters
+  relax :: Mutable.MVector s Int -> MutableHeap s -> Int -> Bool -> TileReverseCounters -> (Int, Int) -> ST s TileReverseCounters
   relax result queue cost transportEdge counters (next, edgeCost) =
     case addCost cost edgeCost of
       Nothing -> pure counters'
@@ -1483,13 +1387,13 @@ reverseDijkstra graph seeds = runST $ do
           then pure counters'
           else do
             Mutable.write result next newCost
-            queuePush queue newCost next newCost
+            heapPush queue newCost next newCost
             pure counters' {reversePqPushes = reversePqPushes counters' + 1}
    where
     counters'
       | transportEdge = counters {reverseTransportRelaxations = reverseTransportRelaxations counters + 1}
       | otherwise = counters
-  relaxSameComponent :: Mutable.MVector s Int -> MutableQueue s -> Int -> Int -> TileReverseCounters -> ST s TileReverseCounters
+  relaxSameComponent :: Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> TileReverseCounters -> ST s TileReverseCounters
   relaxSameComponent result queue cost node counters =
     go 0 counters'
      where
@@ -1517,10 +1421,10 @@ reverseDijkstra graph seeds = runST $ do
 reverseDijkstraUncounted :: SiteGraph -> [(Int, Int)] -> Vector.Vector Int
 reverseDijkstraUncounted graph seeds = runST $ do
   result <- Mutable.replicate stateCount maxBound
-  queue <- queueNew (max 262144 (stateCount * 16))
+  queue <- heapNew (max 262144 (stateCount * 16))
   forM_ seeds (seed result queue)
   let searchReverse = do
-        popped <- queuePop queue
+        popped <- heapPop queue
         case popped of
           Nothing -> Vector.freeze result
           Just (_, node, cost) -> do
@@ -1535,11 +1439,11 @@ reverseDijkstraUncounted graph seeds = runST $ do
  where
   siteCount = Vector.length (siteTiles graph)
   stateCount = siteCount * 2
-  seed :: Mutable.MVector s Int -> MutableQueue s -> (Int, Int) -> ST s ()
+  seed :: Mutable.MVector s Int -> MutableHeap s -> (Int, Int) -> ST s ()
   seed result queue (node, cost) = do
     Mutable.write result node cost
-    queuePush queue cost node cost
-  relax :: Mutable.MVector s Int -> MutableQueue s -> Int -> (Int, Int) -> ST s ()
+    heapPush queue cost node cost
+  relax :: Mutable.MVector s Int -> MutableHeap s -> Int -> (Int, Int) -> ST s ()
   relax result queue cost (next, edgeCost) =
     case addCost cost edgeCost of
       Nothing -> pure ()
@@ -1547,8 +1451,8 @@ reverseDijkstraUncounted graph seeds = runST $ do
         known <- Mutable.read result next
         when (newCost < known) $ do
           Mutable.write result next newCost
-          queuePush queue newCost next newCost
-  relaxSameComponent :: Mutable.MVector s Int -> MutableQueue s -> Int -> Int -> ST s ()
+          heapPush queue newCost next newCost
+  relaxSameComponent :: Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> ST s ()
   relaxSameComponent result queue cost node =
     go 0
    where
@@ -1570,10 +1474,10 @@ reverseDijkstraUncounted graph seeds = runST $ do
 reverseDijkstraManhattanUncounted :: SiteGraph -> [(Int, Int)] -> Vector.Vector Int
 reverseDijkstraManhattanUncounted graph seeds = runST $ do
   result <- Mutable.replicate stateCount maxBound
-  queue <- queueNew (max 262144 (stateCount * 16))
+  queue <- heapNew (max 262144 (stateCount * 16))
   forM_ seeds (seed result queue)
   let searchReverse = do
-        popped <- queuePop queue
+        popped <- heapPop queue
         case popped of
           Nothing -> Vector.freeze result
           Just (_, node, cost) -> do
@@ -1591,12 +1495,12 @@ reverseDijkstraManhattanUncounted graph seeds = runST $ do
   staticCount = siteStaticCount graph
   network = siteSparseNetwork graph
   stateCount = (siteCount + sparseSteinerCount network) * 2
-  seed :: Mutable.MVector s Int -> MutableQueue s -> (Int, Int) -> ST s ()
+  seed :: Mutable.MVector s Int -> MutableHeap s -> (Int, Int) -> ST s ()
   seed result queue (node, cost) = do
     Mutable.write result node (cost * 2)
-    queuePush queue (cost * 2) node (cost * 2)
+    heapPush queue (cost * 2) node (cost * 2)
   doubleEdge (next, edgeCost) = (next, edgeCost * 2)
-  relax :: Mutable.MVector s Int -> MutableQueue s -> Int -> (Int, Int) -> ST s ()
+  relax :: Mutable.MVector s Int -> MutableHeap s -> Int -> (Int, Int) -> ST s ()
   relax result queue cost (next, edgeCost) =
     case addCost cost edgeCost of
       Nothing -> pure ()
@@ -1604,15 +1508,15 @@ reverseDijkstraManhattanUncounted graph seeds = runST $ do
         known <- Mutable.read result next
         when (newCost < known) $ do
           Mutable.write result next newCost
-          queuePush queue newCost next newCost
-  relaxWalking :: Mutable.MVector s Int -> MutableQueue s -> Int -> Int -> ST s ()
+          heapPush queue newCost next newCost
+  relaxWalking :: Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> ST s ()
   relaxWalking result queue cost state = do
     relaxSparseWalkingEdges result queue cost banked vertex
     when (vertex < siteCount) (relaxQueryAttachments result queue cost vertex banked)
    where
     vertex = state `div` 2
     banked = odd state
-  relaxSparseWalkingEdges :: Mutable.MVector s Int -> MutableQueue s -> Int -> Bool -> Int -> ST s ()
+  relaxSparseWalkingEdges :: Mutable.MVector s Int -> MutableHeap s -> Int -> Bool -> Int -> ST s ()
   relaxSparseWalkingEdges result queue cost banked vertex
     | vertex < staticCount = go (sparseOffsets network Vector.! vertex)
     | vertex < siteCount = pure ()
@@ -1632,7 +1536,7 @@ reverseDijkstraManhattanUncounted graph seeds = runST $ do
                 | otherwise = siteCount + sparseNext - staticCount
           relax result queue cost (stateId next banked, edgeCost)
           go (ix + 1)
-  relaxQueryAttachments :: Mutable.MVector s Int -> MutableQueue s -> Int -> Int -> Bool -> ST s ()
+  relaxQueryAttachments :: Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> Bool -> ST s ()
   relaxQueryAttachments result queue cost vertex banked =
     go 0
    where

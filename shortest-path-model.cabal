@@ -15,6 +15,7 @@ library
     ShortestPath.GameVars
     ShortestPath.GameVars.Varbits
     ShortestPath.GameVars.VarPlayers
+    ShortestPath.Internal.MutableHeap
     ShortestPath.Exact.ReferenceDijkstra
     ShortestPath.Exact.TileAStar
     ShortestPath.Pathfinder
