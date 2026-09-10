@@ -139,6 +139,9 @@ mustProfile name Nothing = error ("missing benchmark profile: " <> name)
 
 semanticProfileChecks :: IO ()
 semanticProfileChecks = do
+  assert (classifyUnmodelledVar (GameVarbit VB.karamDungeonEntryfee) == Just RuntimeVar)
+  assert (classifyUnmodelledVar (GameVarPlayer VP.leagueCombatMasteryPaths) == Just SpecialModeVar)
+  assert (classifyUnmodelledVar (GameVarPlayer VP.haunted) == Just NeedsInvestigation)
   assert (all (== 0) (compilePermanentUnlockVars Set.empty))
   assert (compileCatacombsEntranceVars (Set.singleton CatacombsForthosDungeon) == Map.fromList
     [ (VB.cataHole1, 1)

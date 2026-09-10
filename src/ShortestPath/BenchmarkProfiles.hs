@@ -7,6 +7,7 @@ module ShortestPath.BenchmarkProfiles
   , HotAirBalloonDestination(..)
   , CatacombsEntrance(..)
   , PermanentUnlock(..)
+  , UnmodelledVarClass(..)
   , CompiledVars(..)
   , GameStateSpec(..)
   , ItemLoadout(..)
@@ -18,6 +19,7 @@ module ShortestPath.BenchmarkProfiles
   , compileHotAirBalloonVars
   , compileCatacombsEntranceVars
   , compilePermanentUnlockVars
+  , classifyUnmodelledVar
   , effectiveQuestMilestones
   , diaryVarbitsFor
   , compileDiary
@@ -78,6 +80,19 @@ data PermanentUnlock
   | RespawnFalador | RespawnCamelot | RespawnEdgeville
   | RespawnFeroxEnclave | RespawnKourendCastle | RespawnCivitasIllaFortis
   deriving stock (Eq, Ord, Show, Enum, Bounded)
+
+data UnmodelledVarClass = RuntimeVar | SpecialModeVar | NeedsInvestigation
+  deriving stock (Eq, Ord, Show)
+
+classifyUnmodelledVar :: GameVar -> Maybe UnmodelledVarClass
+classifyUnmodelledVar variable
+  | variable `elem` map GameVarbit
+      [ VB.karamDungeonEntryfee, VB.veosMemoirCharges
+      , VB.tapoyauikRuinsFailedWallslide, VB.tapoyauikFailedSteppingStones
+      ] = Just RuntimeVar
+  | variable == GameVarPlayer VP.leagueCombatMasteryPaths = Just SpecialModeVar
+  | variable == GameVarPlayer VP.haunted = Just NeedsInvestigation
+  | otherwise = Nothing
 
 data Progression = Progression
   { progressionLevels :: ItemCounts

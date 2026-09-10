@@ -97,8 +97,14 @@ printVariable profiles (variable, uses) = do
   putStrLn ("  uses: " <> show (length uses) <> " (" <> intercalate ", " (unique [file | (_, _, file) <- uses]) <> ")")
   mapM_ printProfile profiles
  where
-  printProfile (name, Just account) = putStrLn ("  " <> name <> ": " <> maybe "UNMODELLED" show (gameVarValue account variable))
+  printProfile (name, Just account) = putStrLn ("  " <> name <> ": " <> maybe unmodelled show (gameVarValue account variable))
   printProfile (name, Nothing) = putStrLn ("  " <> name <> ": UNAVAILABLE")
+  unmodelled = "UNMODELLED" <> maybe "" ((" (" <>) . (<> ")") . classificationName) (classifyUnmodelledVar variable)
+
+classificationName :: UnmodelledVarClass -> String
+classificationName RuntimeVar = "runtime state"
+classificationName SpecialModeVar = "special mode"
+classificationName NeedsInvestigation = "needs investigation"
 
 gameVarValue :: AccountBuild -> GameVar -> Maybe Int
 gameVarValue account variable = case variable of
