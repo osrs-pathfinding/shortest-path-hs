@@ -213,6 +213,12 @@ canonicalQuestUniverse = earlyQuests <> Set.fromList
   , "Legends' Quest", "Shilo Village", "Waterfall Quest"
   , "Darkness of Hallowvale"
   , "Fishing Contest"
+  , "Mountain Daughter", "Between a Rock...", "The Golem"
+  , "Icthlarin's Little Helper", "Tears of Guthix", "The Lost Tribe"
+  , "Swan Song", "The Fremennik Isles", "Beneath Cursed Sands"
+  , "Tree Gnome Village", "The Grand Tree", "Plague City", "Watchtower"
+  , "Regicide", "Throne of Miscellania", "Mourning's End Part I"
+  , "The Queen of Thieves", "The Tale of the Righteous", "Architectural Alliance"
   ]
 
 effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
@@ -258,6 +264,22 @@ compileQuestDerivedVarbits progress = Map.fromList
   , (VB.lotg, if LandOfTheGoblinsYuBiuskAccess `Set.member` milestones then lotgYuBiuskUnlockedValue else 0)
   , (VB.dragonslayerCrandorFoundSecretDoor, completed "Dragon Slayer I" 1)
   , (VB.myq3MainQuest, completed "Darkness of Hallowvale" darknessOfHallowvaleCompleteValue)
+  , (VB.mdaughterQuestVar, completed "Mountain Daughter" 70)
+  , (VB.dwarfrockQuest, completed "Between a Rock..." 10)
+  , (VB.golemA, completed "The Golem" 10)
+  , (VB.icsLittleVar, completed "Icthlarin's Little Helper" 26)
+  , (VB.togJunaBowl, completed "Tears of Guthix" 2)
+  , (VB.zogre, completed "Zogre Flesh Eaters" 14)
+  , (VB.lostTribeQuest, completed "The Lost Tribe" 12)
+  , (VB.swansong, completed "Swan Song" 200)
+  , (VB.frisQuest, completed "The Fremennik Isles" 340)
+  , (VB.veosProgress, completed "Client of Kourend" 1)
+  , (VB.hosidiusquestReward, completed "The Depths of Despair" 1)
+  , (VB.piscquestReward, completed "The Queen of Thieves" 1)
+  , (VB.shayzienquestReward, completed "The Tale of the Righteous" 1)
+  , (VB.lovaquestReward, completed "The Forsaken Tower" 1)
+  , (VB.arcquestReward, completed "Architectural Alliance" 1)
+  , (VB.bcs, completed "Beneath Cursed Sands" 11)
   ]
  where
   quests = progressionQuests progress
@@ -282,6 +304,14 @@ compileQuestDerivedVarPlayers progress = Map.fromList
   , (VP.zombiequeen, completed "Shilo Village" shiloVillageCompleteValue)
   , (VP.waterfallQuest, completed "Waterfall Quest" waterfallQuestCompleteValue)
   , (VP.fishingcompo, completed "Fishing Contest" fishingContestCompleteValue)
+  , (VP.treequest, completed "Tree Gnome Village" 9)
+  , (VP.grandtree, completed "The Grand Tree" 160)
+  , (VP.elenaquest, completed "Plague City" 30)
+  , (VP.dragonquest, completed "Dragon Slayer I" 10)
+  , (VP.itwatchtower, completed "Watchtower" 14)
+  , (VP.regicideQuest, completed "Regicide" 15)
+  , (VP.miscQuest, completed "Throne of Miscellania" 100)
+  , (VP.mourningQuest, completed "Mourning's End Part I" 9)
   ]
  where
   completed quest value
