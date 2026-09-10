@@ -205,6 +205,7 @@ canonicalQuestUniverse = earlyQuests <> Set.fromList
   , "Zogre Flesh Eaters", "The Path of Glouphrie", "Troubled Tortugans"
   , "Song of the Elves", "The Forsaken Tower", "Enlightened Journey"
   , "Legends' Quest", "Shilo Village", "Waterfall Quest"
+  , "Darkness of Hallowvale"
   ]
 
 effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
@@ -240,28 +241,32 @@ compileProgressionVars progress = mergeCompiledVars
   ]
 
 compileQuestDerivedVarbits :: Progression -> Map.Map VarbitId Int
-compileQuestDerivedVarbits progress =
-  Map.insert VB.lovaquest (if Set.member "The Forsaken Tower" quests then forsakenTowerCompleteValue else 0)
-    (Map.insert VB.my2armStatus (if Set.member "Making Friends with My Arm" quests then makingFriendsCompleteValue else 0)
-      (Map.insert VB.thzfeBlockingBarricade (if Set.member "Zogre Flesh Eaters" quests then thzfeBlockingBarricadeValue else 0)
-        (Map.insert VB.hosidiusquest (if Set.member "The Depths of Despair" quests then depthsOfDespairCaveAccessValue else 0)
-          (Map.insert VB.myq5 (if SinsOfTheFatherSlepeBoatAccess `Set.member` milestones then myq5BoatUnlockedValue else 0)
-            (Map.insert VB.lotg (if LandOfTheGoblinsYuBiuskAccess `Set.member` milestones then lotgYuBiuskUnlockedValue else 0)
-              (if Set.member "Dragon Slayer I" quests
-                then Map.singleton VB.dragonslayerCrandorFoundSecretDoor 1
-                else Map.empty))))))
+compileQuestDerivedVarbits progress = Map.fromList
+  [ (VB.lovaquest, completed "The Forsaken Tower" forsakenTowerCompleteValue)
+  , (VB.my2armStatus, completed "Making Friends with My Arm" makingFriendsCompleteValue)
+  , (VB.thzfeBlockingBarricade, completed "Zogre Flesh Eaters" thzfeBlockingBarricadeValue)
+  , (VB.hosidiusquest, completed "The Depths of Despair" depthsOfDespairCaveAccessValue)
+  , (VB.myq5, if SinsOfTheFatherSlepeBoatAccess `Set.member` milestones then myq5BoatUnlockedValue else 0)
+  , (VB.lotg, if LandOfTheGoblinsYuBiuskAccess `Set.member` milestones then lotgYuBiuskUnlockedValue else 0)
+  , (VB.dragonslayerCrandorFoundSecretDoor, completed "Dragon Slayer I" 1)
+  , (VB.myq3MainQuest, completed "Darkness of Hallowvale" darknessOfHallowvaleCompleteValue)
+  ]
  where
   quests = progressionQuests progress
   milestones = effectiveQuestMilestones progress
+  completed quest value
+    | Set.member quest quests = value
+    | otherwise = 0
 
 -- Benchmark semantic fallback values for the quest states required by GPS.
-lotgYuBiuskUnlockedValue, myq5BoatUnlockedValue, makingFriendsCompleteValue, depthsOfDespairCaveAccessValue, thzfeBlockingBarricadeValue, forsakenTowerCompleteValue :: Int
+lotgYuBiuskUnlockedValue, myq5BoatUnlockedValue, makingFriendsCompleteValue, depthsOfDespairCaveAccessValue, thzfeBlockingBarricadeValue, forsakenTowerCompleteValue, darknessOfHallowvaleCompleteValue :: Int
 lotgYuBiuskUnlockedValue = 50
 myq5BoatUnlockedValue = 88
 makingFriendsCompleteValue = 207
 depthsOfDespairCaveAccessValue = 7
 thzfeBlockingBarricadeValue = 1
 forsakenTowerCompleteValue = 11
+darknessOfHallowvaleCompleteValue = 320
 
 compileQuestDerivedVarPlayers :: Progression -> Map.Map VarPlayerId Int
 compileQuestDerivedVarPlayers progress = Map.fromList

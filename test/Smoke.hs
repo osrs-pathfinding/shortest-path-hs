@@ -192,6 +192,7 @@ semanticProfileChecks = do
   assert (not (Set.member "Shilo Village" (accountCompletedQuests early)))
   assert (all (\account -> Set.member "Waterfall Quest" (accountCompletedQuests account)) [mid, end, maxed])
   assert (not (Set.member "Waterfall Quest" (accountCompletedQuests early)))
+  assert (not (Set.member "Darkness of Hallowvale" (accountCompletedQuests early)))
   assert (Map.lookup VB.lotg (accountVarbits early) == Just 0)
   assert (Map.lookup VB.myq5 (accountVarbits early) == Just 0)
   assert (Map.lookup VB.my2armStatus (accountVarbits early) == Just 0)
@@ -210,6 +211,8 @@ semanticProfileChecks = do
   assert (all (== Just 15) [Map.lookup VP.zombiequeen (accountVarPlayers account) | account <- [mid, end, maxed]])
   assert (Map.lookup VP.waterfallQuest (accountVarPlayers early) == Just 0)
   assert (all (== Just 10) [Map.lookup VP.waterfallQuest (accountVarPlayers account) | account <- [mid, end, maxed]])
+  assert (Map.lookup VB.myq3MainQuest (accountVarbits early) == Just 0)
+  assert (all (== Just 320) [Map.lookup VB.myq3MainQuest (accountVarbits account) | account <- [mid, end, maxed]])
   assert (all (== Just 0)
     [ Map.lookup varbit (accountVarbits early)
     | varbit <- [VB.zepMultiBasket, VB.zepMultiPiccard, VB.zepMultiCast, VB.zepMultiGno, VB.zepMultiCraft, VB.zepMultiVarr]
@@ -245,6 +248,7 @@ semanticProfileChecks = do
         [ find (\transport -> varPlayers transport == [VarReq (GameVarPlayer VP.waterfallQuest) value operator]) transports
         | (value, operator) <- [(2, VarGt), (10, VarEq)]
         ]
+      hallowvaleAccess = find (\transport -> varbits transport == [VarReq (GameVarbit VB.myq3MainQuest) 320 VarEq]) transports
       catacombsEntrances =
         [ find (\transport -> varbits transport == [VarReq (GameVarbit varbit) 1 VarEq]) transports
         | varbit <- [VB.cataHole1, VB.cataHole2, VB.cataHoleGiantsDen]
@@ -265,6 +269,8 @@ semanticProfileChecks = do
   assert (maybe False (available mid) shiloCart)
   assert (all (maybe False (not . available early)) waterfallAccess)
   assert (all (maybe False (available mid)) waterfallAccess)
+  assert (maybe False (not . available early) hallowvaleAccess)
+  assert (maybe False (available mid) hallowvaleAccess)
   assert (all (maybe False (not . available early)) catacombsEntrances)
   assert (all (maybe False (available mid)) catacombsEntrances)
   assert (all (maybe False (not . available early)) balloons)
