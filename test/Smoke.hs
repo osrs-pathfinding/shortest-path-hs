@@ -202,6 +202,7 @@ semanticProfileChecks = do
   assert (all (== Just 10) [Map.lookup VB.golemA (accountVarbits account) | account <- [mid, end, maxed]])
   assert (all (== Just 26) [Map.lookup VB.icsLittleVar (accountVarbits account) | account <- [mid, end, maxed]])
   assert (all (== Just 200) [Map.lookup VB.swansong (accountVarbits account) | account <- [mid, end, maxed]])
+  assert (all (== Just 108) [Map.lookup VB.bcs (accountVarbits account) | account <- [mid, end, maxed]])
   assert (Map.lookup VB.lostTribeQuest (accountVarbits early) == Just 12)
   assert (Map.lookup VP.grandtree (accountVarPlayers early) == Just 160)
   assert (Map.lookup VP.regicideQuest (accountVarPlayers early) == Just 15)

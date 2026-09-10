@@ -311,7 +311,7 @@ compileQuestDerivedVarbits progress = Map.fromList
   , (VB.shayzienquestReward, completed "The Tale of the Righteous" 1)
   , (VB.lovaquestReward, completed "The Forsaken Tower" 1)
   , (VB.arcquestReward, completed "Architectural Alliance" 1)
-  , (VB.bcs, completed "Beneath Cursed Sands" 11)
+  , (VB.bcs, completed "Beneath Cursed Sands" 108)
   ]
  where
   quests = progressionQuests progress
