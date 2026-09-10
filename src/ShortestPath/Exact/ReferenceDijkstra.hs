@@ -1,5 +1,5 @@
-module ShortestPath.Exact.RawDijkstra
-  ( RawDijkstra(..)
+module ShortestPath.Exact.ReferenceDijkstra
+  ( ReferenceDijkstra(..)
   ) where
 
 import qualified Data.Map.Strict as Map
@@ -10,7 +10,7 @@ import ShortestPath.Tile
 import ShortestPath.Transport
 import ShortestPath.World
 
-newtype RawDijkstra = RawDijkstra World
+newtype ReferenceDijkstra = ReferenceDijkstra World
 
 data State = State Tile Bool
   deriving stock (Eq, Ord, Show)
@@ -18,9 +18,9 @@ data State = State Tile Bool
 data Prev = Prev State RouteStep
   deriving stock (Eq, Show)
 
-instance RouteFinder RawDijkstra where
-  routeName _ = "raw-dijkstra"
-  findRoute (RawDijkstra world) q = search (Set.singleton (0, start)) (Map.singleton start 0) Map.empty Set.empty 0
+instance RouteFinder ReferenceDijkstra where
+  routeName _ = "reference-dijkstra"
+  findRoute (ReferenceDijkstra world) q = search (Set.singleton (0, start)) (Map.singleton start 0) Map.empty Set.empty 0
    where
     availability = prepareQueryTransports world q
     start = State (queryStart q) False

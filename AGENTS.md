@@ -7,7 +7,7 @@ This repository is an experimental/production-oriented OSRS pathfinding implemen
 Key Haskell modules:
 
 * `src/ShortestPath/Exact/TileAStar.hs` — current primary tile A* implementation and heuristic/lifecycle logic.
-* `src/ShortestPath/Exact/RawDijkstra.hs` — deliberately simple correctness/reference solver.
+* `src/ShortestPath/Exact/ReferenceDijkstra.hs` — deliberately simple correctness/reference solver.
 * `src/World.hs` — walkability, collision, neighbours, natural components and world topology.
 * `src/Transport.hs` — transport definitions, parsing and requirements.
 * Hierarchical routing is historical/future experimental work, not maintained runtime architecture.
@@ -83,7 +83,7 @@ Initial source-only globals should be resolved before ordinary heuristic evaluat
 
 Static account facts are not A* state dimensions.
 
-Evaluate/prefilter account-static transport availability before the hot search loop. Raw Dijkstra, Tile A*, and the heuristic must agree on real transport availability.
+Evaluate/prefilter account-static transport availability before the hot search loop. Reference Dijkstra, Tile A*, and the heuristic must agree on real transport availability.
 
 Keep:
 
@@ -140,7 +140,7 @@ Preserve exact/reference path cost unless intentionally working on weighted/non-
 
 1. update transport parsing/data;
 2. update the authoritative requirement evaluator;
-3. ensure Raw Dijkstra and Tile A* expose the same real edge;
+3. ensure Reference Dijkstra and Tile A* expose the same real edge;
 4. ensure the relaxed heuristic still contains every real edge or an optimistic equivalent;
 5. add targeted tests;
 6. benchmark representative account profiles.
@@ -256,7 +256,7 @@ When fixing such a bug:
 
 1. First identify the **abstract property that was violated**. Do not make the regression test merely reproduce particular OSRS coordinates.
 2. Construct the smallest synthetic world that exhibits that property.
-3. Where useful, compare the optimized algorithm against Raw Dijkstra as the correctness oracle.
+3. Where useful, compare the optimized algorithm against Reference Dijkstra as the correctness oracle.
 4. Make the synthetic test fail before the fix and pass after it.
 5. Keep the original real-world case as an integration regression when practical.
 

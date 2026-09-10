@@ -6,7 +6,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import ShortestPath.Exact.TileAStar
-import ShortestPath.Exact.RawDijkstra
+import ShortestPath.Exact.ReferenceDijkstra
 import ShortestPath.Account
 import ShortestPath.Pathfinder
 import ShortestPath.Requirements
@@ -20,17 +20,17 @@ main = do
       defaults = defaultQuery (tA0 tiles) (tA1 tiles)
   assert (not (Set.member "SEASONAL_TRANSPORTS" (enabledTransportTypes defaults)))
   assert (Set.member "TELEPORTATION_ITEM" (enabledTransportTypes defaults))
-  let raw = RawDijkstra world
+  let reference = ReferenceDijkstra world
   tileAStar <- buildTileAStar world
-  mapM_ (checkRoute raw tileAStar world) (cases tiles)
+  mapM_ (checkRoute reference tileAStar world) (cases tiles)
   let globalQuery = query (tA3 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
-      rawGlobalRoute = findRoute raw globalQuery
+      rawGlobalRoute = findRoute reference globalQuery
       tileGlobalRoute = findRoute tileAStar globalQuery
   assert (routeSteps rawGlobalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
   assert (routeSteps tileGlobalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
   checkReversePathDebug tileAStar tiles
-  checkTransportOnlyEndpoint raw tileAStar tiles
-  checkIntermediateTransportEndpoint raw tileAStar tiles
+  checkTransportOnlyEndpoint reference tileAStar tiles
+  checkIntermediateTransportEndpoint reference tileAStar tiles
   checkHeuristicPruning tileAStar tiles
 
 synthetic :: (World, Tiles)
@@ -143,7 +143,7 @@ withoutBank q = q { requirementMode = ConfiguredRequirements (syntheticAccount {
 walkingQuery :: Tile -> Tile -> Query
 walkingQuery start target = (query start target Set.empty False) { allowTransports = False }
 
-checkRoute :: RawDijkstra -> TileAStar -> World -> Case -> IO ()
+checkRoute :: ReferenceDijkstra -> TileAStar -> World -> Case -> IO ()
 checkRoute raw tileAStar world (Case name q expectation) = do
   let flat = findRoute raw q
       tile = findRoute tileAStar q
@@ -199,7 +199,7 @@ checkHeuristicPruning tileAStar tiles = do
   assert (tileUnknownComponentPrunes unknownCounters > 0)
   assert (tileNoReverseSeedPrunes noSeedCounters > 0)
 
-checkTransportOnlyEndpoint :: RawDijkstra -> TileAStar -> Tiles -> IO ()
+checkTransportOnlyEndpoint :: ReferenceDijkstra -> TileAStar -> Tiles -> IO ()
 checkTransportOnlyEndpoint raw tileAStar tiles = do
   let targetQuery = query (tA0 tiles) (tUnknown tiles) (Set.singleton "SYNTHETIC_UNKNOWN") False
       rawRoute = findRoute raw targetQuery
@@ -209,7 +209,7 @@ checkTransportOnlyEndpoint raw tileAStar tiles = do
   assert (routeCost tileRoute == 1)
   assert (routeSteps tileRoute == expected)
 
-checkIntermediateTransportEndpoint :: RawDijkstra -> TileAStar -> Tiles -> IO ()
+checkIntermediateTransportEndpoint :: ReferenceDijkstra -> TileAStar -> Tiles -> IO ()
 checkIntermediateTransportEndpoint raw tileAStar tiles = do
   let enabled = Set.fromList ["SYNTHETIC_X_1", "SYNTHETIC_X_2", "SYNTHETIC_DEAD_END"]
       routeQuery = query (tA0 tiles) (tC0 tiles) enabled False

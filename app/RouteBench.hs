@@ -23,7 +23,7 @@ import System.IO (hFlush, stdout)
 
 import ShortestPath.Account (AccountState, RequirementMode(..))
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkProfileVariableGaps, benchmarkNowMinutes)
-import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
+import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..))
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Pathfinder hiding (routeName)
 import ShortestPath.Tile
@@ -167,7 +167,7 @@ writeOracles options world cases = do
 
   oracleFor route profile = do
     started <- getMonotonicTimeNSec
-    let result = findRoute (RawDijkstra world) (query route profile)
+    let result = findRoute (ReferenceDijkstra world) (query route profile)
         cost = routeCost result
     resolvedCost <- evaluate cost
     finished <- getMonotonicTimeNSec
@@ -220,7 +220,7 @@ runBench options world astar cases = do
         ]
       when (diagnostic options) $ do
         started <- getMonotonicTimeNSec
-        let raw = findRoute (RawDijkstra world) (query route profile)
+        let raw = findRoute (ReferenceDijkstra world) (query route profile)
         voidRoute raw
         finished <- getMonotonicTimeNSec
         when (routeCost raw /= routeCost result) (die ("raw Dijkstra mismatch for " <> key route profileName))

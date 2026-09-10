@@ -1103,7 +1103,7 @@ async function runRoute() {
   try {
     const previous = route;
     const algorithm = document.getElementById("route-algorithm").value;
-    const body = routeRequest(algorithm === "astar" ? "tile-full" : "raw");
+    const body = routeRequest(algorithm === "astar" ? "tile-full" : "reference");
     routeStatus.textContent = "Requesting route...";
     const result = await fetchRoute(body);
     route = { ...normaliseRoute(result, previous?.name || (body.useHeuristic ? "Tile A*" : "Dijkstra")), start: body.start, target: body.target, config: { ...(previous?.config || {}), allowTransports: body.allowTransports, includeExpandedTiles: body.includeExpandedTiles, search: body.useHeuristic ? "Tile A*" : "Dijkstra" } };
@@ -1116,11 +1116,11 @@ async function runRoute() {
 async function compareRoutes() {
   try {
     const previous = route;
-    const rawRequest = routeRequest("raw");
+    const rawRequest = routeRequest("reference");
     const tileRequest = { ...rawRequest, finder: "tile-full", useHeuristic: true };
-    routeStatus.textContent = "Requesting Raw Dijkstra and Tile A*...";
+    routeStatus.textContent = "Requesting Reference Dijkstra and Tile A*...";
     const [rawResult, tileResult] = await Promise.all([fetchRoute(rawRequest), fetchRoute(tileRequest)]);
-    const raw = { ...normaliseRoute(rawResult, "Raw Dijkstra"), start: rawRequest.start, target: rawRequest.target };
+    const raw = { ...normaliseRoute(rawResult, "Reference Dijkstra"), start: rawRequest.start, target: rawRequest.target };
     const tile = { ...normaliseRoute(tileResult, "Tile A*"), start: rawRequest.start, target: rawRequest.target };
     const rawCost = costLabel(raw.cost);
     const tileCost = costLabel(tile.cost);
@@ -1129,7 +1129,7 @@ async function compareRoutes() {
       cost: `raw ${rawCost}, tile-full ${tileCost}`,
       start: rawRequest.start, target: rawRequest.target, path: [],
       comparisonRoutes: [raw, tile],
-      config: { ...(previous?.config || {}), allowTransports: rawRequest.allowTransports, accountProfile: rawRequest.accountProfile, search: "Raw Dijkstra vs Tile A*" }
+      config: { ...(previous?.config || {}), allowTransports: rawRequest.allowTransports, accountProfile: rawRequest.accountProfile, search: "Reference Dijkstra vs Tile A*" }
     };
     routeStatus.textContent = raw.cost === tile.cost ? `Costs agree: ${rawCost}.` : `Correctness failure: raw ${rawCost}, Tile A* ${tileCost}.`;
     reversePath = null;
@@ -1224,7 +1224,7 @@ function renderLegend(mode, heuristicSummary) {
     [["#2563eb", "Manual walking components", ""]];
   if (route?.expandedTiles?.length) items.push(["#fde047", "Expanded abstract tiles", ""]);
   if (route?.expandedStates?.length) items.push(["#fde047", "A* explored", ""], ["#06b6d4", "A* explored (banked)", ""]);
-  if (route?.comparisonRoutes?.length) items.push(["#dc2626", "Raw Dijkstra", "legend-line"], ["#2563eb", "Tile A*", "legend-line"]);
+  if (route?.comparisonRoutes?.length) items.push(["#dc2626", "Reference Dijkstra", "legend-line"], ["#2563eb", "Tile A*", "legend-line"]);
   if (showDoorsInput.checked) items.push(["#10b981", "Door transports", ""]);
   if (showTransportsInput.checked) items.push(["#60a5fa", "Transport origins", ""], ["#f87171", "Transport destinations", ""], ["#111827", "Selected transport", "legend-line"]);
   if (showBenchmarkCoverageInput.checked) items.push(["#16a34a", "Benchmark starts", ""], ["#c026d3", "Benchmark ends", ""]);

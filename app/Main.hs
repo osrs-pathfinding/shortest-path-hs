@@ -12,7 +12,7 @@ import System.Environment (getArgs)
 import System.FilePath ((</>))
 import Text.Printf (printf)
 
-import ShortestPath.Exact.RawDijkstra
+import ShortestPath.Exact.ReferenceDijkstra
 import ShortestPath.Pathfinder
 import ShortestPath.Tile
 import ShortestPath.Transport
@@ -32,12 +32,12 @@ main = do
     ["route", sx, sy, sp, tx, ty, tp] -> do
       world <- loadWorld defaultSourcePaths
       let q = defaultQuery (packTile (read sx) (read sy) (read sp)) (packTile (read tx) (read ty) (read tp))
-          r = findRoute (RawDijkstra world) q
+          r = findRoute (ReferenceDijkstra world) q
       LBS.putStrLn (encode (routeJson r))
     ["walk-route", sx, sy, sp, tx, ty, tp] -> do
       world <- loadWorld defaultSourcePaths
       let q = (defaultQuery (packTile (read sx) (read sy) (read sp)) (packTile (read tx) (read ty) (read tp))) {allowTransports = False}
-          r = findRoute (RawDijkstra world) q
+          r = findRoute (ReferenceDijkstra world) q
       LBS.putStrLn (encode (routeJson r))
     ["dashboard-json"] -> do
       items <- loadDashboardItems defaultSourcePaths

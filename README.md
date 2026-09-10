@@ -1,7 +1,7 @@
 # shortest-path-model
 
 The maintained routing implementations are direct Tile A* for current routing
-and `RawDijkstra` as a deliberately simple correctness reference. Hierarchical
+and `ReferenceDijkstra` as a deliberately simple correctness reference. Hierarchical
 routing is retained only as archived research and possible future work.
 
 ## World facts inspector
@@ -81,7 +81,7 @@ nix-shell --run 'cabal run route-bench -- --tier smoke --oracle /tmp/route-bench
 ### Run standard or full
 
 For a serious comparison, generate the exact oracle after any collision,
-transport, requirement, or cost-semantics change. It uses raw Dijkstra and the
+transport, requirement, or cost-semantics change. It uses reference Dijkstra and the
 full corpus can be slow:
 
 ```sh
@@ -91,7 +91,7 @@ nix-shell --run 'cabal run route-bench -- --tier full --runs 3'
 ```
 
 Normal runs validate every result against the oracle and write
-`out/route-benchmark.jsonl`. `--diagnostic` additionally runs raw Dijkstra for
+`out/route-benchmark.jsonl`. `--diagnostic` additionally runs reference Dijkstra for
 investigation; do not use its timings for performance comparisons.
 
 ### Report performance

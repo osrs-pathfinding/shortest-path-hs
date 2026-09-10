@@ -15,7 +15,7 @@ import ShortestPath.Tile
 import ShortestPath.Transport
 import ShortestPath.World
 import ShortestPath.Pathfinder
-import ShortestPath.Exact.RawDijkstra
+import ShortestPath.Exact.ReferenceDijkstra
 
 main :: IO ()
 main = do
@@ -301,7 +301,7 @@ semanticProfileChecks = do
         let (from, to) = wallCrossing wall
          in any (\transport -> transportType transport == "VIRTUAL_WALL" && destination transport == Just to)
               (Map.findWithDefault [] from (worldTransports world))
-      route = findRoute (RawDijkstra world)
+      route = findRoute (ReferenceDijkstra world)
         (defaultQuery (packTile 3280 3412 0) (packTile 1700 3141 0))
           { requirementMode = ConfiguredRequirements early }
   assert (not (null rawOnlyWallEdges))

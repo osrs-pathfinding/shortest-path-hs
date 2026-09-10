@@ -26,7 +26,7 @@ import Data.List (sortOn)
 import Text.Printf (printf)
 
 import ShortestPath.Exact.TileAStar
-import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
+import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..))
 import ShortestPath.Account
   ( AccountState(..), CooldownState(..), PohBuild(..), PohPortalAccess(..), RequirementMode(..), RuntimeState(..) )
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkNowMinutes)
@@ -278,9 +278,9 @@ serveRequest world tileAStar line =
                 , queryNowMinutes = benchmarkNowMinutes
                 }
           case maybe "tile-full" id (requestFinder request) of
-            "raw" -> do
+            "reference" -> do
               started <- getMonotonicTimeNSec
-              let route = findRoute (RawDijkstra world) query
+              let route = findRoute (ReferenceDijkstra world) query
               _ <- evaluate (routeCost route + routeExpandedNodes route + length (routeSteps route))
               finished <- getMonotonicTimeNSec
               pure (routeResponse request route [] [] (rawTimingsJson route started finished))
