@@ -5,6 +5,7 @@ import Data.List (intercalate)
 import System.Environment (getArgs)
 
 import ShortestPath.Account
+import ShortestPath.AccountSemantics
 import ShortestPath.BenchmarkProfiles
 import qualified ShortestPath.GameVars.Varbits as VB
 import qualified ShortestPath.GameVars.VarPlayers as VP

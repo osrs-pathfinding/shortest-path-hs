@@ -8,6 +8,7 @@ import Data.List (find)
 
 import ShortestPath.Requirements
 import ShortestPath.Account
+import ShortestPath.AccountSemantics
 import qualified ShortestPath.GameVars.Varbits as VB
 import qualified ShortestPath.GameVars.VarPlayers as VP
 import ShortestPath.BenchmarkProfiles

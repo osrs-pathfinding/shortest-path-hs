@@ -10,6 +10,7 @@ library
   import: warnings
   exposed-modules:
     ShortestPath.Account
+    ShortestPath.AccountSemantics
     ShortestPath.BenchmarkProfiles
     ShortestPath.GameVars
     ShortestPath.GameVars.Varbits
