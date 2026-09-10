@@ -7,9 +7,10 @@ This repository is an experimental/production-oriented OSRS pathfinding implemen
 Key Haskell modules:
 
 * `src/ShortestPath/Exact/TileAStar.hs` — current primary tile A* implementation and heuristic/lifecycle logic.
+* `src/ShortestPath/Exact/RawDijkstra.hs` — deliberately simple correctness/reference solver.
 * `src/World.hs` — walkability, collision, neighbours, natural components and world topology.
 * `src/Transport.hs` — transport definitions, parsing and requirements.
-* Older hierarchical/partitioning modules are experimental/history; do not assume they are the current routing architecture.
+* Hierarchical routing is historical/future experimental work, not maintained runtime architecture.
 
 Other important areas:
 

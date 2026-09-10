@@ -195,7 +195,7 @@ Likely areas include:
 
 ### KaHIP component partitioning
 
-Explore using KaHIP to partition the natural-component/transport graph into
+Future experiment: explore using KaHIP to partition the natural-component/transport graph into
 decent-sized regions separated by small cuts. The purpose is to find useful
 boundaries for hierarchical search and preprocessing, not to change routing
 semantics.
@@ -209,7 +209,7 @@ Prototype this offline from `world-facts.duckdb` and measure:
 
 Try node and edge weights which reflect component size, transport frequency,
 and transport cost. Reject partitions which create tiny or transport-heavy
-regions, and retain the existing exact solver as the correctness reference
+regions, and retain reference Dijkstra as the correctness oracle
 until a decomposition proves useful across the corpus.
 
 ### Wilderness semantics

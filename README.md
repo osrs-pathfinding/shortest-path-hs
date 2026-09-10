@@ -1,5 +1,9 @@
 # shortest-path-model
 
+The maintained routing implementations are direct Tile A* for current routing
+and `RawDijkstra` as a deliberately simple correctness reference. Hierarchical
+routing is retained only as archived research and possible future work.
+
 ## World facts inspector
 
 Generate the disposable DuckDB inspector database from the authoritative Haskell world model:
@@ -118,40 +122,40 @@ does not provide historical charts.
 
 The reusable diagnostic executable evaluates the transports on successful paths
 against the authoritative account profiles and emits one concise TSV row per
-route. Requests must include `id`, `routeId`, `routeName`, and `profile`; the
-extra fields are ignored by `serve-direct`:
+route. Requests must include `id`, `routeId`, `routeName`, and `profile`; extra
+fields are ignored:
 
 ```sh
 nix-shell --run 'cabal run unreachable-diagnostic -- requests.jsonl responses.jsonl unreachable-oracle.jsonl'
 ```
 
-## Tile A* Experiment Handoff
+## Current pathfinder tooling
 
 Build the benchmark executable:
 
 ```sh
-nix-shell --run 'cabal build exe:hierarchy-differential'
+nix-shell --run 'cabal build exe:pathfinder-tool'
 ```
 
 Warm or rebuild the tile-A* static cache, including natural walking components and the sparse Manhattan walking network:
 
 ```sh
-dist-newstyle/build/x86_64-linux/ghc-9.10.3/shortest-path-model-0.1.0.0/x/hierarchy-differential/opt/build/hierarchy-differential/hierarchy-differential tile-static-report
+nix-shell --run 'cabal run pathfinder-tool -- tile-static-report'
 ```
 
 Run correctness checks:
 
 ```sh
 nix-shell --run 'cabal test tile-astar'
-nix-shell --run 'cabal test hierarchy-synthetic'
-nix-shell --run 'SPM_TILE_REVERSE_IMPL=manhattan cabal test hierarchy-synthetic'
+nix-shell --run 'cabal test pathfinder-synthetic'
+nix-shell --run 'SPM_TILE_REVERSE_IMPL=manhattan cabal test pathfinder-synthetic'
 ```
 
 Run the Kourend -> Desert benchmark through the direct server protocol:
 
 ```sh
 printf '%s\n' '{"id":1,"start":{"x":1503,"y":3553,"plane":0},"target":{"x":3359,"y":2912,"plane":0},"allowTransports":true,"includeExpandedTiles":false,"useHeuristic":true,"finder":"tile-full"}' \
-  | dist-newstyle/build/x86_64-linux/ghc-9.10.3/shortest-path-model-0.1.0.0/x/hierarchy-differential/opt/build/hierarchy-differential/hierarchy-differential serve-direct
+  | nix-shell --run 'cabal run pathfinder-tool -- serve'
 ```
 
 Compare reverse-heuristic implementations:
@@ -159,18 +163,18 @@ Compare reverse-heuristic implementations:
 ```sh
 # Reference implicit same-component Chebyshev clique.
 printf '%s\n' '{"id":1,"start":{"x":1503,"y":3553,"plane":0},"target":{"x":3359,"y":2912,"plane":0},"allowTransports":true,"includeExpandedTiles":false,"useHeuristic":true,"finder":"tile-full"}' \
-  | dist-newstyle/build/x86_64-linux/ghc-9.10.3/shortest-path-model-0.1.0.0/x/hierarchy-differential/opt/build/hierarchy-differential/hierarchy-differential serve-direct
+  | nix-shell --run 'cabal run pathfinder-tool -- serve'
 
 # Sparse Manhattan walking network.
 printf '%s\n' '{"id":1,"start":{"x":1503,"y":3553,"plane":0},"target":{"x":3359,"y":2912,"plane":0},"allowTransports":true,"includeExpandedTiles":false,"useHeuristic":true,"finder":"tile-full"}' \
-  | SPM_TILE_REVERSE_IMPL=manhattan dist-newstyle/build/x86_64-linux/ghc-9.10.3/shortest-path-model-0.1.0.0/x/hierarchy-differential/opt/build/hierarchy-differential/hierarchy-differential serve-direct
+  | nix-shell --run 'SPM_TILE_REVERSE_IMPL=manhattan cabal run pathfinder-tool -- serve'
 ```
 
 Check sparse Manhattan reverse labels against the clique reference for the query:
 
 ```sh
 printf '%s\n' '{"id":1,"start":{"x":1503,"y":3553,"plane":0},"target":{"x":3359,"y":2912,"plane":0},"allowTransports":true,"includeExpandedTiles":false,"useHeuristic":true,"finder":"tile-full"}' \
-  | SPM_TILE_REVERSE_IMPL=manhattan SPM_TILE_COMPARE_REVERSE=1 dist-newstyle/build/x86_64-linux/ghc-9.10.3/shortest-path-model-0.1.0.0/x/hierarchy-differential/opt/build/hierarchy-differential/hierarchy-differential serve-direct
+  | nix-shell --run 'SPM_TILE_REVERSE_IMPL=manhattan SPM_TILE_COMPARE_REVERSE=1 cabal run pathfinder-tool -- serve'
 ```
 
 Optional diagnostic counters:

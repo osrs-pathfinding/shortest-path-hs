@@ -1,4 +1,6 @@
-# Hierarchy Model Audit
+# Hierarchy Model Audit (Historical)
+
+This records a removed prototype and does not describe the maintained routing architecture.
 
 Scope: H0 of `main-algorithm-plan.md`. This is an audit of the current
 Haskell prototype and the Java production model; it changes no runtime

@@ -1,4 +1,6 @@
-# Exact KaHIP Hierarchical Pathfinder Specification
+# Exact KaHIP Hierarchical Pathfinder Specification (Historical)
+
+This specification records a removed prototype and is retained only as research history.
 
 ## Objective
 
