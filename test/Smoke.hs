@@ -247,6 +247,9 @@ semanticProfileChecks = do
   assert (all (== Just 1) [Map.lookup VB.atjunMedReward (accountVarbits account) | account <- [early, mid, end, maxed]])
   assert (all (== Just 1) [Map.lookup VB.amenityRowboatVatrachos (accountVarbits account) | account <- [mid, end, maxed]])
   assert (Map.lookup VB.amenityRowboatVatrachos (accountVarbits early) == Just 0)
+  assert (all (== Just 0) [Map.lookup VB.yanilleTeleportLocation (accountVarbits account) | account <- [early, mid, end, maxed]])
+  assert (Map.lookup VB.faladorSpawn (accountVarbits early) == Just 0)
+  assert (all (== Just 1) [Map.lookup VB.faladorSpawn (accountVarbits account) | account <- [mid, end, maxed]])
   transports <- loadTransports defaultSourcePaths
   let context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       available account transport = case transportAvailability (context account) transport of

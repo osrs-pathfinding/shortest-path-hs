@@ -75,6 +75,8 @@ data PermanentUnlock
   | PendantOfAtesDarkfrost | PendantOfAtesTwilight | PendantOfAtesRalos | PendantOfAtesAldarin
   | PharaohsSceptreNecropolis | ColosseumWaveNine
   | RowboatVatrachos | RowboatAnglers | RowboatSoulTear | RowboatYnysdail | RowboatBuccaneers
+  | RespawnFalador | RespawnCamelot | RespawnEdgeville
+  | RespawnFeroxEnclave | RespawnKourendCastle | RespawnCivitasIllaFortis
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 data Progression = Progression
@@ -415,6 +417,12 @@ compilePermanentUnlockVars unlocks = Map.fromList
     , (RowboatSoulTear, VB.amenityRowboatSoulTear, 1)
     , (RowboatYnysdail, VB.amenityRowboatYnysdail, 1)
     , (RowboatBuccaneers, VB.amenityRowboatBuccaneers, 1)
+    , (RespawnFalador, VB.faladorSpawn, 1)
+    , (RespawnCamelot, VB.camelotSpawn, 1)
+    , (RespawnEdgeville, VB.edgevilleSpawn, 1)
+    , (RespawnFeroxEnclave, VB.wildernessSpawn, 1)
+    , (RespawnKourendCastle, VB.kourendSpawn, 1)
+    , (RespawnCivitasIllaFortis, VB.civitasSpawn, 1)
     ]
 
 compileDiaryDerivedVarbits :: Map.Map Diary DiaryTier -> Map.Map VarbitId Int
@@ -426,7 +434,21 @@ compileDiaryDerivedVarbits diaries = Map.fromList
   unlocked diary tier = if Map.findWithDefault NoDiary diary diaries >= tier then 1 else 0
 
 compileDefaultVars :: CompiledVars
-compileDefaultVars = CompiledVars Map.empty (Map.fromList
+compileDefaultVars = CompiledVars (Map.fromList
+  [ (VB.wildernessSwordLastTeleport, 0)
+  , (VB.morytaniaLegsLastTeleport, 0)
+  , (VB.yanilleTeleportLocation, 0)
+  , (VB.lumbridgeCabbageTeleport, 0)
+  , (VB.desertNardahTeleport, 0)
+  , (VB.seersCamelotTeleport, 0)
+  , (VB.seersSherlockTeleport, 0)
+  , (VB.westernPiscTeleport, 0)
+  , (VB.varrockGeTeleport, 0)
+  , (VB.chinchompaTeleports, 0)
+  , (VB.ardougneCloakLowbits, 0)
+  , (VB.zeahBlessingWoodlandTeleport, 0)
+  , (VB.zeahBlessingBrimstoneTeleport, 0)
+  ]) (Map.fromList
   [ (VP.homeTeleportAnimToggles, 0)
   , (VP.aideTeleTimer, 0)
   ])
