@@ -1,5 +1,9 @@
 # Account Requirements and Build Modelling Plan
 
+> Historical design plan. The implemented model now uses
+> `AccountSpec -> compileAccount -> AccountState`; see `SEMANTIC_MODEL.md` and
+> `docs/game-state-profiles.md` for the current architecture.
+
 Extend the pathfinding model so that transport availability accurately reflects different OSRS account builds.
 
 The immediate goal is to support realistic benchmark profiles such as:
@@ -1092,4 +1096,3 @@ rich account model
        v
 interpret requirements repeatedly inside A*
 ```
-

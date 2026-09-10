@@ -1,4 +1,59 @@
-# Tile A* — Important Semantic Optimisations
+# Semantic model
+
+## Account and transport requirements
+
+Account configuration has one normal compilation path:
+
+```text
+benchmark profile / future account importer
+                  |
+                  v
+             AccountSpec
+       semantic OSRS account facts
+                  |
+        compileAccount at query time
+                  |
+                  v
+             AccountState
+ skills, quests, items, varbits, varplayers,
+ runtime values and compiled POH capabilities
+                  |
+                  v
+          RequirementContext
+       item access + current time
+                  |
+                  v
+       transportAvailability
+                  |
+                  v
+       prepareQueryTransports
+            /             \
+   Raw Dijkstra         Tile A*
+```
+
+`ShortestPath.AccountSemantics` owns semantic progression types and the
+semantic-to-RuneLite mapping. `ShortestPath.BenchmarkProfiles` only defines
+the Early/Mid/End/Maxed fixtures. Numeric game state is derived during
+`compileAccount`; benchmark profiles do not independently assign known
+semantic varbits or varplayers.
+
+`RawGameState` is an explicit escape hatch for exceptional raw overrides.
+An override may repeat a derived value, but a contradictory value produces an
+`AccountCompileError` rather than silently taking precedence.
+
+`AccountState` is the canonical concrete state consumed downstream.
+`RequirementContext` adds query-specific carried-versus-bank access and the
+current time. `transportAvailability` is the authoritative interpreter for
+items, skills, quests, varbits, varplayers and the narrowly documented fairy
+ring/POH rules. Routing implementations consume transports already filtered by
+`prepareQueryTransports`; they do not reinterpret account semantics.
+
+The Maxed benchmark fixture currently retains the historical compatibility
+rule that its bank includes every item named by the loaded transport corpus.
+Changing that workload dependency is a separate semantic change and requires
+a fresh route-result comparison.
+
+## Tile A* — Important Semantic Optimisations
 
 The basic algorithm is still A* over real OSRS tiles.
 
@@ -202,4 +257,3 @@ relax:
 The aim is to prevent impossible cheap route patterns without exploding the heuristic state space.
 
 This has been much more effective than simply increasing the A* heuristic weight. A larger weight cannot fix a heuristic which thinks an impossible repeated teleport route is cheap.
-

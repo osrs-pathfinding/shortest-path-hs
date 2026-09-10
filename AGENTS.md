@@ -315,6 +315,20 @@ Prefer measuring over guessing.
 
 ## Game-state profiles
 
+The account pipeline is:
+
+```text
+AccountSpec -> compileAccount -> AccountState -> RequirementContext
+            -> transportAvailability -> prepared transports -> pathfinder
+```
+
+`ShortestPath.AccountSemantics` owns semantic OSRS types and numeric game-state
+derivation. `ShortestPath.BenchmarkProfiles` owns only benchmark fixture
+definitions. `ShortestPath.Account.transportAvailability` is the authoritative
+requirement evaluator used through `prepareQueryTransports`; routing algorithms
+must not independently interpret account facts. Raw varbit/varplayer overrides
+are exceptional and contradictory derived/raw values must be rejected.
+
 RuneLite varbit and varplayer IDs are numeric at the external GPS TSV boundary, but human-authored account/profile logic must use semantic game-variable names from the generated `ShortestPath.GameVars` modules. Do not add unexplained numeric varbit/varplayer IDs to benchmark profiles. Resolve new transport-relevant IDs through RuneLite's generated `gameval/VarbitID.java` or `gameval/VarPlayerID.java`, regenerate the semantic mapping, classify the variable as progression, permanent unlock, configuration or runtime state, and add a regression test for newly discovered routing semantics.
 
 A missing profile variable is not equivalent to value zero. New transport requirements must either be modelled or explicitly classified before relying on benchmark results involving that transport.

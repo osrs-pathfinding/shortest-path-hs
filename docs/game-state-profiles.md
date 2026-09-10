@@ -19,15 +19,24 @@ node scripts/generate-gamevars.js \
 
 The importer scans every transport TSV, reports every referenced variable and fails when a routing-relevant ID has no RuneLite name. Varbit and varplayer namespaces remain distinct.
 
-Profile source should describe state semantically, for example:
+Profile source describes state semantically, for example:
 
 ```haskell
-Map.singleton VB.dragonslayerCrandorFoundSecretDoor 1
+progressionQuests = Set.singleton "Dragon Slayer I"
 ```
 
-The final `AccountBuild` still contains efficient typed maps. `account-profile vars` prints the semantic name, numeric identity, requirements, transport sources and each profile's compiled value. `UNMODELLED` means the profile has no value for the variable; it is not silently treated as zero.
+`compileAccount` maps `AccountSpec` to the canonical concrete `AccountState`,
+including efficient typed varbit and varplayer maps. The mappings live in
+`ShortestPath.AccountSemantics`; `ShortestPath.BenchmarkProfiles` contains only
+the benchmark fixtures. `account-profile vars` prints the semantic name,
+numeric identity, requirements, transport sources and each profile's compiled
+value. `UNMODELLED` means the compiled state has no value for the variable; it
+is not silently treated as zero.
 
-Profile state is compiled from progression, diary completion, permanent unlocks, explicit configuration and runtime state. Do not make `maxed` mean that every observed transport requirement is enabled: some variables are mutually exclusive, transient or configuration-dependent.
+Exceptional raw state belongs in `RawGameState`. Raw overrides that contradict
+semantic derivation are rejected with `AccountCompileError`.
+
+Profile state is compiled from progression, diary completion, permanent unlocks, POH configuration, carried/banked items and runtime state. Do not make `maxed` mean that every observed variable requirement is enabled: some variables are mutually exclusive, transient or configuration-dependent.
 
 For manual verification, the authoritative RuneLite lookups are:
 

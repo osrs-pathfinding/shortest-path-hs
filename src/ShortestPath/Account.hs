@@ -153,6 +153,8 @@ transportAvailability context transport =
   unknownVars = [requirement | requirement <- variableRequirements, varRequirementResult context requirement == VarUnknown]
 
 specialFailures :: RequirementContext -> Transport -> [RequirementFailure]
+-- GPS does not encode these three POH/fairy-ring capabilities as ordinary
+-- transport requirements, so the authoritative evaluator handles them here.
 specialFailures context transport =
   case transportType transport of
     "FAIRY_RING"
