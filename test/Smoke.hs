@@ -289,6 +289,7 @@ semanticProfileChecks = do
       corsairResourceArea = find (\transport -> varbits transport == [VarReq (GameVarbit VB.corsairCoveResourceEntry) 1 VarEq]) transports
       balloons = map (findTransport "HOT_AIR_BALLOON") ["Entrana", "Taverley", "Castle Wars", "Grand Tree", "Crafting Guild", "Varrock"]
       primio = find (\transport -> origin transport == Just (packTile 3280 3412 0) && destination transport == Just (packTile 1700 3141 0)) transports
+  assert (all (\account -> all (bankAccessMonotonic account) transports) [early, mid, end, maxed])
   assert (maybe False (available early) base)
   assert (maybe False (not . available early) camTorum)
   assert (maybe False (available cam) camTorum)
@@ -320,17 +321,23 @@ semanticProfileChecks = do
         (defaultQuery (packTile 3280 3412 0) (packTile 1700 3141 0))
           { requirementMode = ConfiguredRequirements early }
   assert (routeCost route < maxBound)
+ where
+  bankAccessMonotonic account transport =
+    transportAvailability (RequirementContext account CarriedOnly benchmarkNowMinutes) transport /= Available
+      || transportAvailability (RequirementContext account CarriedAndBank benchmarkNowMinutes) transport == Available
 
 compilerChecks :: AccountSpec -> IO ()
 compilerChecks base = do
   let raw = accountSpecRawGameState base
       withRaw bits players = base {accountSpecRawGameState = raw {rawVarbitOverrides = bits, rawVarPlayerOverrides = players}}
       sameSpellbook = withRaw (Map.singleton VB.spellbook 0) Map.empty
+      rawOnly = withRaw (Map.singleton (VarbitId 999999) 7) Map.empty
       conflictingSpellbook = withRaw (Map.singleton VB.spellbook 1) Map.empty
       conflictingQuetzals = withRaw Map.empty (Map.singleton VP.quetzalsUnlocked 1)
       ancient = base {accountSpecRuntime = (accountSpecRuntime base) {runtimeSpellbook = Ancient}}
       taverley = base {accountSpecPoh = (accountSpecPoh base) {pohLocation = Taverley}}
   assert (isRight (compileAccount benchmarkNowMinutes sameSpellbook))
+  assert (compiledVarbit (VarbitId 999999) rawOnly == Just 7)
   assert (compileAccount benchmarkNowMinutes conflictingSpellbook == Left (ConflictingVarbit VB.spellbook 0 1))
   assert (compileAccount benchmarkNowMinutes conflictingQuetzals == Left (ConflictingVarPlayer VP.quetzalsUnlocked 0 1))
   assert (compiledVarbit VB.spellbook ancient == Just 1)
