@@ -19,9 +19,9 @@ import System.FilePath ((</>), takeDirectory)
 import System.Process (readProcess, readProcessWithExitCode)
 import Text.Read (readMaybe)
 
-import ShortestPath.Exact.TileAStar
 import ShortestPath.Requirements
 import ShortestPath.Tile
+import ShortestPath.Topology
 import ShortestPath.Transport
 import ShortestPath.Tsv (field, readRows)
 import ShortestPath.World
@@ -80,7 +80,7 @@ main = do
   output <- outputPath <$> getArgs
   createDirectoryIfMissing True (takeDirectory output)
   world <- loadWorld defaultSourcePaths
-  astar <- buildTileAStar world >>= forceTileAStar
+  topology <- buildWorldTopology world
   routes <- loadRoutes "benchmarks/corpus/routes-v1.json"
   wiki <- loadWiki "benchmarks/corpus/wiki-places-v1.json"
   gpsPath <- fromMaybe "../runelite-gps-plugin/src/main/resources/destinations.tsv" <$> lookupEnv "WORLD_FACTS_GPS_DESTINATIONS"
@@ -92,12 +92,12 @@ main = do
   removeIfExists tempDir
   removeIfExists tempDb
   createDirectoryIfMissing True tempDir
-  writeFacts tempDir astar places points
+  writeFacts tempDir topology places points
   metadata <- provenance world gpsPath
   buildDatabase output tempDb tempDir metadata
   removeDirectoryRecursive tempDir
-  report astar places
-  putStrLn ("wrote " <> output <> " (" <> show (length (tileFacts astar)) <> " tiles, " <> show (length places) <> " places)")
+  report topology places
+  putStrLn ("wrote " <> output <> " (" <> show (length (tileFacts topology)) <> " tiles, " <> show (length places) <> " places)")
 
 outputPath :: [String] -> FilePath
 outputPath ["--output", path] = path
@@ -150,16 +150,16 @@ maybeToList :: Maybe a -> [a]
 maybeToList Nothing = []
 maybeToList (Just value) = [value]
 
-writeFacts :: FilePath -> TileAStar -> [Place] -> [Tile] -> IO ()
-writeFacts dir astar places points = do
+writeFacts :: FilePath -> WorldTopology -> [Place] -> [Tile] -> IO ()
+writeFacts dir topology places points = do
   writeCsv (dir </> "components.csv") ["component_id", "tile_count", "structurally_reachable", "min_x", "max_x", "min_y", "max_y", "min_plane", "max_plane"]
-    [[show cid, show count, bool reachable, show loX, show hiX, show loY, show hiY, show loP, show hiP] | (cid, count, reachable, loX, hiX, loY, hiY, loP, hiP) <- componentFacts astar]
+    [[show cid, show count, bool reachable, show loX, show hiX, show loY, show hiY, show loP, show hiP] | (cid, count, reachable, loX, hiX, loY, hiY, loP, hiP) <- componentFacts topology]
   writeCsv (dir </> "tiles.csv") ["x", "y", "plane", "component_id"]
-    [[show x, show y, show p, show cid] | (tile, cid) <- tileFacts astar, let (x, y, p) = unpackTile tile]
+    [[show x, show y, show p, show cid] | (tile, cid) <- tileFacts topology, let (x, y, p) = unpackTile tile]
   writeCsv (dir </> "point_access.csv") ["x", "y", "plane", "resolved_x", "resolved_y", "resolved_plane", "component_id", "access_kind", "structurally_reachable"]
-    [ [show x, show y, show p, show rx, show ry, show rp, maybe "" show cid, kind, maybe "" (\value -> bool (IntSet.member value (structurallyReachableIdsOf astar))) cid]
+    [ [show x, show y, show p, show rx, show ry, show rp, maybe "" show cid, kind, maybe "" (\value -> bool (IntSet.member value (structurallyReachableIdsOf topology))) cid]
     | point <- points
-    , (resolved, cid, kind) <- pointAccessFacts astar point
+    , (resolved, cid, kind) <- pointAccessFacts topology point
     , let (x, y, p) = unpackTile point
     , let (rx, ry, rp) = unpackTile resolved
     ]
@@ -172,12 +172,11 @@ writeFacts dir astar places points = do
     , "duration", "display_info", "object_info", "consumable", "max_wilderness_level", "source", "requirements_json"
     ]
     [ transportRow transport
-    | transport <- allWorldTransports (astarWorld astar)
+    | transport <- allWorldTransports (topologyWorld topology)
     ]
  where
   bool value = if value then "true" else "false"
-  astarWorld (TileAStar world _ _) = world
-  structurallyReachableIdsOf (TileAStar _ components _) = structurallyReachableIds components
+  structurallyReachableIdsOf = structurallyReachableIds . topologyStructuralReachability
 
 allWorldTransports :: World -> [Transport]
 allWorldTransports world = concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
@@ -258,9 +257,9 @@ writeCsv path headers rows = writeFile path (unlines (map (intercalate "," . map
 csv :: String -> String
 csv value = '"' : concatMap (\c -> if c == '"' then "\"\"" else [c]) value <> "\""
 
-report :: TileAStar -> [Place] -> IO ()
-report astar places = do
-  let components = componentFacts astar
+report :: WorldTopology -> [Place] -> IO ()
+report topology places = do
+  let components = componentFacts topology
       statuses = map placeStatus places
       count :: String -> Int
       count status = length (filter (== status) statuses)
@@ -273,14 +272,25 @@ report astar places = do
   toLowerAscii c = if c >= 'A' && c <= 'Z' then toEnum (fromEnum c + 32) else c
   contains needle haystack = needle `isInfixOf` haystack
   placeStatus place =
-    case pointAccessFacts astar (placeTile place) of
+    case pointAccessFacts topology (placeTile place) of
       rows | any (maybe False (\cid -> IntSet.member cid reachable) . second) rows -> "reachable"
       rows | any ((== "unresolved") . thirdAccess) rows -> "unresolved"
       _ -> "unreachable_component"
-  reachable = structurallyReachableIdsOf astar
+  reachable = structurallyReachableIds (topologyStructuralReachability topology)
   second (_, value, _) = value
   thirdAccess (_, _, value) = value
-  structurallyReachableIdsOf (TileAStar _ components _) = structurallyReachableIds components
+
+pointAccessFacts :: WorldTopology -> Tile -> [(Tile, Maybe Int, String)]
+pointAccessFacts topology point =
+  [(resolved, Just cid, accessKind) | (resolved, cid) <- attachments]
+    <> [(point, Nothing, "unresolved") | null attachments]
+ where
+  attachments = pointAttachmentDetails topology point
+  world = topologyWorld topology
+  accessKind
+    | isWalkable (worldCollision world) point = "walkable"
+    | Map.member point (worldTransports world) = "adjacent_transport_origin"
+    | otherwise = "snapped"
 
 provenance :: World -> FilePath -> IO [(String, String)]
 provenance world gpsPath = do
@@ -296,8 +306,8 @@ provenance world gpsPath = do
     , ("generated_at", formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" now)
     , ("world_data_hash", worldHash), ("transport_data_hash", intercalate ":" transportHashes)
     , ("place_data_hash", gpsHash)
-    , ("component_model_version", "natural-components-v2")
-    , ("sailing_supported", "false"), ("generator_version", "world-facts-v2")
+    , ("component_model_version", "world-topology-v3")
+    , ("sailing_supported", "false"), ("generator_version", "world-facts-v3")
     , ("walkable_tiles", show (length (collisionTiles (worldCollision world))))
     ]
  where
