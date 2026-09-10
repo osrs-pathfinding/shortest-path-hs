@@ -190,6 +190,8 @@ semanticProfileChecks = do
   assert (not (Set.member "Legends' Quest" (accountCompletedQuests early)))
   assert (all (\account -> Set.member "Shilo Village" (accountCompletedQuests account)) [mid, end, maxed])
   assert (not (Set.member "Shilo Village" (accountCompletedQuests early)))
+  assert (all (\account -> Set.member "Waterfall Quest" (accountCompletedQuests account)) [mid, end, maxed])
+  assert (not (Set.member "Waterfall Quest" (accountCompletedQuests early)))
   assert (Map.lookup VB.lotg (accountVarbits early) == Just 0)
   assert (Map.lookup VB.myq5 (accountVarbits early) == Just 0)
   assert (Map.lookup VB.my2armStatus (accountVarbits early) == Just 0)
@@ -206,6 +208,8 @@ semanticProfileChecks = do
   assert (all (== Just 75) [Map.lookup VP.legendsquest (accountVarPlayers account) | account <- [mid, end, maxed]])
   assert (Map.lookup VP.zombiequeen (accountVarPlayers early) == Just 0)
   assert (all (== Just 15) [Map.lookup VP.zombiequeen (accountVarPlayers account) | account <- [mid, end, maxed]])
+  assert (Map.lookup VP.waterfallQuest (accountVarPlayers early) == Just 0)
+  assert (all (== Just 10) [Map.lookup VP.waterfallQuest (accountVarPlayers account) | account <- [mid, end, maxed]])
   assert (all (== Just 0)
     [ Map.lookup varbit (accountVarbits early)
     | varbit <- [VB.zepMultiBasket, VB.zepMultiPiccard, VB.zepMultiCast, VB.zepMultiGno, VB.zepMultiCraft, VB.zepMultiVarr]
@@ -237,6 +241,10 @@ semanticProfileChecks = do
       legendsCaveShortcut = find (\transport -> varPlayers transport == [VarReq (GameVarPlayer VP.legendsquest) 6 VarGt]) transports
       kharaziShortcut = find (\transport -> varPlayers transport == [VarReq (GameVarPlayer VP.legendsquest) 49 VarGt] && items transport == Nothing) transports
       shiloCart = find (\transport -> varPlayers transport == [VarReq (GameVarPlayer VP.zombiequeen) 14 VarGt] && items transport == Nothing) transports
+      waterfallAccess =
+        [ find (\transport -> varPlayers transport == [VarReq (GameVarPlayer VP.waterfallQuest) value operator]) transports
+        | (value, operator) <- [(2, VarGt), (10, VarEq)]
+        ]
       catacombsEntrances =
         [ find (\transport -> varbits transport == [VarReq (GameVarbit varbit) 1 VarEq]) transports
         | varbit <- [VB.cataHole1, VB.cataHole2, VB.cataHoleGiantsDen]
@@ -255,6 +263,8 @@ semanticProfileChecks = do
   assert (maybe False (available mid) kharaziShortcut)
   assert (maybe False (not . available early) shiloCart)
   assert (maybe False (available mid) shiloCart)
+  assert (all (maybe False (not . available early)) waterfallAccess)
+  assert (all (maybe False (available mid)) waterfallAccess)
   assert (all (maybe False (not . available early)) catacombsEntrances)
   assert (all (maybe False (available mid)) catacombsEntrances)
   assert (all (maybe False (not . available early)) balloons)
