@@ -47,7 +47,7 @@ checkMultiplePointAttachments = do
       routeQuery = query left right (Set.singleton "SYNTHETIC_SHARED_POINT") False
   tileAStar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy left) world
   let reference = ReferenceDijkstra (tileTopology tileAStar)
-      attachments = [cid | (_, Just cid, _) <- pointAccessFacts tileAStar point]
+      attachments = pointAttachments (tileTopology tileAStar) point
       referenceRoute = findRoute reference routeQuery
       tileRoute = findRoute tileAStar routeQuery
   assertMsg ("attachments: " <> show attachments) (length attachments == 2)

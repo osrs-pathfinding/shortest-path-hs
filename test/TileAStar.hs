@@ -8,7 +8,7 @@ import qualified Data.IntSet as IntSet
 
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Tile
-import ShortestPath.Topology hiding (componentFacts, tileFacts)
+import ShortestPath.Topology
 import ShortestPath.Transport
 import ShortestPath.World
 
@@ -58,7 +58,7 @@ checkTopologySemantics = do
 checkSeasonalReachability :: IO ()
 checkSeasonalReachability = do
   astar <- buildTileAStar seasonalWorld
-  assert (length [() | (_, _, reachable, _, _, _, _, _, _) <- componentFacts astar, reachable] == 2)
+  assert (length [() | (_, _, reachable, _, _, _, _, _, _) <- componentFacts (tileTopology astar), reachable] == 2)
  where
   root = packTile 3221 3218 0
   ordinaryTarget = packTile 100 100 0

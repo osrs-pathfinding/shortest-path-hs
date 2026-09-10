@@ -31,9 +31,6 @@ module ShortestPath.Exact.TileAStar
   , renderComponentTiles
   , renderHeuristicTiles
   , tileStaticStats
-  , componentFacts
-  , tileFacts
-  , pointAccessFacts
   , HeuristicRender(..)
   , HeuristicLayer(..)
   , HeuristicTile(..)
@@ -73,8 +70,7 @@ import Text.Printf (printf)
 
 import ShortestPath.Pathfinder
 import ShortestPath.Tile
-import ShortestPath.Topology hiding (componentFacts, tileFacts)
-import qualified ShortestPath.Topology as Topology
+import ShortestPath.Topology
 import ShortestPath.Transport
 import ShortestPath.World
 
@@ -1764,25 +1760,6 @@ chebyshevTransformSlow box seeds = Vector.generate size valueAt
     let (dy, dx) = ix `divMod` width
         tile = packTile (boxMinX box + dx) (boxMinY box + dy) (boxPlane box)
      in minimumDefault maxBound [addCostDefault maxBound cost distance | (seed, cost) <- seeds, Just distance <- [chebyshev2 tile seed]]
-
-componentFacts :: TileAStar -> [(Int, Int, Bool, Int, Int, Int, Int, Int, Int)]
-componentFacts = Topology.componentFacts . tileTopology
-
-tileFacts :: TileAStar -> [(Tile, Int)]
-tileFacts = Topology.tileFacts . tileTopology
-
-pointAccessFacts :: TileAStar -> Tile -> [(Tile, Maybe Int, String)]
-pointAccessFacts astar point =
-  [(resolved, Just cid, accessKind) | (resolved, cid) <- attachments] <> unresolved
- where
-  topology = tileTopology astar
-  world = topologyWorld topology
-  attachments = pointAttachmentDetails topology point
-  unresolved = [(point, Nothing, "unresolved") | null attachments]
-  accessKind
-    | isWalkable (worldCollision world) point = "walkable"
-    | Map.member point (worldTransports world) = "adjacent_transport_origin"
-    | otherwise = "snapped"
 
 offset :: Box -> Tile -> Maybe Int
 offset box tile =
