@@ -34,7 +34,6 @@ library
     containers,
     directory,
     filepath,
-    pqueue,
     text,
     time,
     vector,

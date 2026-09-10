@@ -10,7 +10,6 @@ pkgs.mkShell {
     (pkgs.haskellPackages.ghcWithPackages (p: with p; [
       aeson
       hashable
-      pqueue
       vector
       zip-archive
     ]))
