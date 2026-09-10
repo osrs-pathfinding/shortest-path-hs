@@ -181,6 +181,8 @@ semanticProfileChecks = do
   assert (not (Set.member "Song of the Elves" (accountCompletedQuests early)))
   assert (all (\account -> Set.member "Enlightened Journey" (accountCompletedQuests account)) [mid, end, maxed])
   assert (not (Set.member "Enlightened Journey" (accountCompletedQuests early)))
+  assert (all (\account -> Set.member "Legends' Quest" (accountCompletedQuests account)) [mid, end, maxed])
+  assert (not (Set.member "Legends' Quest" (accountCompletedQuests early)))
   assert (Map.lookup VB.lotg (accountVarbits early) == Just 0)
   assert (Map.lookup VB.myq5 (accountVarbits early) == Just 0)
   assert (Map.lookup VB.my2armStatus (accountVarbits early) == Just 0)
@@ -193,6 +195,8 @@ semanticProfileChecks = do
   assert (all (== Just 1) [Map.lookup VB.thzfeBlockingBarricade (accountVarbits account) | account <- [mid, end, maxed]])
   assert (Map.lookup VB.lovaquest (accountVarbits early) == Just 0)
   assert (all (== Just 11) [Map.lookup VB.lovaquest (accountVarbits account) | account <- [mid, end, maxed]])
+  assert (Map.lookup VP.legendsquest (accountVarPlayers early) == Just 0)
+  assert (all (== Just 75) [Map.lookup VP.legendsquest (accountVarPlayers account) | account <- [mid, end, maxed]])
   assert (all (== Just 0)
     [ Map.lookup varbit (accountVarbits early)
     | varbit <- [VB.zepMultiBasket, VB.zepMultiPiccard, VB.zepMultiCast, VB.zepMultiGno, VB.zepMultiCraft, VB.zepMultiVarr]
@@ -212,6 +216,8 @@ semanticProfileChecks = do
       camTorum = findTransport "QUETZAL" "Cam Torum"
       outerFortis = findTransport "QUETZAL" "Outer Fortis"
       freeMinecart = find (\transport -> transportType transport == "MINECART" && varbits transport == [VarReq (GameVarbit VB.lovaquest) 11 VarEq]) transports
+      legendsCaveShortcut = find (\transport -> varPlayers transport == [VarReq (GameVarPlayer VP.legendsquest) 6 VarGt]) transports
+      kharaziShortcut = find (\transport -> varPlayers transport == [VarReq (GameVarPlayer VP.legendsquest) 49 VarGt] && items transport == Nothing) transports
       balloons = map (findTransport "HOT_AIR_BALLOON") ["Entrana", "Taverley", "Castle Wars", "Grand Tree", "Crafting Guild", "Varrock"]
       primio = find (\transport -> origin transport == Just (packTile 3280 3412 0) && destination transport == Just (packTile 1700 3141 0)) transports
   assert (maybe False (available early) base)
@@ -220,6 +226,10 @@ semanticProfileChecks = do
   assert (maybe False (not . available cam) outerFortis)
   assert (maybe False (not . available early) freeMinecart)
   assert (maybe False (available mid) freeMinecart)
+  assert (maybe False (not . available early) legendsCaveShortcut)
+  assert (maybe False (available mid) legendsCaveShortcut)
+  assert (maybe False (not . available early) kharaziShortcut)
+  assert (maybe False (available mid) kharaziShortcut)
   assert (all (maybe False (not . available early)) balloons)
   assert (all (maybe False (available mid)) balloons)
   assert (maybe False (available early) primio)

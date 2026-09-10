@@ -195,6 +195,7 @@ canonicalQuestUniverse = earlyQuests <> Set.fromList
   , "Making Friends with My Arm", "Cabin Fever", "The Depths of Despair"
   , "Zogre Flesh Eaters", "The Path of Glouphrie", "Troubled Tortugans"
   , "Song of the Elves", "The Forsaken Tower", "Enlightened Journey"
+  , "Legends' Quest"
   ]
 
 effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
@@ -222,6 +223,7 @@ compileProgressionVars :: Progression -> CompiledVars
 compileProgressionVars progress = mergeCompiledVars
   [ CompiledVars (diaryVarbits (progressionDiaries progress)) Map.empty
   , CompiledVars (compileQuestDerivedVarbits progress) Map.empty
+  , CompiledVars Map.empty (compileQuestDerivedVarPlayers progress)
   , CompiledVars (compileHotAirBalloonVars (progressionHotAirBalloonDestinations progress)) Map.empty
   , CompiledVars Map.empty (compileQuetzalVars (progressionQuetzalPlatforms progress))
   , compileDefaultVars
@@ -250,6 +252,13 @@ makingFriendsCompleteValue = 207
 depthsOfDespairCaveAccessValue = 7
 thzfeBlockingBarricadeValue = 1
 forsakenTowerCompleteValue = 11
+
+compileQuestDerivedVarPlayers :: Progression -> Map.Map VarPlayerId Int
+compileQuestDerivedVarPlayers progress = Map.singleton VP.legendsquest
+  (if Set.member "Legends' Quest" (progressionQuests progress) then legendsQuestCompleteValue else 0)
+
+legendsQuestCompleteValue :: Int
+legendsQuestCompleteValue = 75
 
 compileQuetzalVars :: Set.Set QuetzalPlatform -> Map.Map VarPlayerId Int
 compileQuetzalVars platforms = Map.singleton quetzalsUnlockedVarPlayer (quetzalPlatformMask platforms)
