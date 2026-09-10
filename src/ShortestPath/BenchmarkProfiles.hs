@@ -60,7 +60,21 @@ data CatacombsEntrance
   | CatacombsGiantsDen
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
-data PermanentUnlock = RaidsMountainGuideTravel | CorsairCoveResourceArea
+data PermanentUnlock
+  = RaidsMountainGuideTravel | CorsairCoveResourceArea
+  | LostTribeCellarHole | BarbarianAssaultTutorial | MuseumKudos153
+  | BarbarianFiremakingTraining | FenkenstrainBridgeNorth | FenkenstrainBridgeSouth
+  | KaramjaDungeonBackdoor | ObservatoryShortcutRope
+  | HosidiusDungeonWestDoor | HosidiusDungeonEastDoor
+  | DarkmeyerInnerShortcut | DarkmeyerOuterShortcut | MetAuburnMountainGuide
+  | BookOfScrollsNardah | BookOfScrollsDigsite | BookOfScrollsFeldip
+  | BookOfScrollsLunarIsle | BookOfScrollsMortton | BookOfScrollsPestControl
+  | BookOfScrollsPiscatoris | BookOfScrollsTaiBwo | BookOfScrollsElf
+  | BookOfScrollsMosLeHarmless | BookOfScrollsLumberyard | BookOfScrollsZulAndra
+  | BookOfScrollsCerberus | BookOfScrollsRevenants | BookOfScrollsWatson
+  | PendantOfAtesDarkfrost | PendantOfAtesTwilight | PendantOfAtesRalos | PendantOfAtesAldarin
+  | PharaohsSceptreNecropolis | ColosseumWaveNine
+  | RowboatVatrachos | RowboatAnglers | RowboatSoulTear | RowboatYnysdail | RowboatBuccaneers
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 data Progression = Progression
@@ -245,6 +259,7 @@ instance Monoid GameStateSpec where
 compileProgressionVars :: Progression -> CompiledVars
 compileProgressionVars progress = mergeCompiledVars
   [ CompiledVars (diaryVarbits (progressionDiaries progress)) Map.empty
+  , CompiledVars (compileDiaryDerivedVarbits (progressionDiaries progress)) Map.empty
   , CompiledVars (compileQuestDerivedVarbits progress) Map.empty
   , CompiledVars Map.empty (compileQuestDerivedVarPlayers progress)
   , CompiledVars (compileHotAirBalloonVars (progressionHotAirBalloonDestinations progress)) Map.empty
@@ -354,11 +369,61 @@ compileCatacombsEntranceVars entrances = Map.fromList
 
 compilePermanentUnlockVars :: Set.Set PermanentUnlock -> Map.Map VarbitId Int
 compilePermanentUnlockVars unlocks = Map.fromList
-  [ (VB.raidsGuideTravelUnlock, unlocked RaidsMountainGuideTravel)
-  , (VB.corsairCoveResourceEntry, unlocked CorsairCoveResourceArea)
+  [ (varbit, if Set.member unlock unlocks then value else 0)
+  | (unlock, varbit, value) <- permanentUnlockVarbits
   ]
  where
-  unlocked unlock = if Set.member unlock unlocks then 1 else 0
+  permanentUnlockVarbits =
+    [ (RaidsMountainGuideTravel, VB.raidsGuideTravelUnlock, 1)
+    , (CorsairCoveResourceArea, VB.corsairCoveResourceEntry, 1)
+    , (LostTribeCellarHole, VB.lostTribeHole2Dug, 1)
+    , (BarbarianAssaultTutorial, VB.barbassaultArenanewb, 11)
+    , (MuseumKudos153, VB.vmKudos, 153)
+    , (BarbarianFiremakingTraining, VB.brutFire, 2)
+    , (FenkenstrainBridgeNorth, VB.fenkBuiltBridgeNorth, 2)
+    , (FenkenstrainBridgeSouth, VB.fenkBuiltBridgeSouth, 2)
+    , (KaramjaDungeonBackdoor, VB.karamDungeonBackdoor, 1)
+    , (ObservatoryShortcutRope, VB.observatoryShortcutRope, 1)
+    , (HosidiusDungeonWestDoor, VB.hosdunWestDoorStatus, 1)
+    , (HosidiusDungeonEastDoor, VB.hosdunEastDoorStatus, 1)
+    , (DarkmeyerInnerShortcut, VB.darkmShortcutInner, 1)
+    , (DarkmeyerOuterShortcut, VB.darkmShortcutOuter, 1)
+    , (MetAuburnMountainGuide, VB.metAuburnMountainGuide, 1)
+    , (BookOfScrollsNardah, VB.bookofscrollsNardah, 1)
+    , (BookOfScrollsDigsite, VB.bookofscrollsDigsite, 1)
+    , (BookOfScrollsFeldip, VB.bookofscrollsFeldip, 1)
+    , (BookOfScrollsLunarIsle, VB.bookofscrollsLunarisle, 1)
+    , (BookOfScrollsMortton, VB.bookofscrollsMortton, 1)
+    , (BookOfScrollsPestControl, VB.bookofscrollsPestcontrol, 1)
+    , (BookOfScrollsPiscatoris, VB.bookofscrollsPiscatoris, 1)
+    , (BookOfScrollsTaiBwo, VB.bookofscrollsTaibwo, 1)
+    , (BookOfScrollsElf, VB.bookofscrollsElf, 1)
+    , (BookOfScrollsMosLeHarmless, VB.bookofscrollsMosles, 1)
+    , (BookOfScrollsLumberyard, VB.bookofscrollsLumberyard, 1)
+    , (BookOfScrollsZulAndra, VB.bookofscrollsZulandra, 1)
+    , (BookOfScrollsCerberus, VB.bookofscrollsCerberus, 1)
+    , (BookOfScrollsRevenants, VB.bookofscrollsRevenants, 1)
+    , (BookOfScrollsWatson, VB.bookofscrollsWatsonLowbits, 1)
+    , (PendantOfAtesDarkfrost, VB.pendantOfAtesDarkfrostFound, 1)
+    , (PendantOfAtesTwilight, VB.pendantOfAtesTwilightFound, 1)
+    , (PendantOfAtesRalos, VB.pendantOfAtesRalosFound, 1)
+    , (PendantOfAtesAldarin, VB.pendantOfAtesAldarinFound, 1)
+    , (PharaohsSceptreNecropolis, VB.pharaohsSceptreNecropolis, 1)
+    , (ColosseumWaveNine, VB.colosseumHighestWave, 9)
+    , (RowboatVatrachos, VB.amenityRowboatVatrachos, 1)
+    , (RowboatAnglers, VB.amenityRowboatAnglers, 1)
+    , (RowboatSoulTear, VB.amenityRowboatSoulTear, 1)
+    , (RowboatYnysdail, VB.amenityRowboatYnysdail, 1)
+    , (RowboatBuccaneers, VB.amenityRowboatBuccaneers, 1)
+    ]
+
+compileDiaryDerivedVarbits :: Map.Map Diary DiaryTier -> Map.Map VarbitId Int
+compileDiaryDerivedVarbits diaries = Map.fromList
+  [ (VB.atjunMedReward, unlocked Karamja Medium)
+  , (VB.lumbridgeMedCount, unlocked LumbridgeDraynor Medium)
+  ]
+ where
+  unlocked diary tier = if Map.findWithDefault NoDiary diary diaries >= tier then 1 else 0
 
 compileDefaultVars :: CompiledVars
 compileDefaultVars = CompiledVars Map.empty (Map.fromList

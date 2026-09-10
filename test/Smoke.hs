@@ -101,7 +101,7 @@ profileChecks = do
       maxed = profile "maxed"
       dragonDoor = Transport "TRANSPORT" Nothing Nothing 0 "Open Wall" "" False Nothing [] Nothing ["Dragon Slayer I"] [VarReq (GameVarbit VB.dragonslayerCrandorFoundSecretDoor) 1 VarEq] [] "test"
       maxedWithDragon = mustProfile "maxed" (benchmarkAccount "maxed" [dragonDoor])
-      unknownDoor = dragonDoor { quests = [], varbits = [VarReq (GameVarbit VB.darkmShortcutInner) 1 VarEq] }
+      unknownDoor = dragonDoor { quests = [], varbits = [VarReq (GameVarbit VB.tapoyauikRuinsFailedWallslide) 1 VarEq] }
       context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       withoutStaff account = account { accountInventory = Map.delete "772" (accountInventory account) }
   assert (requirementsSatisfied (context early) fairyRing)
@@ -139,7 +139,7 @@ mustProfile name Nothing = error ("missing benchmark profile: " <> name)
 
 semanticProfileChecks :: IO ()
 semanticProfileChecks = do
-  assert (compilePermanentUnlockVars Set.empty == Map.fromList [(VB.raidsGuideTravelUnlock, 0), (VB.corsairCoveResourceEntry, 0)])
+  assert (all (== 0) (compilePermanentUnlockVars Set.empty))
   assert (compileCatacombsEntranceVars (Set.singleton CatacombsForthosDungeon) == Map.fromList
     [ (VB.cataHole1, 1)
     , (VB.cataHole2, 0)
@@ -243,6 +243,10 @@ semanticProfileChecks = do
   assert (Map.lookup VB.raidsGuideTravelUnlock (accountVarbits early) == Just 0)
   assert (all (== Just 1) [Map.lookup VB.raidsGuideTravelUnlock (accountVarbits account) | account <- [mid, end, maxed]])
   assert (all (== Just 1) [Map.lookup VB.corsairCoveResourceEntry (accountVarbits account) | account <- [early, mid, end, maxed]])
+  assert (all (== Just 153) [Map.lookup VB.vmKudos (accountVarbits account) | account <- [mid, end, maxed]])
+  assert (all (== Just 1) [Map.lookup VB.atjunMedReward (accountVarbits account) | account <- [early, mid, end, maxed]])
+  assert (all (== Just 1) [Map.lookup VB.amenityRowboatVatrachos (accountVarbits account) | account <- [mid, end, maxed]])
+  assert (Map.lookup VB.amenityRowboatVatrachos (accountVarbits early) == Just 0)
   transports <- loadTransports defaultSourcePaths
   let context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       available account transport = case transportAvailability (context account) transport of
