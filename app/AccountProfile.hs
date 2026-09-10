@@ -28,12 +28,12 @@ main = do
     ["vars"] -> variableAudit
     _ -> fail "usage: account-profile validate early|mid|end|maxed | compare BEFORE AFTER | coverage | vars"
 
-loadAccount :: String -> IO AccountBuild
+loadAccount :: String -> IO AccountState
 loadAccount name = do
   world <- loadWorld defaultSourcePaths
   maybe (fail ("unknown account profile: " <> name)) pure (benchmarkAccount name (allTransports world))
 
-validate :: AccountBuild -> IO ()
+validate :: AccountState -> IO ()
 validate account = do
   world <- loadWorld defaultSourcePaths
   let availability = prepareQueryTransports world profileQuery
@@ -55,7 +55,7 @@ validate account = do
  where
   profileQuery = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account, queryNowMinutes = benchmarkNowMinutes }
 
-compareProfiles :: AccountBuild -> AccountBuild -> IO ()
+compareProfiles :: AccountState -> AccountState -> IO ()
 compareProfiles before after = do
   world <- loadWorld defaultSourcePaths
   let query account = (defaultQuery (packTile 0 0 0) (packTile 0 0 0)) { requirementMode = ConfiguredRequirements account, queryNowMinutes = benchmarkNowMinutes }
@@ -91,7 +91,7 @@ variableAudit = do
       profiles = [(name, benchmarkAccount name transports) | name <- benchmarkProfileNames]
   mapM_ (printVariable profiles) (Map.toAscList requirements)
 
-printVariable :: [(String, Maybe AccountBuild)] -> (GameVar, [(String, String, FilePath)]) -> IO ()
+printVariable :: [(String, Maybe AccountState)] -> (GameVar, [(String, String, FilePath)]) -> IO ()
 printVariable profiles (variable, uses) = do
   putStrLn (variableName variable <> " (" <> show variable <> ")")
   putStrLn ("  requirements: " <> intercalate ", " (unique [transport | (transport, _, _) <- uses]))
@@ -107,7 +107,7 @@ classificationName RuntimeVar = "runtime state"
 classificationName SpecialModeVar = "special mode"
 classificationName NeedsInvestigation = "needs investigation"
 
-gameVarValue :: AccountBuild -> GameVar -> Maybe Int
+gameVarValue :: AccountState -> GameVar -> Maybe Int
 gameVarValue account variable = case variable of
   GameVarbit identifier -> Map.lookup identifier (accountVarbits account)
   GameVarPlayer identifier -> Map.lookup identifier (accountVarPlayers account)

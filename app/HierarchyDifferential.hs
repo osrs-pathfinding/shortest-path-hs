@@ -35,7 +35,7 @@ import ShortestPath.Exact.TileAStar
 import ShortestPath.Heuristic.Region (RegionTable, buildRegionGraph, buildRegionTable)
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
 import ShortestPath.Account
-  ( AccountBuild(..), CooldownState(..), PohBuild(..), RequirementMode(..), RuntimeState(..) )
+  ( AccountState(..), CooldownState(..), PohBuild(..), RequirementMode(..), RuntimeState(..) )
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkNowMinutes)
 import ShortestPath.Hierarchy.Partition
 import ShortestPath.Hierarchy.Preprocess (preprocessHierarchy)
@@ -543,7 +543,7 @@ serveRequest world tileAStar hierarchical line =
     , "runtime" .= runtimeJson (accountRuntime account)
     ]
   pohJson poh = object
-    [ "location" .= pohLocation poh
+    [ "location" .= show (pohLocation poh)
     , "jewelleryBox" .= show (pohJewelleryBox poh)
     , "portals" .= Set.toAscList (pohPortalDestinations poh)
     , "fairyRing" .= pohFairyRing poh
@@ -555,7 +555,7 @@ serveRequest world tileAStar hierarchical line =
     , "mountedMythical" .= pohMountedMythical poh
     ]
   runtimeJson runtime = object
-    [ "spellbook" .= runtimeSpellbook runtime
+    [ "spellbook" .= show (runtimeSpellbook runtime)
     , "cooldownsReady" .= (runtimeMinigameTeleport runtime == CooldownReady)
     , "arriveInsidePoh" .= runtimeArriveInsidePoh runtime
     ]

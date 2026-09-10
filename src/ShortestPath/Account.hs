@@ -1,9 +1,11 @@
 module ShortestPath.Account
   ( ItemCounts
-  , AccountBuild(..)
+  , AccountState(..)
   , DiaryTier(..)
+  , PohLocation(..)
   , JewelleryBoxTier(..)
   , PohBuild(..)
+  , Spellbook(..)
   , RuntimeState(..)
   , CooldownState(..)
   , ItemAccess(..)
@@ -12,7 +14,7 @@ module ShortestPath.Account
   , RequirementFailure(..)
   , VarRequirementResult(..)
   , TransportAvailability(..)
-  , emptyAccountBuild
+  , emptyAccountState
   , availableItems
   , transportAvailability
   , requirementsSatisfied
@@ -28,7 +30,7 @@ import ShortestPath.Transport (Transport(..))
 
 type ItemCounts = Map.Map String Int
 
-data AccountBuild = AccountBuild
+data AccountState = AccountState
   { accountLevels :: ItemCounts
   , accountCompletedQuests :: Set.Set String
   , accountVarbits :: Map.Map VarbitId Int
@@ -50,8 +52,13 @@ data DiaryTier = NoDiary | Easy | Medium | Hard | Elite
 data JewelleryBoxTier = NoJewelleryBox | FancyJewelleryBox | OrnateJewelleryBox
   deriving stock (Eq, Ord, Show)
 
+data PohLocation
+  = Rimmington | Taverley | Pollnivneach | Rellekka | Brimhaven
+  | Yanille | Prifddinas | Hosidius | Aldarin
+  deriving stock (Eq, Ord, Show)
+
 data PohBuild = PohBuild
-  { pohLocation :: String
+  { pohLocation :: PohLocation
   , pohJewelleryBox :: JewelleryBoxTier
   , pohPortalDestinations :: Set.Set String
   , pohFairyRing :: Bool
@@ -64,8 +71,11 @@ data PohBuild = PohBuild
   }
   deriving stock (Eq, Show)
 
+data Spellbook = Standard | Ancient | Lunar | Arceuus
+  deriving stock (Eq, Ord, Show)
+
 data RuntimeState = RuntimeState
-  { runtimeSpellbook :: String
+  { runtimeSpellbook :: Spellbook
   , runtimeMinigameTeleport :: CooldownState
   , runtimeArriveInsidePoh :: Bool
   }
@@ -77,11 +87,11 @@ data CooldownState = CooldownReady | CooldownUsedAt Int
 data ItemAccess = CarriedOnly | CarriedAndBank
   deriving stock (Eq, Ord, Show)
 
-data RequirementMode = IgnoreRequirements | ConfiguredRequirements AccountBuild
+data RequirementMode = IgnoreRequirements | ConfiguredRequirements AccountState
   deriving stock (Eq, Show)
 
 data RequirementContext = RequirementContext
-  { requirementAccount :: AccountBuild
+  { requirementAccount :: AccountState
   , requirementItemAccess :: ItemAccess
   , requirementNowMinutes :: Int
   }
@@ -99,14 +109,14 @@ data RequirementFailure
 data TransportAvailability = Available | TransportTypeDisabled String | Unavailable [RequirementFailure]
   deriving stock (Eq, Show)
 
-emptyAccountBuild :: AccountBuild
-emptyAccountBuild =
-  AccountBuild Map.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty emptyPoh False (RuntimeState "Standard" CooldownReady True)
+emptyAccountState :: AccountState
+emptyAccountState =
+  AccountState Map.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty emptyPoh False (RuntimeState Standard CooldownReady True)
 
 emptyPoh :: PohBuild
-emptyPoh = PohBuild "Rimmington" NoJewelleryBox Set.empty False False False False False False False
+emptyPoh = PohBuild Rimmington NoJewelleryBox Set.empty False False False False False False False
 
-availableItems :: AccountBuild -> ItemAccess -> ItemCounts
+availableItems :: AccountState -> ItemAccess -> ItemCounts
 availableItems account access =
   foldr (Map.unionWith (+)) Map.empty sources
  where

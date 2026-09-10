@@ -164,7 +164,7 @@ data AccountCompileError
   | ConflictingVarPlayer VarPlayerId Int Int
   deriving stock (Eq, Show)
 
-compileAccount :: Int -> AccountSpec -> Either AccountCompileError AccountBuild
+compileAccount :: Int -> AccountSpec -> Either AccountCompileError AccountState
 compileAccount now spec = do
   progressionVars <- compileProgressionVars progress
   compiled <- mergeCompiledVars
@@ -173,7 +173,7 @@ compileAccount now spec = do
     , compilePohVars (accountSpecPoh spec)
     , CompiledVars (rawVarbitOverrides raw) (rawVarPlayerOverrides raw)
     ]
-  pure emptyAccountBuild
+  pure emptyAccountState
     { accountLevels = progressionLevels progress
     , accountCompletedQuests = progressionQuests progress
     , accountVarbits = compiledVarbits compiled
@@ -401,27 +401,28 @@ cooldownTimestamp :: Int -> CooldownState -> Int
 cooldownTimestamp now CooldownReady = now - 21
 cooldownTimestamp _ (CooldownUsedAt timestamp) = timestamp
 
-spellbookVarbit :: String -> Int
-spellbookVarbit "Standard" = 0
-spellbookVarbit name = error ("unsupported spellbook: " <> name)
+spellbookVarbit :: Spellbook -> Int
+spellbookVarbit Standard = 0
+spellbookVarbit Ancient = 1
+spellbookVarbit Lunar = 2
+spellbookVarbit Arceuus = 3
 
 compilePohVars :: PohBuild -> CompiledVars
 compilePohVars poh = CompiledVars
   (Map.singleton VB.pohHouseLocation (pohLocationVarbit (pohLocation poh)))
   Map.empty
 
-pohLocationVarbit :: String -> Int
+pohLocationVarbit :: PohLocation -> Int
 pohLocationVarbit = \case
-  "Rimmington" -> 1
-  "Taverly" -> 2
-  "Pollnivneach" -> 3
-  "Rellekka" -> 4
-  "Brimhaven" -> 5
-  "Yanille" -> 6
-  "Prifddinas" -> 7
-  "Hosidius" -> 8
-  "Aldarin" -> 9
-  name -> error ("unsupported POH location: " <> name)
+  Rimmington -> 1
+  Taverley -> 2
+  Pollnivneach -> 3
+  Rellekka -> 4
+  Brimhaven -> 5
+  Yanille -> 6
+  Prifddinas -> 7
+  Hosidius -> 8
+  Aldarin -> 9
 
 quetzalsUnlockedVarPlayer :: VarPlayerId
 quetzalsUnlockedVarPlayer = VP.quetzalsUnlocked

@@ -70,7 +70,7 @@ prefer left@(_, leftResponse) right
   | null (responsePath leftResponse) = right
   | otherwise = left
 
-printRoute :: Map.Map String [String] -> Map.Map String AccountBuild -> [Transport] -> Request -> Response -> IO ()
+printRoute :: Map.Map String [String] -> Map.Map String AccountState -> [Transport] -> Request -> Response -> IO ()
 printRoute failedByRoute accounts transports request response = do
   let failedProfiles = Map.findWithDefault [] (requestRouteId request) failedByRoute
       failures = nub (concatMap (profileFailures failedProfiles) (responsePath response))

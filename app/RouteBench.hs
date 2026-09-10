@@ -21,7 +21,7 @@ import System.Process (readProcess)
 import System.Info (arch, os)
 import System.IO (hFlush, stdout)
 
-import ShortestPath.Account (AccountBuild, RequirementMode(..))
+import ShortestPath.Account (AccountState, RequirementMode(..))
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkProfileVariableGaps, benchmarkNowMinutes)
 import ShortestPath.Exact.RawDijkstra (RawDijkstra(..))
 import ShortestPath.Exact.TileAStar
@@ -257,7 +257,7 @@ stableId route = fromMaybe (error "indexed route missing id") (routeId route)
 key :: RouteCase -> String -> String
 key route profile = stableId route <> "/" <> profile
 
-query :: RouteCase -> Maybe AccountBuild -> Query
+query :: RouteCase -> Maybe AccountState -> Query
 query route profile =
   (defaultQuery (tile (routeStart route)) (tile (routeTarget route)))
     { allowTransports = routeAllowTransports route

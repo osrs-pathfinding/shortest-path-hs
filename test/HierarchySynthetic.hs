@@ -215,8 +215,8 @@ query start target enabled bank =
     , requirementMode = ConfiguredRequirements syntheticAccount
     }
 
-syntheticAccount :: AccountBuild
-syntheticAccount = emptyAccountBuild { accountInventory = Map.singleton "13393" 1, accountBank = Map.singleton "999" 1 }
+syntheticAccount :: AccountState
+syntheticAccount = emptyAccountState { accountInventory = Map.singleton "13393" 1, accountBank = Map.singleton "999" 1 }
 
 withoutInventory :: Query -> Query
 withoutInventory q = q { requirementMode = ConfiguredRequirements (syntheticAccount { accountInventory = Map.empty }) }

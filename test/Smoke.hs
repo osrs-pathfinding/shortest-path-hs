@@ -2,6 +2,7 @@ module Main (main) where
 
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
+import Data.Either (isRight)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.List (find)
@@ -68,7 +69,7 @@ assert False = fail "assertion failed"
 
 requirementChecks :: IO ()
 requirementChecks = do
-  let account = emptyAccountBuild
+  let account = emptyAccountState
         { accountLevels = Map.singleton "Agility" 70
         , accountCompletedQuests = Set.singleton "Quest"
         , accountVarbits = Map.singleton (VarbitId 1) 6
@@ -134,12 +135,17 @@ profileChecks = do
   isUnknown (UnknownVarRequirements _) = True
   isUnknown _ = False
 
-mustProfile :: String -> Maybe AccountBuild -> AccountBuild
+mustProfile :: String -> Maybe AccountState -> AccountState
 mustProfile _ (Just account) = account
 mustProfile name Nothing = error ("missing benchmark profile: " <> name)
 
 semanticProfileChecks :: IO ()
 semanticProfileChecks = do
+  let specs = [mustSpec name (benchmarkAccountSpec name []) | name <- benchmarkProfileNames]
+      compiled = map (compileAccount benchmarkNowMinutes) specs
+  assert (all isRight compiled)
+  assert (compiled == map (compileAccount benchmarkNowMinutes) specs)
+  compilerChecks (mustSpec "early" (benchmarkAccountSpec "early" []))
   assert (classifyUnmodelledVar (GameVarbit VB.karamDungeonEntryfee) == Just RuntimeVar)
   assert (classifyUnmodelledVar (GameVarPlayer VP.leagueCombatMasteryPaths) == Just SpecialModeVar)
   assert (classifyUnmodelledVar (GameVarPlayer VP.haunted) == Just NeedsInvestigation)
@@ -255,6 +261,7 @@ semanticProfileChecks = do
   assert (all (== Just 0) [Map.lookup VB.yanilleTeleportLocation (accountVarbits account) | account <- [early, mid, end, maxed]])
   assert (Map.lookup VB.faladorSpawn (accountVarbits early) == Just 0)
   assert (all (== Just 1) [Map.lookup VB.faladorSpawn (accountVarbits account) | account <- [mid, end, maxed]])
+
   transports <- loadTransports defaultSourcePaths
   let context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       available account transport = case transportAvailability (context account) transport of
@@ -313,3 +320,24 @@ semanticProfileChecks = do
         (defaultQuery (packTile 3280 3412 0) (packTile 1700 3141 0))
           { requirementMode = ConfiguredRequirements early }
   assert (routeCost route < maxBound)
+
+compilerChecks :: AccountSpec -> IO ()
+compilerChecks base = do
+  let raw = accountSpecRawGameState base
+      withRaw bits players = base {accountSpecRawGameState = raw {rawVarbitOverrides = bits, rawVarPlayerOverrides = players}}
+      sameSpellbook = withRaw (Map.singleton VB.spellbook 0) Map.empty
+      conflictingSpellbook = withRaw (Map.singleton VB.spellbook 1) Map.empty
+      conflictingQuetzals = withRaw Map.empty (Map.singleton VP.quetzalsUnlocked 1)
+      ancient = base {accountSpecRuntime = (accountSpecRuntime base) {runtimeSpellbook = Ancient}}
+      taverley = base {accountSpecPoh = (accountSpecPoh base) {pohLocation = Taverley}}
+  assert (isRight (compileAccount benchmarkNowMinutes sameSpellbook))
+  assert (compileAccount benchmarkNowMinutes conflictingSpellbook == Left (ConflictingVarbit VB.spellbook 0 1))
+  assert (compileAccount benchmarkNowMinutes conflictingQuetzals == Left (ConflictingVarPlayer VP.quetzalsUnlocked 0 1))
+  assert (compiledVarbit VB.spellbook ancient == Just 1)
+  assert (compiledVarbit VB.pohHouseLocation taverley == Just 2)
+ where
+  compiledVarbit varbit spec = either (const Nothing) (Map.lookup varbit . accountVarbits) (compileAccount benchmarkNowMinutes spec)
+
+mustSpec :: String -> Maybe AccountSpec -> AccountSpec
+mustSpec _ (Just spec) = spec
+mustSpec name Nothing = error ("missing benchmark account spec: " <> name)

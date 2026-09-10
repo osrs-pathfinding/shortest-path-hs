@@ -96,6 +96,6 @@ transportExplanation query banked transport =
  where
   enabled = Set.null (enabledTransportTypes query) || Set.member (transportType transport) (enabledTransportTypes query)
 
-queryRequirementContext :: Query -> AccountBuild -> Bool -> RequirementContext
+queryRequirementContext :: Query -> AccountState -> Bool -> RequirementContext
 queryRequirementContext query account banked =
   RequirementContext account (if banked then CarriedAndBank else CarriedOnly) (queryNowMinutes query)
