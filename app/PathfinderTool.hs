@@ -51,7 +51,6 @@ data ServeRequest = ServeRequest
   , requestTarget :: Point
   , requestAllowTransports :: Bool
   , requestIncludeExpandedTiles :: Bool
-  , _requestUseHeuristic :: Bool
   , requestHeuristicWeight :: Double
   , requestFinder :: Maybe String
   , requestAccountProfile :: Maybe String
@@ -65,7 +64,6 @@ instance FromJSON ServeRequest where
       <*> value .: "target"
       <*> value .: "allowTransports"
       <*> value .: "includeExpandedTiles"
-      <*> value .: "useHeuristic"
       <*> value .:? "heuristicWeight" .!= 1
       <*> value .:? "finder"
       <*> value .:? "accountProfile"
@@ -89,7 +87,6 @@ data Command = Serve | ComponentTransformReport | TileStaticReport
 
 parseCommand :: [String] -> IO Command
 parseCommand ["serve"] = pure Serve
-parseCommand ["serve-direct"] = pure Serve
 parseCommand ["component-transform-report"] = pure ComponentTransformReport
 parseCommand ["tile-static-report"] = pure TileStaticReport
 parseCommand _ = do
