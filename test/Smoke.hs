@@ -181,6 +181,8 @@ semanticProfileChecks = do
   assert (Map.lookup VB.my2armStatus (accountVarbits maxed) == Just 207)
   assert (all (== Just 7) [Map.lookup VB.hosidiusquest (accountVarbits account) | account <- [mid, end, maxed]])
   assert (all (== Just 1) [Map.lookup VB.thzfeBlockingBarricade (accountVarbits account) | account <- [mid, end, maxed]])
+  assert (Map.lookup VB.lovaquest (accountVarbits early) == Just 0)
+  assert (all (== Just 11) [Map.lookup VB.lovaquest (accountVarbits account) | account <- [mid, end, maxed]])
   transports <- loadTransports defaultSourcePaths
   let context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       available account transport = case transportAvailability (context account) transport of
@@ -190,11 +192,14 @@ semanticProfileChecks = do
       base = findTransport "QUETZAL" "Auburnvale"
       camTorum = findTransport "QUETZAL" "Cam Torum"
       outerFortis = findTransport "QUETZAL" "Outer Fortis"
+      freeMinecart = find (\transport -> transportType transport == "MINECART" && varbits transport == [VarReq (GameVarbit VB.lovaquest) 11 VarEq]) transports
       primio = find (\transport -> origin transport == Just (packTile 3280 3412 0) && destination transport == Just (packTile 1700 3141 0)) transports
   assert (maybe False (available early) base)
   assert (maybe False (not . available early) camTorum)
   assert (maybe False (available cam) camTorum)
   assert (maybe False (not . available cam) outerFortis)
+  assert (maybe False (not . available early) freeMinecart)
+  assert (maybe False (available mid) freeMinecart)
   assert (maybe False (available early) primio)
   world <- loadWorld defaultSourcePaths
   let route = findRoute (RawDijkstra world)
