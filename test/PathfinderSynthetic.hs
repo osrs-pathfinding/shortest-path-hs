@@ -1,21 +1,13 @@
 module Main (main) where
 
 import Data.Bits (setBit)
-import Data.Binary (decode, encode)
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.IntMap.Strict as IntMap
-import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-import ShortestPath.Exact.Hierarchical
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Exact.RawDijkstra
 import ShortestPath.Account
-import ShortestPath.Hierarchy.Partition
-import ShortestPath.Hierarchy.Preprocess
-import ShortestPath.Hierarchy.Types
-import ShortestPath.Heuristic.Region
 import ShortestPath.Pathfinder
 import ShortestPath.Requirements
 import ShortestPath.Tile
@@ -24,59 +16,27 @@ import ShortestPath.World
 
 main :: IO ()
 main = do
-  let (world, partition, roles, tiles) = synthetic
+  let (world, tiles) = synthetic
       defaults = defaultQuery (tA0 tiles) (tA1 tiles)
   assert (not (Set.member "SEASONAL_TRANSPORTS" (enabledTransportTypes defaults)))
   assert (Set.member "TELEPORTATION_ITEM" (enabledTransportTypes defaults))
-  hierarchy <- preprocessHierarchyWith partition (walkingNeighborsRaw world) roles
-  assert (decode (encode hierarchy) == hierarchy)
-  checkPreprocess hierarchy world partition tiles
-  let hierarchical = buildHierarchical world hierarchy
-      raw = RawDijkstra world
-      exactValues = regionValues
-        (buildRegionGraph world hierarchy)
-        False
-        Set.empty
-        (tA25 tiles)
-        (Map.singleton (tA25 tiles) 0)
-  assert (tileLowerBound exactValues False (tA0 tiles) == 25)
+  let raw = RawDijkstra world
   tileAStar <- buildTileAStar world
-  mapM_ (checkRoute raw tileAStar hierarchical world) (cases tiles)
-  regionTable <- buildRegionTable (buildRegionGraph world hierarchy)
-  assert (tableLowerBound regionTable False [LeafId 1 "a"] [LeafId 1 "d"] < tableLowerBound regionTable True [LeafId 1 "a"] [LeafId 1 "d"])
-  let precomputed = buildHierarchicalWithRegionTable world hierarchy regionTable
-  mapM_ (checkRoute raw tileAStar precomputed world) (cases tiles)
-  let profiledQuery = walkingQuery (tA3 tiles) (tA8 tiles)
-  (tracedRoute, _, expandedTiles, heuristicRegions, heuristicTiles) <- findRouteProfiledWithOptions True True hierarchical profiledQuery
-  (dijkstraRoute, _, _, noHeuristicRegions, noHeuristicTiles) <- findRouteProfiledWithOptions False False hierarchical profiledQuery
-  assert (routeCost tracedRoute == routeCost dijkstraRoute)
-  assert (routeCost tracedRoute == 5)
-  assert (not (null expandedTiles))
-  assert (not (null heuristicRegions))
-  assert (not (null heuristicTiles))
-  assert (lookup (tA8 tiles) heuristicTiles == Just 0)
-  assert (null noHeuristicRegions)
-  assert (null noHeuristicTiles)
+  mapM_ (checkRoute raw tileAStar world) (cases tiles)
   let globalQuery = query (tA3 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
       rawGlobalRoute = findRoute raw globalQuery
       tileGlobalRoute = findRoute tileAStar globalQuery
-  (globalRoute, globalTimings) <- findRouteProfiled hierarchical globalQuery
   assert (routeSteps rawGlobalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
   assert (routeSteps tileGlobalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
-  assert (routeCost globalRoute == 4)
-  assert (routeSteps globalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
-  assert (searchGlobalEntryEdges (querySearchCounters globalTimings) == 1)
   checkReversePathDebug tileAStar tiles
   checkTransportOnlyEndpoint raw tileAStar tiles
   checkIntermediateTransportEndpoint raw tileAStar tiles
   checkHeuristicPruning tileAStar tiles
 
-synthetic :: (World, Partition, TerminalRoles, Tiles)
+synthetic :: (World, Tiles)
 synthetic =
   ( World (CollisionMap (Map.singleton (1, 1) collisionBytes)) transports globals banks
-  , partition
-  , roles
-  , Tiles a0 a1 a3 a8 a25 b1 c0 d0 d1 e0 s0 s1 s2 unknown xSite ySite
+  , Tiles a0 a1 a3 a8 a25 b1 c0 d0 d1 e0 s0 s2 unknown xSite ySite
   )
  where
   a0 = packTile 100 100 0
@@ -84,7 +44,6 @@ synthetic =
   a3 = packTile 103 100 0
   a8 = packTile 108 100 0
   a25 = packTile 125 100 0
-  a = [packTile x 100 0 | x <- [100 .. 125]]
   s0 = packTile 100 99 0
   s1 = packTile 101 99 0
   s2 = packTile 102 99 0
@@ -94,8 +53,6 @@ synthetic =
   c1 = packTile 111 110 0
   d0 = packTile 110 111 0
   d1 = packTile 111 111 0
-  d2 = packTile 110 112 0
-  d3 = packTile 111 112 0
   e0 = packTile 109 110 0
   unknown = packTile 200 200 0
   xSite = packTile 210 210 0
@@ -111,22 +68,6 @@ synthetic =
   flagOffset tile flag =
     let (x, y, p) = unpackTile tile
      in ((p * 4096 + (y - 64) * 64 + (x - 64)) * 2 + flag)
-  assignments =
-    [PartitionAssignment 1 tile "a" "leaf" 1 | tile <- a]
-      <> [PartitionAssignment 1 s "separator" "separator" 0 | s <- [s0, s1, s2]]
-      <> [PartitionAssignment 1 tile "b" "leaf" 1 | tile <- [b0, b1]]
-      <> [PartitionAssignment 1 tile "c" "leaf" 1 | tile <- [c0, c1]]
-      <> [PartitionAssignment 1 tile "d" "leaf" 1 | tile <- [d0, d1, d2, d3]]
-  ownerTiles = a <> [s0, s1, s2, b0, b1, c0, c1, d0, d1, d2, d3]
-  owner = IntMap.fromList [(unTile tile, 1) | tile <- ownerTiles]
-  partition = either (error . ("synthetic partition: " <>)) id
-    (partitionFromAssignments owner (IntSet.singleton 1) assignments)
-  roles = TerminalRoles
-    { roleBanks = Set.singleton a0
-    , roleLocalOrigins = Set.fromList [a0, b1, c1, e0]
-    , roleLocalDestinations = Set.fromList [a1, c0, a25]
-    , roleGlobalDestinations = Set.singleton d1
-    }
   transports = Map.fromListWith (<>)
     [ (a0, [ local "SYNTHETIC_DIRECT" a0 a1 10
            , local "SYNTHETIC_LONG" a0 d1 20
@@ -149,7 +90,7 @@ synthetic =
 data Tiles = Tiles
   { tA0 :: Tile, tA1 :: Tile, tA3 :: Tile, tA8 :: Tile, tA25 :: Tile
   , tB1 :: Tile, tC0 :: Tile, tD0 :: Tile, tD1 :: Tile, tE0 :: Tile
-  , tS0 :: Tile, tS1 :: Tile, tS2 :: Tile, tUnknown :: Tile, tX :: Tile, tY :: Tile
+  , tS0 :: Tile, tS2 :: Tile, tUnknown :: Tile, tX :: Tile, tY :: Tile
   }
 
 local :: String -> Tile -> Tile -> Int -> Transport
@@ -160,31 +101,6 @@ localReq kind from to cost itemReq = Transport kind (Just from) (Just to) cost k
 
 global :: String -> Tile -> Int -> Maybe ItemExpr -> Transport
 global kind to cost itemReq = Transport kind Nothing (Just to) cost kind "" False Nothing [] itemReq [] [] [] "synthetic"
-
-checkPreprocess :: Hierarchy -> World -> Partition -> Tiles -> IO ()
-checkPreprocess hierarchy world partition tiles = do
-  let leafA = LeafId 1 "a"
-      overlay = must "leaf a" (Map.lookup leafA (leafOverlays hierarchy))
-      kinds = must "duplicate terminal roles" (Map.lookup (tA0 tiles) (leafTerminals overlay))
-      expected = Set.fromList [BankTerminal, LocalTransportOrigin, RegionGateway]
-  assert (Map.size (leafTileSets partition) == 4)
-  assert (kinds == expected)
-  assert (leafDistance overlay (tA0 tiles) (tA1 tiles) == Just 1)
-  assert (leafDistance overlay (tA1 tiles) (tA25 tiles) == Just 24)
-  assert (leafDistance overlay (tA0 tiles) (tB1 tiles) == Nothing)
-  assert (Map.lookup (tA0 tiles) (leafTerminalAdjacency overlay) == Just (Map.fromList [(tA1 tiles, 1), (tA25 tiles, 25)]))
-  assert (Map.lookup (tA1 tiles) (leafTerminalAdjacency overlay) == Just (Map.fromList [(tA0 tiles, 1), (tA25 tiles, 24)]))
-  assert (all (symmetric (leafTerminalAdjacency overlay)) (Map.toList (leafTerminalAdjacency overlay)))
-  assert (all (\(source, neighbours) -> not (Map.member source neighbours)) (Map.toList (leafTerminalAdjacency overlay)))
-  assert (isWalkable (worldCollision world) (tD0 tiles))
-  assert (tS1 tiles `elem` walkingNeighborsRaw world (tS0 tiles))
-  assert (tS2 tiles `elem` walkingNeighborsRaw world (tS1 tiles))
-  assert (Map.member (tS0 tiles) (hierarchySeparatorNodes hierarchy))
-  assert (Map.member (tS2 tiles) (hierarchySeparatorNodes hierarchy))
-  assert (Map.member (LeafId 1 "b") (leafOverlays hierarchy))
- where
-  symmetric adjacency (source, neighbours) =
-    all (\(target, distance) -> (Map.lookup target adjacency >>= Map.lookup source) == Just distance) (Map.toList neighbours)
 
 data Case = Case String Query Expect
 data Expect = Reachable | Unreachable
@@ -227,25 +143,20 @@ withoutBank q = q { requirementMode = ConfiguredRequirements (syntheticAccount {
 walkingQuery :: Tile -> Tile -> Query
 walkingQuery start target = (query start target Set.empty False) { allowTransports = False }
 
-checkRoute :: RawDijkstra -> TileAStar -> Hierarchical -> World -> Case -> IO ()
-checkRoute raw tileAStar hierarchical world (Case name q expectation) = do
+checkRoute :: RawDijkstra -> TileAStar -> World -> Case -> IO ()
+checkRoute raw tileAStar world (Case name q expectation) = do
   let flat = findRoute raw q
       tile = findRoute tileAStar q
-      abstract = findRoute hierarchical q
   case expectation of
     Reachable -> do
       assert (routeCost flat < maxBound)
       assert (routeCost tile == routeCost flat)
-      assert (routeCost abstract == routeCost flat)
       assert (concreteCost world q (routeSteps tile) == routeCost tile)
-      assert (concreteCost world q (routeSteps abstract) == routeCost abstract)
     Unreachable -> do
       assert (routeCost flat == maxBound)
       assert (routeCost tile == maxBound)
-      assert (routeCost abstract == maxBound)
       assert (null (routeSteps tile))
-      assert (null (routeSteps abstract))
-  putStrLn (name <> ": " <> show (routeCost flat) <> " / " <> show (routeCost tile) <> " / " <> show (routeCost abstract))
+  putStrLn (name <> ": " <> show (routeCost flat) <> " / " <> show (routeCost tile))
 
 checkReversePathDebug :: TileAStar -> Tiles -> IO ()
 checkReversePathDebug tileAStar tiles = do
@@ -348,7 +259,7 @@ must name = maybe (error name) id
 
 assert :: Bool -> IO ()
 assert True = pure ()
-assert False = fail "synthetic hierarchy assertion failed"
+assert False = fail "synthetic pathfinder assertion failed"
 
 assertMsg :: String -> Bool -> IO ()
 assertMsg _ True = pure ()

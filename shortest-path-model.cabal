@@ -197,14 +197,13 @@ test-suite smoke
     shortest-path-model
   default-language: GHC2024
 
-test-suite hierarchy-synthetic
+test-suite pathfinder-synthetic
   import: warnings
   type: exitcode-stdio-1.0
-  main-is: HierarchySynthetic.hs
+  main-is: PathfinderSynthetic.hs
   hs-source-dirs: test
   build-depends:
     base,
-    binary,
     bytestring,
     containers,
     shortest-path-model
