@@ -60,7 +60,7 @@ data CatacombsEntrance
   | CatacombsGiantsDen
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
-data PermanentUnlock = RaidsMountainGuideTravel
+data PermanentUnlock = RaidsMountainGuideTravel | CorsairCoveResourceArea
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 data Progression = Progression
@@ -172,7 +172,7 @@ benchmarkProfileVariableGaps transports =
   ]
 
 earlyProfile :: BenchmarkProfile
-earlyProfile = BenchmarkProfile "early" (progression earlyLevels (withCoreQuests earlyQuests) (allDiaries Medium) True Set.empty Set.empty Set.empty Set.empty) emptyGameState basicPoh earlyLoadout earlyBank standardRuntime
+earlyProfile = BenchmarkProfile "early" (progression earlyLevels (withCoreQuests earlyQuests) (allDiaries Medium) True Set.empty Set.empty Set.empty earlyPermanentUnlocks) emptyGameState basicPoh earlyLoadout earlyBank standardRuntime
 
 midProfile :: Set.Set String -> BenchmarkProfile
 midProfile allQuests = BenchmarkProfile "mid" (progression midLevels (withCoreQuests allQuests) (allDiaries Hard) True allPlatforms allBalloonDestinations allCatacombsEntrances allPermanentUnlocks) emptyGameState midPoh midLoadout midBank standardRuntime
@@ -323,8 +323,12 @@ compileCatacombsEntranceVars entrances = Map.fromList
     | otherwise = 0
 
 compilePermanentUnlockVars :: Set.Set PermanentUnlock -> Map.Map VarbitId Int
-compilePermanentUnlockVars unlocks = Map.singleton VB.raidsGuideTravelUnlock
-  (if Set.member RaidsMountainGuideTravel unlocks then 1 else 0)
+compilePermanentUnlockVars unlocks = Map.fromList
+  [ (VB.raidsGuideTravelUnlock, unlocked RaidsMountainGuideTravel)
+  , (VB.corsairCoveResourceEntry, unlocked CorsairCoveResourceArea)
+  ]
+ where
+  unlocked unlock = if Set.member unlock unlocks then 1 else 0
 
 compileDefaultVars :: CompiledVars
 compileDefaultVars = CompiledVars Map.empty (Map.fromList
@@ -434,6 +438,9 @@ allCatacombsEntrances = Set.fromList [minBound .. maxBound]
 
 allPermanentUnlocks :: Set.Set PermanentUnlock
 allPermanentUnlocks = Set.fromList [minBound .. maxBound]
+
+earlyPermanentUnlocks :: Set.Set PermanentUnlock
+earlyPermanentUnlocks = Set.singleton CorsairCoveResourceArea
 
 quetzalPlatformMask :: Set.Set QuetzalPlatform -> Int
 quetzalPlatformMask = Set.foldr ((.|.) . quetzalPlatformBit) 0
