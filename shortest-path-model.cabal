@@ -118,9 +118,9 @@ executable metis-partition
     process
   default-language: GHC2024
 
-executable hierarchy-differential
+executable pathfinder-tool
   import: warnings
-  main-is: HierarchyDifferential.hs
+  main-is: PathfinderTool.hs
   hs-source-dirs: app
   build-depends:
     aeson,

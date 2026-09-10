@@ -150,7 +150,7 @@ class RouteProcess {
       const command = executable || "nix-shell";
       const args = executable
         ? ["serve"]
-        : ["shell.nix", "--run", `cabal run hierarchy-differential -- ${process.env.HIERARCHY_ROUTE_MODE || "serve-direct"}`];
+        : ["shell.nix", "--run", "cabal run pathfinder-tool -- serve"];
       const child = spawn(command, args, {
         cwd: root,
         stdio: ["pipe", "pipe", "pipe"]
@@ -177,14 +177,14 @@ class RouteProcess {
           resolve();
         }
       };
-      startupTimer = setTimeout(() => failStart(new Error("hierarchy process did not become ready")), startupTimeoutMs);
+      startupTimer = setTimeout(() => failStart(new Error("pathfinder process did not become ready")), startupTimeoutMs);
       child.once("error", failStart);
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", data => this.onOutput(data, markReady));
       child.stderr.setEncoding("utf8");
-      child.stderr.on("data", data => process.stderr.write(`[hierarchy] ${data}`));
+      child.stderr.on("data", data => process.stderr.write(`[pathfinder] ${data}`));
       child.once("exit", (code, signal) => {
-        const error = new Error(`hierarchy process exited (${code === null ? signal : code})`);
+        const error = new Error(`pathfinder process exited (${code === null ? signal : code})`);
         if (!settled) failStart(error);
         if (this.child !== child) return;
         this.child = null;
@@ -208,7 +208,7 @@ class RouteProcess {
       try {
         message = JSON.parse(line);
       } catch (_) {
-        console.error(`[hierarchy] ${line}`);
+        console.error(`[pathfinder] ${line}`);
         continue;
       }
       if (message.ready === true) {
@@ -217,7 +217,7 @@ class RouteProcess {
         continue;
       }
       if (!Number.isInteger(message.id)) {
-        console.error(`[hierarchy] ignored JSON message without id: ${line}`);
+        console.error(`[pathfinder] ignored JSON message without id: ${line}`);
         continue;
       }
       const request = this.pending.get(message.id);
@@ -233,12 +233,12 @@ class RouteProcess {
     const started = process.hrtime.bigint();
     await this.start();
     const ready = process.hrtime.bigint();
-    if (!this.child || !this.ready) throw new Error("hierarchy process is not ready");
+    if (!this.child || !this.ready) throw new Error("pathfinder process is not ready");
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        const error = new Error("hierarchy route request timed out");
+        const error = new Error("pathfinder route request timed out");
         reject(error);
         for (const request of this.pending.values()) request.reject(error);
         this.pending.clear();
