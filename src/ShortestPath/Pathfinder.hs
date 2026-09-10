@@ -3,6 +3,11 @@ module ShortestPath.Pathfinder
   , QueryTransportAvailability(..)
   , queryRequirementContext
   , prepareQueryTransports
+  , preparedLocalTransportsAt
+  , preparedGlobalTransports
+  , preparedTransport
+  , transportLabel
+  , bankTransitionAvailable
   , Route(..)
   , RouteStep(..)
   , RouteFinder(..)
@@ -82,6 +87,33 @@ prepareQueryTransports world query =
  where
   filterLocals banked = Map.map (filterAvailable banked) (worldTransports world)
   filterAvailable banked = filter (transportAvailable query banked)
+
+preparedLocalTransportsAt :: QueryTransportAvailability -> Bool -> Tile -> [Transport]
+preparedLocalTransportsAt availability banked tile =
+  filter ((/= "VIRTUAL_WALL") . transportType) $ Map.findWithDefault [] tile
+    (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
+
+preparedGlobalTransports :: QueryTransportAvailability -> Bool -> [Transport]
+preparedGlobalTransports availability banked =
+  if banked then bankedGlobalTransports availability else carriedGlobalTransports availability
+
+preparedTransport :: Query -> Transport -> Maybe (Tile, Int, RouteStep)
+preparedTransport query transport = do
+  target <- destination transport
+  pure
+    ( target
+    , duration transport + Map.findWithDefault 0 (transportType transport) (transportPenalties query)
+    , UseTransport (transportLabel transport) target
+    )
+
+transportLabel :: Transport -> String
+transportLabel transport
+  | null (displayInfo transport) = transportType transport
+  | otherwise = displayInfo transport
+
+bankTransitionAvailable :: Query -> Set.Set Tile -> Bool -> Tile -> Bool
+bankTransitionAvailable query banks banked tile =
+  bankPathEnabled query && not banked && Set.member tile banks
 
 transportAvailable :: Query -> Bool -> Transport -> Bool
 transportAvailable query banked = (== Available) . transportExplanation query banked

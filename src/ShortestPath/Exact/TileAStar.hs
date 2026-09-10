@@ -423,10 +423,10 @@ search trace astar@(TileAStar world components _) q availability heuristic = run
   bankGlobalRelevant = allowTransports q && bankPathEnabled q
   isBankCandidate state = bankGlobalRelevant && not (stateBanked state) && Set.member (stateTile state) reachableBanks
   initialStates = (startState, 0, Nothing) :
-    [ (next, transportCost t, Just (UseTransport (label t) dst))
+    [ (next, stepCost, Just step)
     | allowTransports q
-    , t <- carriedGlobalTransports availability
-    , Just dst <- [destination t]
+    , t <- preparedGlobalTransports availability False
+    , Just (dst, stepCost, step) <- [preparedTransport q t]
     , Just next <- [stateFor dst False]
     ]
 
@@ -549,44 +549,37 @@ search trace astar@(TileAStar world components _) q availability heuristic = run
       ]
     bank =
       [ (next, 0, Walk tile, TransportEdge)
-      | bankPathEnabled q
-      , not banked
-      , Set.member tile reachableBanks
+      | bankTransitionAvailable q reachableBanks banked tile
       , Just next <- [stateFor tile True]
       ]
     localTransports =
       if allowTransports q
-        then transportEdges banked (filter ((/= "VIRTUAL_WALL") . transportType) (localAt banked tile))
+        then transportEdges banked (preparedLocalTransportsAt availability banked tile)
         else []
     bankGlobalTransports =
       if dominatedBankGlobal then [] else suppressedBankGlobals
     suppressedBankGlobals =
       [ (next, stepCost, step, TransportEdge)
       | allowTransports q
-      , bankPathEnabled q
-      , not banked
-      , Set.member tile reachableBanks
-      , (next, stepCost, step, _) <- transportEdges True (bankedGlobalTransports availability)
+      , bankTransitionAvailable q reachableBanks banked tile
+      , (next, stepCost, step, _) <- transportEdges True (preparedGlobalTransports availability True)
       ]
     -- Keep equal-cost bank globals so the path establishing the bound remains materialized.
     dominatedBankGlobal = not banked && Set.member tile reachableBanks && cost > bestBank
     observation =
       if allowTransports q && Set.member tile reachableBanks
         then Just (TileBankGlobalObservation tile banked cost bestBank dominatedBankGlobal
-          [(dst, transportCost t, label t) | t <- bankedGlobalTransports availability, Just dst <- [destination t]])
+          [(dst, stepCost, transportLabel t) | t <- preparedGlobalTransports availability True, Just (dst, stepCost, _) <- [preparedTransport q t]])
         else Nothing
 
   transportEdges banked transports =
-    [ (next, transportCost t, UseTransport (label t) dst, TransportEdge)
+    [ (next, stepCost, step, TransportEdge)
     | t <- transports
-    , Just dst <- [destination t]
+    , Just (dst, stepCost, step) <- [preparedTransport q t]
     , Just next <- [stateFor dst banked]
     ]
 
-  localAt banked tile = Map.findWithDefault [] tile (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
-  usableOrigin banked tile = allowTransports q && not (null (localAt banked tile))
-  transportCost t = duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q)
-  label t = if null (displayInfo t) then transportType t else displayInfo t
+  usableOrigin banked tile = allowTransports q && not (null (preparedLocalTransportsAt availability banked tile))
 
   stateFor tile banked = flip stateId banked <$> nodeFor tile
   nodeFor tile = searchNodeFor space tile
@@ -856,32 +849,24 @@ reversePathDebug astar@(TileAStar world components _) q =
       , let otherTile = siteTiles graph Vector.! other
       ]
     transportEdges =
-      [ DebugEdge (stateId to banked) tile dst banked banked "transport" (label t) (transportCost t)
+      [ DebugEdge (stateId to banked) tile dst banked banked "transport" (transportLabel t) stepCost
       | allowTransports q
-      , t <- localAt banked tile
-      , Just _ <- [origin t]
-      , Just dst <- [destination t]
+      , t <- preparedLocalTransportsAt availability banked tile
+      , Just (dst, stepCost, _) <- [preparedTransport q t]
       , Just to <- [IntMap.lookup (unTile dst) (siteTileIndex graph)]
       ]
     bankEdges =
       [ DebugEdge (stateId node True) tile tile False True "bank" "bank" 0
-      | bankPathEnabled q
-      , not banked
-      , Set.member tile reachableBanks
+      | bankTransitionAvailable q reachableBanks banked tile
       ]
     bankGlobalEdges =
-      [ DebugEdge (stateId to True) tile dst False True "transport" (label t) (transportCost t)
+      [ DebugEdge (stateId to True) tile dst False True "transport" (transportLabel t) stepCost
       | allowTransports q
-      , bankPathEnabled q
-      , not banked
-      , Set.member tile reachableBanks
-      , t <- bankedGlobalTransports availability
-      , Just dst <- [destination t]
+      , bankTransitionAvailable q reachableBanks banked tile
+      , t <- preparedGlobalTransports availability True
+      , Just (dst, stepCost, _) <- [preparedTransport q t]
       , Just to <- [IntMap.lookup (unTile dst) (siteTileIndex graph)]
       ]
-  transportCost t = duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q)
-  label t = if null (displayInfo t) then transportType t else displayInfo t
-  localAt banked tile = Map.findWithDefault [] tile (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
   reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
 
 data DebugEdge = DebugEdge
@@ -1405,13 +1390,13 @@ siteGraph (TileAStar world components static) q availability =
   reachableBanks = Set.filter (maybe False (const True) . componentOf components) (worldBanks world)
 
   localEdges =
-    [ (stateId from banked, stateId to banked, transportCost t)
+    [ (stateId from banked, stateId to banked, stepCost)
     | allowTransports q
     , banked <- [False, True]
     , transports <- Map.elems (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
     , t <- transports
     , Just originTile <- [origin t]
-    , Just destinationTile <- [destination t]
+    , Just (destinationTile, stepCost, _) <- [preparedTransport q t]
     , Just from <- [nodeFor originTile]
     , Just to <- [nodeFor destinationTile]
     ]
@@ -1424,19 +1409,17 @@ siteGraph (TileAStar world components static) q availability =
     ]
 
   bankGlobalEdges =
-    [ (stateId from False, stateId to True, transportCost t)
+    [ (stateId from False, stateId to True, stepCost)
     | allowTransports q
     , bankPathEnabled q
     , bank <- Set.toList reachableBanks
     , Just from <- [nodeFor bank]
-    , t <- bankedGlobalTransports availability
-    , Just destinationTile <- [destination t]
+    , t <- preparedGlobalTransports availability True
+    , Just (destinationTile, stepCost, _) <- [preparedTransport q t]
     , Just to <- [nodeFor destinationTile]
     ]
 
   nodeFor tile = IntMap.lookup (unTile tile) tileIndex
-  transportCost t = duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q)
-
 siteComponentGroups :: Int -> Vector.Vector Int -> Boxed.Vector (Vector.Vector Int)
 siteComponentGroups highestComponent comps = runST $ do
   groups <- BoxedMutable.replicate (highestComponent + 1) []

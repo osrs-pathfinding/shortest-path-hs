@@ -7,7 +7,6 @@ import qualified Data.Set as Set
 
 import ShortestPath.Pathfinder
 import ShortestPath.Tile
-import ShortestPath.Transport
 import ShortestPath.World
 
 newtype ReferenceDijkstra = ReferenceDijkstra World
@@ -53,13 +52,11 @@ instance RouteFinder ReferenceDijkstra where
         ]
       bank =
         [ (State tile True, 0, Walk tile)
-        | queryBankPathEnabled
-        , not banked
-        , Set.member tile (worldBanks world)
+        | bankTransitionAvailable q (worldBanks world) banked tile
         ]
       localTransports =
         if allowTransports q
-          then transportEdges banked (filter ((/= "VIRTUAL_WALL") . transportType) (localAt banked tile))
+          then transportEdges banked (preparedLocalTransportsAt availability banked tile)
           else []
       -- Walking before a broad-origin teleport is dominated by using it immediately.
       initialGlobalTransports =
@@ -67,29 +64,22 @@ instance RouteFinder ReferenceDijkstra where
         | allowTransports q
         , not banked
         , tile == queryStart q
-        , edge <- transportEdges False (globalAt False)
+        , edge <- transportEdges False (preparedGlobalTransports availability False)
         ]
       bankGlobalTransports =
         [ (State dst True, stepCost, step)
         | allowTransports q
-        , queryBankPathEnabled
-        , not banked
-        , Set.member tile (worldBanks world)
-        , (State dst _, stepCost, step) <- transportEdges True (globalAt True)
+        , bankTransitionAvailable q (worldBanks world) banked tile
+        , (State dst _, stepCost, step) <- transportEdges True (preparedGlobalTransports availability True)
         ]
-      queryBankPathEnabled = bankPathEnabled q
 
     transportEdges banked transports =
-      [ (State dst banked, duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q), UseTransport (label t) dst)
+      [ (State dst banked, stepCost, step)
       | t <- transports
-      , Just dst <- [destination t]
+      , Just (dst, stepCost, step) <- [preparedTransport q t]
       ]
 
-    localAt banked tile = Map.findWithDefault [] tile (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
-    globalAt banked = if banked then bankedGlobalTransports availability else carriedGlobalTransports availability
-    usableOrigin banked tile = allowTransports q && not (null (localAt banked tile))
-
-    label t = if null (displayInfo t) then transportType t else displayInfo t
+    usableOrigin banked tile = allowTransports q && not (null (preparedLocalTransportsAt availability banked tile))
 
     reconstruct prev state =
       reverse (go state)

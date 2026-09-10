@@ -301,11 +301,13 @@ semanticProfileChecks = do
         let (from, to) = wallCrossing wall
          in any (\transport -> transportType transport == "VIRTUAL_WALL" && destination transport == Just to)
               (Map.findWithDefault [] from (worldTransports world))
+      prepared = prepareQueryTransports world (defaultQuery (packTile 0 0 0) (packTile 0 0 0))
       route = findRoute (ReferenceDijkstra world)
         (defaultQuery (packTile 3280 3412 0) (packTile 1700 3141 0))
           { requirementMode = ConfiguredRequirements early }
   assert (not (null rawOnlyWallEdges))
   assert (all hasWallTransport virtualWalls)
+  assert (all (all ((/= "VIRTUAL_WALL") . transportType) . preparedLocalTransportsAt prepared False . fst . wallCrossing) virtualWalls)
   assert (routeCost route < maxBound)
  where
   bankAccessMonotonic account transport =
