@@ -32,6 +32,33 @@ main = do
   checkTransportOnlyEndpoint reference tileAStar tiles
   checkIntermediateTransportEndpoint reference tileAStar tiles
   checkHeuristicPruning tileAStar tiles
+  checkMultiplePointAttachments
+
+checkMultiplePointAttachments :: IO ()
+checkMultiplePointAttachments = do
+  let left = packTile 10 10 0
+      point = packTile 11 10 0
+      right = packTile 12 10 0
+      dead = packTile 20 20 0
+      bridge = local "SYNTHETIC_SHARED_POINT" point dead 1
+      world = World (collisionMap [left, right]) (Map.singleton point [bridge]) [] Set.empty
+      routeQuery = query left right (Set.singleton "SYNTHETIC_SHARED_POINT") False
+      reference = ReferenceDijkstra world
+  tileAStar <- buildTileAStar world
+  let attachments = [cid | (_, Just cid, _) <- pointAccessFacts tileAStar point]
+  assert (length attachments == 2)
+  assert (routeCost (findRoute reference routeQuery) == 2)
+  assert (routeCost (findRoute tileAStar routeQuery) == 2)
+
+collisionMap :: [Tile] -> CollisionMap
+collisionMap tiles = CollisionMap (Map.fromList [(region, bytes region) | region <- Set.toList (Set.fromList (map tileRegion tiles))])
+ where
+  tileRegion tile = let (x, y, _) = unpackTile tile in (x `div` 64, y `div` 64)
+  bytes region = BL.pack [byteAt region ix | ix <- [0 .. 8191]]
+  byteAt region ix = foldr set 0 [bit | tile <- tiles, tileRegion tile == region, let bit = collisionBit tile, bit `div` 8 == ix]
+  set bit value = setBit value (bit `mod` 8)
+  collisionBit tile = ((plane * 4096 + (y `mod` 64) * 64 + (x `mod` 64)) * 2)
+   where (x, y, plane) = unpackTile tile
 
 synthetic :: (World, Tiles)
 synthetic =
