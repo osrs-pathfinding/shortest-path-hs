@@ -206,6 +206,7 @@ canonicalQuestUniverse = earlyQuests <> Set.fromList
   , "Song of the Elves", "The Forsaken Tower", "Enlightened Journey"
   , "Legends' Quest", "Shilo Village", "Waterfall Quest"
   , "Darkness of Hallowvale"
+  , "Fishing Contest"
   ]
 
 effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
@@ -273,16 +274,18 @@ compileQuestDerivedVarPlayers progress = Map.fromList
   [ (VP.legendsquest, completed "Legends' Quest" legendsQuestCompleteValue)
   , (VP.zombiequeen, completed "Shilo Village" shiloVillageCompleteValue)
   , (VP.waterfallQuest, completed "Waterfall Quest" waterfallQuestCompleteValue)
+  , (VP.fishingcompo, completed "Fishing Contest" fishingContestCompleteValue)
   ]
  where
   completed quest value
     | Set.member quest (progressionQuests progress) = value
     | otherwise = 0
 
-legendsQuestCompleteValue, shiloVillageCompleteValue, waterfallQuestCompleteValue :: Int
+legendsQuestCompleteValue, shiloVillageCompleteValue, waterfallQuestCompleteValue, fishingContestCompleteValue :: Int
 legendsQuestCompleteValue = 75
 shiloVillageCompleteValue = 15
 waterfallQuestCompleteValue = 10
+fishingContestCompleteValue = 5
 
 compileQuetzalVars :: Set.Set QuetzalPlatform -> Map.Map VarPlayerId Int
 compileQuetzalVars platforms = Map.singleton quetzalsUnlockedVarPlayer (quetzalPlatformMask platforms)

@@ -193,6 +193,8 @@ semanticProfileChecks = do
   assert (all (\account -> Set.member "Waterfall Quest" (accountCompletedQuests account)) [mid, end, maxed])
   assert (not (Set.member "Waterfall Quest" (accountCompletedQuests early)))
   assert (not (Set.member "Darkness of Hallowvale" (accountCompletedQuests early)))
+  assert (Map.lookup VP.fishingcompo (accountVarPlayers early) == Just 0)
+  assert (all (== Just 5) [Map.lookup VP.fishingcompo (accountVarPlayers account) | account <- [mid, end, maxed]])
   assert (Map.lookup VB.lotg (accountVarbits early) == Just 0)
   assert (Map.lookup VB.myq5 (accountVarbits early) == Just 0)
   assert (Map.lookup VB.my2armStatus (accountVarbits early) == Just 0)
@@ -249,6 +251,7 @@ semanticProfileChecks = do
         | (value, operator) <- [(2, VarGt), (10, VarEq)]
         ]
       hallowvaleAccess = find (\transport -> varbits transport == [VarReq (GameVarbit VB.myq3MainQuest) 320 VarEq]) transports
+      fishingContestAccess = find (\transport -> varPlayers transport == [VarReq (GameVarPlayer VP.fishingcompo) 5 VarEq]) transports
       catacombsEntrances =
         [ find (\transport -> varbits transport == [VarReq (GameVarbit varbit) 1 VarEq]) transports
         | varbit <- [VB.cataHole1, VB.cataHole2, VB.cataHoleGiantsDen]
@@ -271,6 +274,8 @@ semanticProfileChecks = do
   assert (all (maybe False (available mid)) waterfallAccess)
   assert (maybe False (not . available early) hallowvaleAccess)
   assert (maybe False (available mid) hallowvaleAccess)
+  assert (maybe False (not . available early) fishingContestAccess)
+  assert (maybe False (available mid) fishingContestAccess)
   assert (all (maybe False (not . available early)) catacombsEntrances)
   assert (all (maybe False (available mid)) catacombsEntrances)
   assert (all (maybe False (not . available early)) balloons)
