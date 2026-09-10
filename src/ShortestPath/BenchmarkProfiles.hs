@@ -195,7 +195,7 @@ canonicalQuestUniverse = earlyQuests <> Set.fromList
   , "Making Friends with My Arm", "Cabin Fever", "The Depths of Despair"
   , "Zogre Flesh Eaters", "The Path of Glouphrie", "Troubled Tortugans"
   , "Song of the Elves", "The Forsaken Tower", "Enlightened Journey"
-  , "Legends' Quest"
+  , "Legends' Quest", "Shilo Village"
   ]
 
 effectiveQuestMilestones :: Progression -> Set.Set QuestMilestone
@@ -254,11 +254,18 @@ thzfeBlockingBarricadeValue = 1
 forsakenTowerCompleteValue = 11
 
 compileQuestDerivedVarPlayers :: Progression -> Map.Map VarPlayerId Int
-compileQuestDerivedVarPlayers progress = Map.singleton VP.legendsquest
-  (if Set.member "Legends' Quest" (progressionQuests progress) then legendsQuestCompleteValue else 0)
+compileQuestDerivedVarPlayers progress = Map.fromList
+  [ (VP.legendsquest, completed "Legends' Quest" legendsQuestCompleteValue)
+  , (VP.zombiequeen, completed "Shilo Village" shiloVillageCompleteValue)
+  ]
+ where
+  completed quest value
+    | Set.member quest (progressionQuests progress) = value
+    | otherwise = 0
 
-legendsQuestCompleteValue :: Int
+legendsQuestCompleteValue, shiloVillageCompleteValue :: Int
 legendsQuestCompleteValue = 75
+shiloVillageCompleteValue = 15
 
 compileQuetzalVars :: Set.Set QuetzalPlatform -> Map.Map VarPlayerId Int
 compileQuetzalVars platforms = Map.singleton quetzalsUnlockedVarPlayer (quetzalPlatformMask platforms)
