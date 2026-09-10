@@ -283,9 +283,29 @@ semanticProfileChecks = do
   assert (all (maybe False (available mid)) balloons)
   assert (maybe False (available early) primio)
   world <- loadWorld defaultSourcePaths
-  let route = findRoute (RawDijkstra world)
+  let wallTiles =
+        [ packTile x y 0
+        | wall <- virtualWalls
+        , let (sx, sy, _) = unpackTile (wallStart wall)
+        , let (ex, ey, _) = unpackTile (wallEnd wall)
+        , x <- [min sx ex - 2 .. max sx ex + 2]
+        , y <- [min sy ey - 2 .. max sy ey + 2]
+        ]
+      rawOnlyWallEdges =
+        [ (from, to)
+        | from <- wallTiles
+        , to <- walkingNeighborsRaw world from
+        , to `notElem` walkingNeighbors world from
+        ]
+      hasWallTransport wall =
+        let (from, to) = wallCrossing wall
+         in any (\transport -> transportType transport == "VIRTUAL_WALL" && destination transport == Just to)
+              (Map.findWithDefault [] from (worldTransports world))
+      route = findRoute (RawDijkstra world)
         (defaultQuery (packTile 3280 3412 0) (packTile 1700 3141 0))
           { requirementMode = ConfiguredRequirements early }
+  assert (not (null rawOnlyWallEdges))
+  assert (all hasWallTransport virtualWalls)
   assert (routeCost route < maxBound)
  where
   bankAccessMonotonic account transport =
