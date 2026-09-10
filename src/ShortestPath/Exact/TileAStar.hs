@@ -1423,11 +1423,14 @@ siteComponentGroups highestComponent comps = runST $ do
   pure (Boxed.map Vector.fromList frozen)
 
 attachedSites :: SiteGraph -> Int -> Vector.Vector Int
-attachedSites graph node = Vector.fromList (IntSet.toList (IntSet.fromList
-  [ site
-  | cid <- Vector.toList (siteComponents graph Boxed.! node)
-  , site <- Vector.toList (siteComponentSiteIds graph Boxed.! cid)
-  ]))
+attachedSites graph node =
+  case Vector.length attachments of
+    0 -> Vector.empty
+    1 -> siteComponentSiteIds graph Boxed.! Vector.head attachments
+    _ -> Vector.fromList (IntSet.toList (IntSet.fromList
+      [site | cid <- Vector.toList attachments, site <- Vector.toList (siteComponentSiteIds graph Boxed.! cid)]))
+ where
+  attachments = siteComponents graph Boxed.! node
 
 targetSeeds :: SiteGraph -> Tile -> [(Int, Int)]
 targetSeeds graph target =
