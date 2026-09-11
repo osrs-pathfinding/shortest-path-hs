@@ -352,11 +352,6 @@ searchNodeForRaw space packed =
           let extraNode = binarySearchRaw packed (searchExtraTiles space)
            in if extraNode < 0 then -1 else Vector.length base + extraNode
 
-searchNodeFor :: SearchSpace -> Tile -> Maybe Int
-searchNodeFor space tile =
-  let node = searchNodeForRaw space (unTile tile)
-   in if node < 0 then Nothing else Just node
-
 binarySearchRaw :: Int -> Vector.Vector Int -> Int
 {-# INLINE binarySearchRaw #-}
 binarySearchRaw needle values = go 0 (Vector.length values - 1)
