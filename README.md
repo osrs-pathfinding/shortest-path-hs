@@ -54,12 +54,13 @@ six runs under one sweep ID.
 measure viewer or HTTP overhead), applies all four account profiles, and writes
 one JSON object per route/profile/repetition to a JSONL file.
 
-The checked-in v1 corpus contains 750 fixed routes: 20 smoke routes, 140
-standard routes, and 750 full routes. It includes GPS, quest, clue, walking,
-transport, Wilderness, geographic, and regression cases. The 40 entries in
+The checked-in v1 corpus contains 724 fixed routes and 2,896 route/profile
+cases: 2,809 positive and 87 expected-unreachable negatives. It includes GPS, quest, clue, walking,
+transport, Wilderness, geographic, and regression cases. The 39 entries in
 `benchmarks/corpus/sentinels-v1.json` are the individually tracked cases.
-Ordinary routes contain only structurally reachable endpoints. Intentional
-unreachable regression routes must set `expectedReachable: false`.
+The 26 unresolved all-profile failures live in
+`benchmarks/corpus/excluded-routes-v1.json` and are not executed. Every result
+records its corpus `expectation` separately from observed and oracle reachability.
 
 Regenerate the natural-route selection from the sibling `runelite-gps-plugin`,
 `quest-helper`, and `shortest-path` clones, then inspect its endpoint-diversity
@@ -115,9 +116,9 @@ node benchmarks/report.js out/route-benchmark.jsonl out/route-benchmark-bencher.
 bencher run --adapter json --file out/route-benchmark-bencher.json
 ```
 
-The exporter tracks corpus p50/p95/p99, category p50s, and only the pairs in
-`benchmarks/corpus/sentinels-v1.json` individually. Bencher owns history and
-regression detection.
+The exporter tracks positive-corpus p50/p95/p99 and category p50s, negative
+search aggregates separately, and only positive pairs in
+`benchmarks/corpus/sentinels-v1.json` individually. Bencher owns history and regression detection.
 
 ### Inspect a route in the viewer
 

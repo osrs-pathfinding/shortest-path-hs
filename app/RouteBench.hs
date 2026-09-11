@@ -42,11 +42,12 @@ data RouteCase = RouteCase
   , routeTarget :: [Int]
   , routeAllowTransports :: Bool
   , routeTiers :: [String]
+  , routeNegativeProfiles :: [String]
   }
 
 instance FromJSON RouteCase where
   parseJSON = withObject "benchmark route" $ \v ->
-    RouteCase <$> v .:? "id" <*> v .: "name" <*> v .: "category" <*> v .:? "distanceTag" .!= "unknown" <*> v .:? "planeTag" .!= "unknown" <*> v .: "start" <*> v .: "target" <*> v .: "allowTransports" <*> v .:? "tiers" .!= []
+    RouteCase <$> v .:? "id" <*> v .: "name" <*> v .: "category" <*> v .:? "distanceTag" .!= "unknown" <*> v .:? "planeTag" .!= "unknown" <*> v .: "start" <*> v .: "target" <*> v .: "allowTransports" <*> v .:? "tiers" .!= [] <*> v .:? "negativeProfiles" .!= []
 
 data Oracle = Oracle { oracleReachable :: Bool, oracleCost :: Maybe Int }
 
@@ -202,7 +203,9 @@ runBench tileConfig options world astar cases = do
         , maybe True (Set.member (key route profileName)) failedKeys
         ]
       totalQueries = length queries
+      negativeQueries = length [() | (route, profileName, _) <- queries, profileName `elem` routeNegativeProfiles route]
   when (null queries) (die "no failed benchmark cases selected")
+  putStrLn ("benchmark population: " <> show (totalQueries - negativeQueries) <> " positive cases, " <> show negativeQueries <> " negative cases")
   -- Warm the same code path without recording it.
   let firstRoute = case queries of (route, _, _) : _ -> route; [] -> error "checked above"
   forM_ (Set.toList (Set.fromList [profileName | (_, profileName, _) <- queries])) $ \profileName -> do
@@ -212,6 +215,10 @@ runBench tileConfig options world astar cases = do
   forM_ (zip [1 :: Int ..] queries) $ \(queryNumber, (route, profileName, profile)) -> do
     putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName)
     expected <- maybe (die ("missing oracle for " <> key route profileName <> "; run route-bench --write-oracle")) pure (Map.lookup (key route profileName) oracles)
+    let expectation :: String
+        expectation = if profileName `elem` routeNegativeProfiles route then "negative" else "positive"
+    when (oracleReachable expected /= (expectation == "positive")) $
+      die ("corpus expectation disagrees with oracle for " <> key route profileName)
     forM_ [1 .. repetitions options] $ \repetition -> do
       (result, timings) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query route profile (heuristicWeightOption options))
       let cost = routeCost result
@@ -233,10 +240,11 @@ runBench tileConfig options world astar cases = do
         [ "benchmarkVersion" .= ("v1" :: String), "generatedAt" .= show now, "gitCommit" .= commit, "gitBranch" .= branch, "gitDirty" .= dirty, "testbed" .= (os <> "-" <> arch)
         , "benchmarkTier" .= benchmarkTier options, "heuristicWeight" .= weight
         , "routeId" .= stableId route, "routeName" .= routeName route, "category" .= routeCategory route
+        , "expectation" .= expectation
         , "distanceTag" .= routeDistanceTag route, "planeTag" .= routePlaneTag route, "allowTransports" .= routeAllowTransports route
         , "accountProfile" .= profileName, "repetition" .= repetition, "start" .= routeStart route, "target" .= routeTarget route
         , "reachable" .= reachable, "cost" .= if reachable then Just cost else Nothing
-        , "expectedCost" .= oracleCost expected, "correct" .= correct
+        , "expectedCost" .= oracleCost expected, "oracleReachable" .= oracleReachable expected, "oracleCost" .= oracleCost expected, "correct" .= correct
         , "timings" .= timingsJson timings, "expandedNodes" .= routeExpandedNodes result
         ] <> quality
       when (diagnostic options) $ do
