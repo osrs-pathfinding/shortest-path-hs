@@ -8,6 +8,7 @@ import Control.Monad (filterM, when)
 import Data.Aeson (FromJSON(..), Value, encode, eitherDecode, object, withObject, (.:), (.:?), (.=), (.!=))
 import Data.Binary (Binary, decodeFileOrFail, encodeFile)
 import Data.Ord (Down(..))
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import qualified Data.Map.Strict as Map
@@ -77,6 +78,10 @@ instance FromJSON ServeRequest where
 data TileComponentCache = TileComponentCache Word64 NaturalComponents TileStatic
   deriving stock (Generic)
   deriving anyclass (Binary)
+
+data RoutingPreparationCache = RoutingPreparationCache
+  (Maybe (RoutingOptions, CompiledRoutingAccount))
+  (Maybe (EffectiveRoutingFingerprint, Tile, PreparedTarget))
 
 main :: IO ()
 main = do
@@ -255,21 +260,22 @@ routeStepsJson = map stepJson
 
 serveLoop :: TileAStarConfig -> Bool -> World -> TileAStar -> IO ()
 serveLoop tileConfig useCTransform world tileAStar = do
+  cache <- newIORef (RoutingPreparationCache Nothing Nothing)
   LBS.putStrLn (encode (object ["ready" .= True]))
   hFlush stdout
-  loop
+  loop cache
  where
-  loop = do
+  loop cache = do
     done <- isEOF
     when (not done) $ do
       line <- BS.getLine
-      response <- serveRequest tileConfig useCTransform world tileAStar (LBS.fromStrict line)
+      response <- serveRequest cache tileConfig useCTransform world tileAStar (LBS.fromStrict line)
       LBS.putStrLn (encode response)
       hFlush stdout
-      loop
+      loop cache
 
-serveRequest :: TileAStarConfig -> Bool -> World -> TileAStar -> LBS.ByteString -> IO Value
-serveRequest tileConfig useCTransform world tileAStar line =
+serveRequest :: IORef RoutingPreparationCache -> TileAStarConfig -> Bool -> World -> TileAStar -> LBS.ByteString -> IO Value
+serveRequest cache tileConfig useCTransform world tileAStar line =
   case eitherDecode line of
     Left message -> pure (object ["ok" .= False, "error" .= ("invalid JSON request: " <> message)])
     Right request
@@ -292,7 +298,10 @@ serveRequest tileConfig useCTransform world tileAStar line =
               finished <- getMonotonicTimeNSec
               pure (routeResponse request route [] [] (rawTimingsJson route started finished))
             "tile-full" -> do
-              (route, timings, expandedStates) <- findRouteProfiledTileAStarWithTraceConfig tileConfig (requestIncludeExpandedTiles request) tileAStar query
+              (account, accountMs, target, targetMs) <- prepareCached cache tileConfig tileAStar query
+              (route, searchTimings, expandedStates) <- searchPreparedProfiledWithTrace
+                (requestIncludeExpandedTiles request) tileAStar account target (queryStart query) (searchOptionsFromQuery query)
+              let timings = recordPreparationTimings accountMs targetMs target searchTimings
               pure (routeResponse request route (map fst expandedStates) expandedStates (tileTimingsJson timings))
             "heuristic" -> do
               let stem = "start-" <> coordinateFileText (queryStart query) <> "-target-" <> coordinateFileText (queryTarget query) <> "-transports-" <> (if allowTransports query then "1" else "0")
@@ -339,6 +348,7 @@ serveRequest tileConfig useCTransform world tileAStar line =
     , "poh" .= pohJson (accountPoh account)
     , "runtime" .= runtimeJson (accountRuntime account)
     ]
+
   pohJson poh = object
     [ "location" .= show (pohLocation poh)
     , "jewelleryBox" .= show (pohJewelleryBox poh)
@@ -449,9 +459,34 @@ serveRequest tileConfig useCTransform world tileAStar line =
           ]
       ]
 
+prepareCached :: IORef RoutingPreparationCache -> TileAStarConfig -> TileAStar -> Query
+  -> IO (CompiledRoutingAccount, Double, PreparedTarget, Double)
+prepareCached ref config astar query = do
+  RoutingPreparationCache cachedAccount cachedTarget <- readIORef ref
+  let options = routingOptionsFromQuery query
+  (account, accountMs) <- case cachedAccount of
+    Just (cachedOptions, cached) | cachedOptions == options -> pure (cached, 0)
+    _ -> do
+      (candidate, elapsed) <- compileRoutingAccountProfiled astar options
+      let selected = case cachedAccount of
+            Just (_, cached) | compiledRoutingFingerprint cached == compiledRoutingFingerprint candidate -> cached
+            _ -> candidate
+      pure (selected, elapsed)
+  let fingerprint = compiledRoutingFingerprint account
+      destination = queryTarget query
+  (target, targetMs) <- case cachedTarget of
+    Just (cachedFingerprint, cachedDestination, cached)
+      | cachedFingerprint == fingerprint && cachedDestination == destination -> pure (cached, 0)
+    _ -> prepareTargetProfiled config astar account destination
+  writeIORef ref (RoutingPreparationCache (Just (options, account)) (Just (fingerprint, destination, target)))
+  pure (account, accountMs, target, targetMs)
+
 rawTimingsJson :: Route -> Word64 -> Word64 -> Value
 rawTimingsJson route started finished = object
-  [ "setupMs" .= (0 :: Double)
+  [ "accountPrepareMs" .= (0 :: Double)
+  , "targetPrepareMs" .= (0 :: Double)
+  , "forwardSearchMs" .= milliseconds started finished
+  , "setupMs" .= (0 :: Double)
   , "reverseDijkstraMs" .= (0 :: Double)
   , "seedTableMs" .= (0 :: Double)
   , "distanceTransformMs" .= (0 :: Double)
@@ -470,7 +505,11 @@ rawTimingsJson route started finished = object
 
 tileTimingsJson :: TileAStarTimings -> Value
 tileTimingsJson timings = object
-  [ "setupMs" .= tileHeuristicSetupMilliseconds timings
+  [ "mode" .= timingMode timings
+  , "accountPrepareMs" .= tileAccountPrepareMilliseconds timings
+  , "targetPrepareMs" .= tileTargetPrepareMilliseconds timings
+  , "forwardSearchMs" .= tileSearchMilliseconds timings
+  , "setupMs" .= tileHeuristicSetupMilliseconds timings
   , "reverseDijkstraMs" .= tileReverseDijkstraMilliseconds timings
   , "seedTableMs" .= tileSeedTableMilliseconds timings
   , "distanceTransformMs" .= (0 :: Double)
@@ -479,6 +518,12 @@ tileTimingsJson timings = object
   , "search" .= tileCountersJson (tileSearchCounters timings)
   , "reverseSearch" .= tileReverseCountersJson (tileReverseCounters timings)
   ]
+
+timingMode :: TileAStarTimings -> String
+timingMode timings
+  | tileTargetPrepareMilliseconds timings == 0 = "warm-target"
+  | tileAccountPrepareMilliseconds timings == 0 = "warm-account"
+  | otherwise = "cold"
 
 tileCountersJson :: TileAStarCounters -> Value
 tileCountersJson counters = object
@@ -593,7 +638,7 @@ filesBelow path = do
       pure (files <> nested)
 
 tileComponentCacheVersion :: Word64
-tileComponentCacheVersion = 11
+tileComponentCacheVersion = 12
 
 tileComponentCachePath, heuristicTileRoot, componentTileRoot :: FilePath
 tileComponentCachePath = "out/tile-astar-components.bin"

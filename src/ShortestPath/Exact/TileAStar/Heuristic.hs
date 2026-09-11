@@ -1,5 +1,6 @@
 module ShortestPath.Exact.TileAStar.Heuristic
   ( Heuristic(..)
+  , PreparedTarget(..)
   , ReverseImplementation(..)
   , TileAStarConfig(..)
   , defaultTileAStarConfig
@@ -52,23 +53,33 @@ data Heuristic = Heuristic
   , heuristicReverseCounters :: !TileReverseCounters
   }
 
+data PreparedTarget = PreparedTarget
+  { preparedTargetTile :: !Tile
+  , preparedTargetAttachments :: Vector.Vector Int
+  , preparedTargetSite :: !Int
+  , preparedSearchExtraTiles :: Vector.Vector Int
+  , preparedSearchExtraComponents :: Boxed.Vector (Vector.Vector Int)
+  , preparedSearchExtraSites :: Vector.Vector Int
+  , preparedTargetHeuristic :: Heuristic
+  }
+
 -- | The production, untimed heuristic used by the pure Tile A* entry point.
-prepareHeuristic :: TileAStar -> Query -> QueryTransportAvailability -> Heuristic
-prepareHeuristic astar q availability =
+prepareHeuristic :: TileAStar -> CompiledRoutingAccount -> Tile -> Heuristic
+prepareHeuristic astar account target =
   heuristicFromDistances components graph distances 0 0 emptyReverseCounters
  where
-  graph = siteGraph astar q availability
-  distances = reverseDijkstraUncounted graph (targetSeeds graph (queryTarget q))
+  graph = siteGraph astar account target
+  distances = reverseDijkstraUncounted graph (targetSeeds graph target)
   components = topologyNaturalComponents (tileTopology astar)
 
-prepareHeuristicProfiled :: TileAStarConfig -> TileAStar -> Query -> QueryTransportAvailability -> IO Heuristic
-prepareHeuristicProfiled config astar q availability = do
+prepareHeuristicProfiled :: TileAStarConfig -> TileAStar -> CompiledRoutingAccount -> Tile -> IO Heuristic
+prepareHeuristicProfiled config astar account target = do
   ((distances, counters), reverseMs) <- timedIO forceReverseResult reverseAction
   (table, seedMs) <- timedIO forceSeedTable (pure (seedTableFromDistances components graph distances))
   pure (heuristicFromSeedTable table graph distances reverseMs seedMs counters)
  where
-  graph = siteGraph astar q availability
-  seeds = targetSeeds graph (queryTarget q)
+  graph = siteGraph astar account target
+  seeds = targetSeeds graph target
   components = topologyNaturalComponents (tileTopology astar)
   reverseAction = case tileReverseImplementation config of
     CliqueReverse

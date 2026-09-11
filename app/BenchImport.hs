@@ -127,6 +127,9 @@ metrics raw = Map.fromList
   booleanMetric name key = case boolMaybe raw key of Just value -> [(name, if value then 1 else 0)]; Nothing -> []
 
 metricName "setupMs" = "heuristic_setup_ms"
+metricName "accountPrepareMs" = "account_prepare_ms"
+metricName "targetPrepareMs" = "target_prepare_ms"
+metricName "forwardSearchMs" = "forward_search_ms"
 metricName "reverseDijkstraMs" = "reverse_ms"
 metricName "seedTableMs" = "seed_table_ms"
 metricName "searchMs" = "search_ms"

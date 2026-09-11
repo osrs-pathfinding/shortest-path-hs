@@ -1,6 +1,7 @@
 module ShortestPath.Exact.TileAStar.Types
   ( TileAStar(..)
   , TileStatic(..)
+  , SiteGraph(..)
   , TileAStarCounters(..)
   , TileBankGlobalObservation(..)
   , TileReverseCounters(..)
@@ -19,6 +20,8 @@ module ShortestPath.Exact.TileAStar.Types
 import Data.Binary (Binary(..))
 import Data.Int (Int32, Int64)
 import Data.Word (Word8)
+import qualified Data.IntMap.Strict as IntMap
+import qualified Data.Set as Set
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
 
@@ -43,7 +46,20 @@ data TileStatic = TileStatic
   , staticSouthNodes :: Vector.Vector Int32
   , staticTiles :: Vector.Vector Int
   , staticComponents :: Boxed.Vector (Vector.Vector Int)
+  , staticSiteTileIndex :: IntMap.IntMap Int
+  , staticSiteComponentIds :: Boxed.Vector (Vector.Vector Int)
+  , staticReachableBanks :: Set.Set Tile
   , staticWalkingNetwork :: SparseWalkingNetwork
+  }
+
+data SiteGraph = SiteGraph
+  { siteTiles :: Vector.Vector Int
+  , siteTileIndex :: IntMap.IntMap Int
+  , siteComponents :: Boxed.Vector (Vector.Vector Int)
+  , siteStaticCount :: !Int
+  , siteSparseNetwork :: SparseWalkingNetwork
+  , siteComponentSiteIds :: Boxed.Vector (Vector.Vector Int)
+  , siteReverseEdges :: Boxed.Vector (Vector.Vector (Int, Int))
   }
 
 instance Binary TileStatic where
@@ -55,6 +71,9 @@ instance Binary TileStatic where
     put (Vector.toList (staticSouthNodes value))
     put (Vector.toList (staticTiles value))
     put (map Vector.toList (Boxed.toList (staticComponents value)))
+    put (IntMap.toList (staticSiteTileIndex value))
+    put (map Vector.toList (Boxed.toList (staticSiteComponentIds value)))
+    put (Set.toList (staticReachableBanks value))
     put (staticWalkingNetwork value)
   get =
     TileStatic
@@ -65,6 +84,9 @@ instance Binary TileStatic where
       <*> (Vector.fromList <$> get)
       <*> (Vector.fromList <$> get)
       <*> (Boxed.fromList . map Vector.fromList <$> get)
+      <*> (IntMap.fromList <$> get)
+      <*> (Boxed.fromList . map Vector.fromList <$> get)
+      <*> (Set.fromList <$> get)
       <*> get
 
 tileStaticStats :: TileAStar -> (Int, Int, Int, Int)
@@ -121,7 +143,9 @@ data TileReverseCounters = TileReverseCounters
   deriving stock (Eq, Show)
 
 data TileAStarTimings = TileAStarTimings
-  { tileHeuristicSetupMilliseconds :: !Double
+  { tileAccountPrepareMilliseconds :: !Double
+  , tileTargetPrepareMilliseconds :: !Double
+  , tileHeuristicSetupMilliseconds :: !Double
   , tileReverseDijkstraMilliseconds :: !Double
   , tileSeedTableMilliseconds :: !Double
   , tileSearchMilliseconds :: !Double

@@ -7,12 +7,29 @@ module ShortestPath.Exact.TileAStar
   , TileReverseCounters(..)
   , TileAStarTimings(..)
   , TileAStarConfig(..)
+  , CompiledRoutingAccount
+  , compiledRoutingFingerprint
+  , EffectiveRoutingFingerprint
+  , PreparedTarget
+  , preparedTargetTile
+  , RoutingOptions(..)
+  , SearchOptions(..)
   , ReverseImplementation(..)
   , defaultTileAStarConfig
   , buildTileAStar
   , buildTileAStarWithPolicy
   , buildTileAStarFromTopology
   , tileTopology
+  , compileRoutingAccount
+  , compileRoutingAccountProfiled
+  , routingOptionsFromQuery
+  , searchOptionsFromQuery
+  , prepareTarget
+  , prepareTargetProfiled
+  , searchPrepared
+  , searchPreparedProfiled
+  , searchPreparedProfiledWithTrace
+  , recordPreparationTimings
   , findRouteTileAStar
   , findRouteProfiledTileAStar
   , findRouteProfiledTileAStarWithConfig
@@ -23,6 +40,10 @@ module ShortestPath.Exact.TileAStar
   ) where
 
 import Control.Exception (evaluate)
+import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
 import GHC.Clock (getMonotonicTimeNSec)
@@ -31,6 +52,8 @@ import System.Mem (getAllocationCounter)
 import ShortestPath.Pathfinder
 import ShortestPath.Exact.TileAStar.Heuristic
 import ShortestPath.Exact.TileAStar.Preprocessing
+import ShortestPath.Exact.TileAStar.RelaxedGraph (binarySearch, compileRoutingAccount)
+import ShortestPath.Exact.TileAStar.ReverseSearch (emptyReverseCounters)
 import ShortestPath.Exact.TileAStar.Search
 import ShortestPath.Exact.TileAStar.SparseWalking
 import ShortestPath.Exact.TileAStar.Types
@@ -41,9 +64,65 @@ import ShortestPath.World
 
 findRouteTileAStar :: TileAStar -> Query -> Route
 findRouteTileAStar astar q =
-  let availability = prepareQueryTransports (tileWorld astar) q
-      (route, _, _) = search False astar q availability (prepareHeuristic astar q availability)
+  searchPrepared astar account target (queryStart q) (searchOptionsFromQuery q)
+ where
+  account = compileRoutingAccount astar (routingOptionsFromQuery q)
+  target = prepareTarget astar account (queryTarget q)
+
+prepareTarget :: TileAStar -> CompiledRoutingAccount -> Tile -> PreparedTarget
+prepareTarget astar account target = preparedTarget astar target (prepareHeuristic astar account target)
+
+compileRoutingAccountProfiled :: TileAStar -> RoutingOptions -> IO (CompiledRoutingAccount, Double)
+compileRoutingAccountProfiled astar options =
+  timedIO forceCompiledRoutingAccount (pure (compileRoutingAccount astar options))
+
+prepareTargetProfiled :: TileAStarConfig -> TileAStar -> CompiledRoutingAccount -> Tile -> IO (PreparedTarget, Double)
+prepareTargetProfiled config astar account target =
+  timedIO forcePreparedTarget
+    (preparedTarget astar target <$> prepareHeuristicProfiled config astar account target)
+
+preparedTarget :: TileAStar -> Tile -> Heuristic -> PreparedTarget
+preparedTarget (TileAStar topology static) target heuristic =
+  PreparedTarget target attachments site extras extraComponents extraSites heuristic
+ where
+  attachments = Vector.fromList (structurallyReachablePointAttachments topology target)
+  site = IntMap.findWithDefault (-1) (unTile target) (heuristicSiteIndex heuristic)
+  extras = Vector.fromList
+    [ packed
+    | packed <- IntSet.toAscList (IntSet.insert (unTile target) (IntSet.fromList (Vector.toList (staticTiles static))))
+    , binarySearch packed (staticSearchTiles static) == Nothing
+    ]
+  staticIndex = IntMap.fromList [(packed, ix) | (ix, packed) <- Vector.toList (Vector.indexed (staticTiles static))]
+  extraComponents = Boxed.fromList [componentsAt packed | packed <- Vector.toList extras]
+  componentsAt packed
+    | packed == unTile target = attachments
+    | otherwise = maybe Vector.empty (staticComponents static Boxed.!) (IntMap.lookup packed staticIndex)
+  extraSites = Vector.map (\packed -> IntMap.findWithDefault (-1) packed (heuristicSiteIndex heuristic)) extras
+
+searchPrepared :: TileAStar -> CompiledRoutingAccount -> PreparedTarget -> Tile -> SearchOptions -> Route
+searchPrepared astar account target start options =
+  let (route, _, _) = search False astar account target start options
    in route
+
+searchPreparedProfiled :: TileAStar -> CompiledRoutingAccount -> PreparedTarget -> Tile -> SearchOptions -> IO (Route, TileAStarTimings)
+searchPreparedProfiled astar account target start options = do
+  (route, timings, _) <- searchPreparedProfiledWithTrace False astar account target start options
+  pure (route, timings)
+
+searchPreparedProfiledWithTrace :: Bool -> TileAStar -> CompiledRoutingAccount -> PreparedTarget -> Tile -> SearchOptions -> IO (Route, TileAStarTimings, [(Tile, Bool)])
+searchPreparedProfiledWithTrace trace astar account target start options = do
+  beforeAlloc <- getAllocationCounter
+  started <- getMonotonicTimeNSec
+  let result@(route, counters, explored) = search trace astar account target start options
+  _ <- forceSearch result
+  finished <- getMonotonicTimeNSec
+  afterAlloc <- getAllocationCounter
+  let searchMs = milliseconds started finished
+  pure
+    ( route
+    , TileAStarTimings 0 0 0 0 0 searchMs (beforeAlloc - afterAlloc) searchMs counters emptyReverseCounters
+    , explored
+    )
 
 buildTileAStar :: World -> IO TileAStar
 buildTileAStar world = buildWorldTopology world >>= buildTileAStarFromTopology
@@ -70,6 +149,9 @@ forceTileAStar astar@(TileAStar topology static) = do
         + Vector.length (staticNorthNodes static)
         + Vector.length (staticSouthNodes static)
         + Vector.length (staticTiles static)
+        + IntMap.size (staticSiteTileIndex static)
+        + Boxed.foldl' (\total sites -> total + Vector.length sites) 0 (staticSiteComponentIds static)
+        + Set.size (staticReachableBanks static)
         + sparseVertexCount (staticWalkingNetwork static)
         + sparseWalkingEdgeCount (staticWalkingNetwork static)
     )
@@ -91,30 +173,40 @@ findRouteProfiledTileAStarWithTrace = findRouteProfiledTileAStarWithTraceConfig 
 findRouteProfiledTileAStarWithTraceConfig :: TileAStarConfig -> Bool -> TileAStar -> Query -> IO (Route, TileAStarTimings, [(Tile, Bool)])
 findRouteProfiledTileAStarWithTraceConfig config trace astar query =
   do
-    let availability = prepareQueryTransports (tileWorld astar) query
-    (heuristic, setupMs) <- timedIO forceHeuristic (prepareHeuristicProfiled config astar query availability)
-    beforeAlloc <- getAllocationCounter
-    started <- getMonotonicTimeNSec
-    let result@(route, counters, explored) = search trace astar query availability heuristic
-    _ <- forceSearch result
-    finished <- getMonotonicTimeNSec
-    afterAlloc <- getAllocationCounter
-    let searchMs = milliseconds started finished
-        allocatedBytes = beforeAlloc - afterAlloc
-    let totalMs = setupMs + searchMs
-    pure
-      ( route
-      , TileAStarTimings
-          setupMs
-          (heuristicReverseMilliseconds heuristic)
-          (heuristicSeedTableMilliseconds heuristic)
-          searchMs
-          allocatedBytes
-          totalMs
-          counters
-          (heuristicReverseCounters heuristic)
-      , explored
-      )
+    (account, accountMs) <- compileRoutingAccountProfiled astar (routingOptionsFromQuery query)
+    (target, targetMs) <- prepareTargetProfiled config astar account (queryTarget query)
+    (route, timings, explored) <- searchPreparedProfiledWithTrace trace astar account target (queryStart query) (searchOptionsFromQuery query)
+    pure (route, recordPreparationTimings accountMs targetMs target timings, explored)
+
+recordPreparationTimings :: Double -> Double -> PreparedTarget -> TileAStarTimings -> TileAStarTimings
+recordPreparationTimings accountMs targetMs target timings = timings
+  { tileAccountPrepareMilliseconds = accountMs
+  , tileTargetPrepareMilliseconds = targetMs
+  , tileHeuristicSetupMilliseconds = accountMs + targetMs
+  , tileReverseDijkstraMilliseconds = if targetMs == 0 then 0 else heuristicReverseMilliseconds heuristic
+  , tileSeedTableMilliseconds = if targetMs == 0 then 0 else heuristicSeedTableMilliseconds heuristic
+  , tileTotalMilliseconds = accountMs + targetMs + tileSearchMilliseconds timings
+  , tileReverseCounters = if targetMs == 0 then emptyReverseCounters else heuristicReverseCounters heuristic
+  }
+ where
+  heuristic = preparedTargetHeuristic target
+
+forceCompiledRoutingAccount :: CompiledRoutingAccount -> IO Int
+forceCompiledRoutingAccount account = evaluate
+  ( Map.foldl' (\total transports -> total + length transports) 0 (carriedLocalTransports availability)
+      + Map.foldl' (\total transports -> total + length transports) 0 (bankedLocalTransports availability)
+      + length (carriedGlobalTransports availability)
+      + length (bankedGlobalTransports availability)
+      + Map.size (compiledTransportPenalties account)
+      + Vector.length (siteTiles graph)
+      + IntMap.size (siteTileIndex graph)
+      + Boxed.foldl' (\total components -> total + Vector.length components) 0 (siteComponents graph)
+      + Boxed.foldl' (\total sites -> total + Vector.length sites) 0 (siteComponentSiteIds graph)
+      + Boxed.foldl' (\total edges -> total + Vector.length edges) 0 (siteReverseEdges graph)
+  )
+ where
+  availability = compiledTransportAvailability account
+  graph = compiledSiteGraph account
 
 forceHeuristic :: Heuristic -> IO Int
 forceHeuristic heuristic =
@@ -123,6 +215,17 @@ forceHeuristic heuristic =
         + round (heuristicReverseMilliseconds heuristic)
         + round (heuristicSeedTableMilliseconds heuristic)
         + reverseStatesPopped (heuristicReverseCounters heuristic)
+    )
+
+forcePreparedTarget :: PreparedTarget -> IO Int
+forcePreparedTarget target = do
+  forcedHeuristic <- forceHeuristic (preparedTargetHeuristic target)
+  evaluate
+    ( forcedHeuristic
+        + Vector.length (preparedTargetAttachments target)
+        + Vector.length (preparedSearchExtraTiles target)
+        + Boxed.foldl' (\total components -> total + Vector.length components) 0 (preparedSearchExtraComponents target)
+        + Vector.sum (preparedSearchExtraSites target)
     )
 
 forceSearch :: (Route, TileAStarCounters, [(Tile, Bool)]) -> IO Int

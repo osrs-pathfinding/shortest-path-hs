@@ -5,6 +5,7 @@ module ShortestPath.Exact.TileAStar.Preprocessing
 
 import Control.Monad.ST (runST)
 import Data.Int (Int32)
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
@@ -13,7 +14,7 @@ import qualified Data.Vector.Unboxed as Vector
 import qualified Data.Vector.Unboxed.Mutable as Mutable
 
 import ShortestPath.Exact.TileAStar.SparseWalking
-import ShortestPath.Exact.TileAStar.RelaxedGraph (binarySearch)
+import ShortestPath.Exact.TileAStar.RelaxedGraph (binarySearch, siteComponentGroups)
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Tile
 import ShortestPath.Topology
@@ -41,7 +42,7 @@ componentTileGroups components = runST $ do
 
 buildTileStatic :: WorldTopology -> TileStatic
 buildTileStatic topology =
-  TileStatic searchTiles searchComponents walkingMasks northNodes southNodes tiles comps network
+  TileStatic searchTiles searchComponents walkingMasks northNodes southNodes tiles comps siteIndex componentSites reachableBanks network
  where
   searchPairs = reachableComponentTiles topology
   searchTiles = Vector.fromList (map fst searchPairs)
@@ -59,6 +60,9 @@ buildTileStatic topology =
     ]
   tiles = Vector.fromList (map unTile sites)
   comps = Boxed.fromList [Vector.fromList (structurallyReachablePointAttachments topology (Tile packed)) | packed <- Vector.toList tiles]
+  siteIndex = IntMap.fromList [(packed, ix) | (ix, packed) <- Vector.toList (Vector.indexed tiles)]
+  componentSites = siteComponentGroups (maxComponentId components) comps
   network = buildSparseWalkingNetworkComponents (Vector.length tiles)
     [(cid, ix, Tile packed) | (ix, packed) <- Vector.toList (Vector.indexed tiles), cid <- Vector.toList (comps Boxed.! ix)]
   world = topologyWorld topology
+  components = topologyNaturalComponents topology

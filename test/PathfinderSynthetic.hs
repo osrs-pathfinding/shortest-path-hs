@@ -30,6 +30,7 @@ main = do
   let reference = ReferenceDijkstra (tileTopology tileAStar)
   mapM_ (checkRoute reference tileAStar world) (cases tiles)
   checkHeuristicLookup tileAStar tiles
+  checkPreparationLifetimes tileAStar tiles
   let globalQuery = query (tA3 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
       rawGlobalRoute = findRouteReferenceDijkstra reference globalQuery
       tileGlobalRoute = findRouteTileAStar tileAStar globalQuery
@@ -56,7 +57,7 @@ checkMultiplePointAttachments = do
       attachments = pointAttachments (tileTopology tileAStar) point
       referenceRoute = findRouteReferenceDijkstra reference routeQuery
       tileRoute = findRouteTileAStar tileAStar routeQuery
-      heuristic = prepareHeuristic tileAStar routeQuery (prepareQueryTransports world routeQuery)
+      heuristic = prepareHeuristic tileAStar (compileRoutingAccount tileAStar (routingOptionsFromQuery routeQuery)) (queryTarget routeQuery)
   assertMsg ("attachments: " <> show attachments) (length attachments == 2)
   assertMsg ("reference route: " <> show referenceRoute) (routeCost referenceRoute == 2)
   assertMsg ("tile route: " <> show tileRoute) (routeCost tileRoute == 2)
@@ -65,12 +66,40 @@ checkMultiplePointAttachments = do
 
 checkHeuristicLookup :: TileAStar -> Tiles -> IO ()
 checkHeuristicLookup tileAStar tiles = do
-  let routeQuery = query (tA0 tiles) (tC0 tiles)
+  let routeQuery = query (tA3 tiles) (tC0 tiles)
         (Set.fromList ["SYNTHETIC_BOAT", "SYNTHETIC_RING", "SYNTHETIC_X_1", "SYNTHETIC_X_2", "SYNTHETIC_DEAD_END"]) True
-      heuristic = prepareHeuristic tileAStar routeQuery (prepareQueryTransports (tileWorld tileAStar) routeQuery)
+      heuristic = prepareHeuristic tileAStar (compileRoutingAccount tileAStar (routingOptionsFromQuery routeQuery)) (queryTarget routeQuery)
       samples = [tA0 tiles, tA1 tiles, tE0 tiles, tD1 tiles, tX tiles, tY tiles, tUnknown tiles]
+  assertMsg "start leaked into target heuristic graph"
+    (IntMap.notMember (unTile (queryStart routeQuery)) (heuristicSiteIndex heuristic))
   mapM_ (assertResolvedHeuristic tileAStar heuristic) samples
   mapM_ (assertComponentHeuristic tileAStar heuristic) [tA0 tiles, tA1 tiles, tD1 tiles]
+
+checkPreparationLifetimes :: TileAStar -> Tiles -> IO ()
+checkPreparationLifetimes tileAStar tiles = do
+  let base = query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
+      account = compileRoutingAccount tileAStar (routingOptionsFromQuery base)
+      target = prepareTarget tileAStar account (queryTarget base)
+      fromA0 = searchPrepared tileAStar account target (tA0 tiles) (searchOptionsFromQuery base)
+      moved = base {queryStart = tA3 tiles}
+      fromA3 = searchPrepared tileAStar account target (tA3 tiles) (searchOptionsFromQuery moved)
+      otherTarget = prepareTarget tileAStar account (tA25 tiles)
+      relevant = compileRoutingAccount tileAStar (routingOptionsFromQuery (withoutInventory base))
+      irrelevantAccount = syntheticAccount {accountBank = Map.insert "unrelated" 1 (accountBank syntheticAccount)}
+      irrelevantQuery = base {requirementMode = ConfiguredRequirements irrelevantAccount}
+      irrelevant = compileRoutingAccount tileAStar (routingOptionsFromQuery irrelevantQuery)
+  (_, warmTimings) <- searchPreparedProfiled tileAStar account target (tA0 tiles) (searchOptionsFromQuery base)
+  assertMsg "prepared search disagrees with one-shot start A0" (fromA0 == findRouteTileAStar tileAStar base)
+  assertMsg "prepared target was not reusable from a moved start" (fromA3 == findRouteTileAStar tileAStar moved)
+  assertMsg "target preparation retained the wrong target" (preparedTargetTile otherTarget == tA25 tiles)
+  assertMsg "prepared search repeated setup work"
+    (tileAccountPrepareMilliseconds warmTimings == 0
+      && tileTargetPrepareMilliseconds warmTimings == 0
+      && tileReverseDijkstraMilliseconds warmTimings == 0)
+  assertMsg "relevant account change kept routing fingerprint"
+    (compiledRoutingFingerprint relevant /= compiledRoutingFingerprint account)
+  assertMsg "irrelevant account change altered routing fingerprint"
+    (compiledRoutingFingerprint irrelevant == compiledRoutingFingerprint account)
 
 assertResolvedHeuristic :: TileAStar -> Heuristic -> Tile -> IO ()
 assertResolvedHeuristic tileAStar heuristic tile =

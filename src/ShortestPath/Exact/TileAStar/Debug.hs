@@ -45,26 +45,46 @@ reversePathDebug :: TileAStar -> Query -> ReversePathDebug
 reversePathDebug astar q =
   ReversePathDebug (queryStart q) (queryTarget q) (map stateDebug [False, True])
  where
-  availability = prepareQueryTransports world q
-  graph = siteGraph astar q availability
+  availability = compiledTransportAvailability account
+  account = compileRoutingAccount astar (routingOptionsFromQuery q)
+  graph = siteGraph astar account (queryTarget q)
   distances = reverseDijkstraUncounted graph (targetSeeds graph (queryTarget q))
   heuristic = heuristicFromDistances components graph distances 0 0 emptyReverseCounters
-  sourceNode = IntMap.lookup (unTile (queryStart q)) (siteTileIndex graph)
   stateDebug banked =
-    case sourceNode of
-      Nothing -> ReversePathState banked Nothing maxBound 0 True []
-      Just node ->
-        let sourceState = stateId node banked
-            distance = distances Vector.! sourceState
-            route = forwardPath sourceState
-         in ReversePathState banked (Just (queryStart q)) distance (maybe 0 id (heuristicAt topology heuristic (queryStart q) banked)) (distance == maxBound) route
-  forwardPath source = runST $ do
+    case bestSource banked of
+      Nothing -> ReversePathState banked (Just source) maxBound 0 True []
+      Just (node, distance, approach) ->
+        let route = approachEdge banked node approach <> map (shiftCumulative approach) (forwardPath (stateId node banked))
+         in ReversePathState banked (Just source) distance (maybe 0 id (heuristicAt topology heuristic source banked)) False route
+  source = queryStart q
+  bestSource banked = foldl choose Nothing candidates
+   where
+    exact = [(node, distances Vector.! stateId node banked, 0) | Just node <- [IntMap.lookup (unTile source) (siteTileIndex graph)]]
+    attached =
+      [ (node, total, walking)
+      | cid <- structurallyReachablePointAttachments topology source
+      , node <- Vector.toList (siteComponentSiteIds graph Boxed.! cid)
+      , let walking = chebyshevPacked (unTile source) (siteTiles graph Vector.! node)
+            total = addCostDefault maxBound walking (distances Vector.! stateId node banked)
+      ]
+    candidates = filter (\(_, total, _) -> total /= maxBound) (exact <> attached)
+    choose Nothing candidate = Just candidate
+    choose current@(Just (_, best, _)) candidate@(_, cost, _)
+      | cost < best = Just candidate
+      | otherwise = current
+  approachEdge banked node cost
+    | cost == 0 = []
+    | otherwise = [ReversePathEdge source site banked banked "component-walk" "component walk" cost cost]
+   where
+    site = Tile (siteTiles graph Vector.! node)
+  shiftCumulative approachCost edge = edge {reverseEdgeCumulativeCost = approachCost + reverseEdgeCumulativeCost edge}
+  forwardPath sourceState = runST $ do
     best <- Mutable.replicate stateCount maxBound
     prevState <- Mutable.replicate stateCount maxBound
     prevEdge <- BoxedMutable.replicate stateCount Nothing
     queue <- heapNew (max 262144 (stateCount * 16))
-    Mutable.write best source 0
-    heapPush queue 0 source 0
+    Mutable.write best sourceState 0
+    heapPush queue 0 sourceState 0
     let go = do
           popped <- heapPop queue
           case popped of
@@ -171,7 +191,8 @@ renderHeuristicTilesWithTransform useCTransform astar q outputRoot urlRoot = do
     (if useC then chebyshevTransformC else chebyshevTransform) box seeds
   prepareLayer useC (key, title, banking) = do
     let q' = q {bankPathEnabled = banking}
-    (heuristic, heuristicMs) <- timedIO forceHeuristic (prepareHeuristicProfiled defaultTileAStarConfig astar q' (prepareQueryTransports (tileWorld astar) q'))
+    let account = compileRoutingAccount astar (routingOptionsFromQuery q')
+    (heuristic, heuristicMs) <- timedIO forceHeuristic (prepareHeuristicProfiled defaultTileAStarConfig astar account (queryTarget q'))
     (points, transformMs) <- timedIO forcePointList (pure (layerPoints (transform useC) groups heuristic False))
     pure (key, title, banking, heuristicMs, transformMs, points, seedPoints heuristic banking, heuristic)
   layerPointsPrepared (_, _, _, _, _, points, _, _) = points

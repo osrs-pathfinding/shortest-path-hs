@@ -330,7 +330,10 @@ putProgress message = putStrLn message >> hFlush stdout
 
 timingsJson :: TileAStarTimings -> Value
 timingsJson timings = object
-  [ "setupMs" .= tileHeuristicSetupMilliseconds timings, "reverseDijkstraMs" .= tileReverseDijkstraMilliseconds timings
+  [ "mode" .= timingMode timings
+  , "accountPrepareMs" .= tileAccountPrepareMilliseconds timings, "targetPrepareMs" .= tileTargetPrepareMilliseconds timings
+  , "forwardSearchMs" .= tileSearchMilliseconds timings, "setupMs" .= tileHeuristicSetupMilliseconds timings
+  , "reverseDijkstraMs" .= tileReverseDijkstraMilliseconds timings
   , "seedTableMs" .= tileSeedTableMilliseconds timings, "searchMs" .= tileSearchMilliseconds timings
   , "forwardAllocatedBytes" .= tileForwardAllocatedBytes timings, "forwardNsPerState" .= perState (tileSearchMilliseconds timings * 1000000)
   , "forwardAllocatedBytesPerState" .= perState (fromIntegral (tileForwardAllocatedBytes timings)), "totalMs" .= tileTotalMilliseconds timings
@@ -347,6 +350,12 @@ timingsJson timings = object
     | states == 0 = Nothing
     | otherwise = Just (total / fromIntegral states)
   states = tileStatesPopped (tileSearchCounters timings)
+
+timingMode :: TileAStarTimings -> String
+timingMode timings
+  | tileTargetPrepareMilliseconds timings == 0 = "warm-target"
+  | tileAccountPrepareMilliseconds timings == 0 = "warm-account"
+  | otherwise = "cold"
 
 die :: String -> IO a
 die message = putStrLn message >> exitFailure

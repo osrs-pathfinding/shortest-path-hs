@@ -10,7 +10,6 @@ import Control.Monad (forM_, when)
 import Control.Monad.ST (ST, runST)
 import Data.Bits (testBit)
 import Data.Int (Int32)
-import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -45,8 +44,8 @@ data SearchSpace = SearchSpace
   , searchSize :: !Int
   }
 
-search :: Bool -> TileAStar -> Query -> QueryTransportAvailability -> Heuristic -> (Route, TileAStarCounters, [(Tile, Bool)])
-search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
+search :: Bool -> TileAStar -> CompiledRoutingAccount -> PreparedTarget -> Tile -> SearchOptions -> (Route, TileAStarCounters, [(Tile, Bool)])
+search trace astar@(TileAStar topology static) account prepared start options = runST $ do
   best <- Mutable.replicate stateCount maxBound
   prevState <- Mutable.replicate stateCount maxBound
   prevKind <- Mutable.replicate stateCount 0
@@ -77,17 +76,19 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
               bump counters counterBankDominated (I# dominated#)
   go exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
  where
-  space = searchSpace astar q heuristic
+  space = searchSpace astar start prepared
   stateCount = searchSize space * 2
-  startNode = max 0 (nodeForPacked (unTile (queryStart q)))
+  startNode = max 0 (nodeForPacked (unTile start))
   startState = stateId startNode False
-  target = queryTarget q
-  reachableBanks = Set.filter (not . null . structurallyReachablePointAttachments topology) (worldBanks world)
-  bankGlobalRelevant = allowTransports q && bankPathEnabled q
+  target = preparedTargetTile prepared
+  heuristic = preparedTargetHeuristic prepared
+  availability = compiledTransportAvailability account
+  reachableBanks = staticReachableBanks static
+  bankGlobalRelevant = compiledAllowTransports account && compiledBankPathEnabled account
   isBankCandidate state = bankGlobalRelevant && not (stateBanked state) && Set.member (stateTile state) reachableBanks
   initialStates = (startState, 0, -1, "") :
-    [ (next, duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q), 1, transportLabel t)
-    | allowTransports q
+    [ (next, transportCost t, 1, transportLabel t)
+    | compiledAllowTransports account
     , t <- preparedGlobalTransports availability False
     , Just dst <- [destination t]
     , let next = stateForPacked (unTile dst) False
@@ -141,10 +142,10 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
                         currentBestBank <- readSTRef bestBankRef
                         let banked = stateBanked state
                             globals = preparedGlobalTransports availability True
-                            suppressed = if allowTransports q && bankTransitionAvailable q reachableBanks banked tile then countDestinations True globals else 0
+                            suppressed = if compiledAllowTransports account && compiledBankTransitionAvailable banked tile then countDestinations True globals else 0
                         bump counters counterStatesPopped 1
                         bump counters counterBankGlobalSuppressed suppressed
-                        when (allowTransports q && Set.member tile reachableBanks) $ do
+                        when (compiledAllowTransports account && Set.member tile reachableBanks) $ do
                           observations <- readSTRef bankTraceRef
                           writeSTRef bankTraceRef (bankObservation currentBestBank cost state : observations)
                         relaxNeighbors counters best prevState prevKind prevLabel queue bestBankRef currentBestBank cost state
@@ -165,12 +166,12 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
           when (usableOrigin banked nextTile && not (isWalkable (worldCollision world) nextTile)) (relaxWalk nextTile)
       else forM_ (walkingNeighborsRaw world tile) $ \nextTile ->
         when (isWalkable (worldCollision world) nextTile || usableOrigin banked nextTile) (relaxWalk nextTile)
-    when (bankTransitionAvailable q reachableBanks banked tile) $
+    when (compiledBankTransitionAvailable banked tile) $
       relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state (state + 1) 0 "" transportEdge
-    when (allowTransports q) $
+    when (compiledAllowTransports account) $
       forM_ (localTransports banked tile) $ \transport ->
         when (transportType transport /= "VIRTUAL_WALL") (relaxTransport banked transport)
-    when (allowTransports q && bankTransitionAvailable q reachableBanks banked tile && not dominatedBankGlobal) $
+    when (compiledAllowTransports account && compiledBankTransitionAvailable banked tile && not dominatedBankGlobal) $
       forM_ (preparedGlobalTransports availability True) (relaxTransport True)
    where
     tile = stateTile state
@@ -194,7 +195,7 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
       case destination transport of
         Just dst ->
           let next = stateForPacked (unTile dst) nextBanked
-              stepCost = duration transport + Map.findWithDefault 0 (transportType transport) (transportPenalties q)
+              stepCost = transportCost transport
            in when (next >= 0) (relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state next stepCost (transportLabel transport) transportEdge)
         Nothing -> pure ()
 
@@ -223,7 +224,7 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
                     bump counters counterHeuristicEvaluations 1
                     bump counters counterBankDominated (I# dominated#)
 
-  weightedHeuristic value = min maxBound (round (heuristicWeight q * fromIntegral value))
+  weightedHeuristic value = min maxBound (round (searchHeuristicWeight options * fromIntegral value))
   effectiveHeuristicRaw :: Int -> Int -> Int -> (# Int#, Int# #)
   effectiveHeuristicRaw bestBank cost state
     | stateBanked state =
@@ -265,16 +266,19 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
 
   bankObservation bestBank cost state =
     TileBankGlobalObservation tile banked cost bestBank dominatedBankGlobal
-      [(dst, duration t + Map.findWithDefault 0 (transportType t) (transportPenalties q), transportLabel t) | t <- preparedGlobalTransports availability True, Just dst <- [destination t]]
+      [(dst, transportCost t, transportLabel t) | t <- preparedGlobalTransports availability True, Just dst <- [destination t]]
    where
     tile = stateTile state
     banked = stateBanked state
     dominatedBankGlobal = not banked && cost > bestBank
 
-  usableOrigin banked tile = allowTransports q && any ((/= "VIRTUAL_WALL") . transportType) (localTransports banked tile)
+  usableOrigin banked tile = compiledAllowTransports account && any ((/= "VIRTUAL_WALL") . transportType) (localTransports banked tile)
+
+  compiledBankTransitionAvailable banked tile = compiledBankPathEnabled account && not banked && Set.member tile reachableBanks
 
   localTransports banked tile = Map.findWithDefault [] tile
     (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
+  transportCost transport = duration transport + Map.findWithDefault 0 (transportType transport) (compiledTransportPenalties account)
   stateForPacked packed banked =
     let node = nodeForPacked packed
      in if node < 0 then -1 else stateId node banked
@@ -341,31 +345,30 @@ readCounters counters bestBankRef bankTraceRef =
     <*> Mutable.read counters counterBankBoundPQRekeys
     <*> readSTRef bankTraceRef
 
-searchSpace :: TileAStar -> Query -> Heuristic -> SearchSpace
-searchSpace (TileAStar topology static) q heuristic =
+searchSpace :: TileAStar -> Tile -> PreparedTarget -> SearchSpace
+searchSpace (TileAStar topology static) start prepared =
   SearchSpace base (staticSearchComponents static) (staticWalkingMasks static)
     (staticNorthNodes static) (staticSouthNodes static)
     extras extraComponents extraSites (Vector.length base + Vector.length extras)
  where
   base = staticSearchTiles static
-  endpoints =
-    queryStart q : queryTarget q : Set.toList (worldBanks world) <>
-      [ tile
-      | t <- concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
-      , Just tile <- [origin t] <> [destination t]
-      ]
+  preparedExtras = preparedSearchExtraTiles prepared
+  startPacked = unTile start
+  addStart = binarySearchRaw startPacked base < 0 && binarySearchRaw startPacked preparedExtras < 0
   extras =
-    Vector.fromList
-      [ packed
-      | packed <- IntSet.toAscList (IntSet.fromList (map unTile endpoints))
-      , binarySearchRaw packed base < 0
-      ]
+    if addStart
+      then Vector.fromList (IntSet.toAscList (IntSet.insert startPacked (IntSet.fromList (Vector.toList preparedExtras))))
+      else preparedExtras
   extraComponents = Boxed.fromList
-    [ Vector.fromList (structurallyReachablePointAttachments topology (Tile packed))
+    [ if packed == startPacked && addStart
+        then Vector.fromList (structurallyReachablePointAttachments topology start)
+        else preparedSearchExtraComponents prepared Boxed.! preparedIndex packed
     | packed <- Vector.toList extras
     ]
-  extraSites = Vector.map (\packed -> IntMap.findWithDefault (-1) packed (heuristicSiteIndex heuristic)) extras
-  world = topologyWorld topology
+  extraSites = Vector.map (\packed -> if packed == startPacked && addStart
+    then -1
+    else preparedSearchExtraSites prepared Vector.! preparedIndex packed) extras
+  preparedIndex packed = binarySearchRaw packed preparedExtras
 
 searchNodeForRaw :: SearchSpace -> Int -> Int
 {-# INLINE searchNodeForRaw #-}
