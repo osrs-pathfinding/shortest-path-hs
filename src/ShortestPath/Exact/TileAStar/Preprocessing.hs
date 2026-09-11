@@ -38,8 +38,9 @@ componentTileGroups components = runST $ do
 
 buildTileStatic :: WorldTopology -> TileStatic
 buildTileStatic topology =
-  TileStatic tiles comps network
+  TileStatic searchTiles tiles comps network
  where
+  searchTiles = Vector.fromList (map fst (reachableComponentTiles topology))
   sites = Set.toAscList (Set.fromList (staticEndpoints <> Set.toList reachableBanks))
   reachableBanks = Set.filter (not . null . structurallyReachablePointAttachments topology) (worldBanks world)
   staticEndpoints =
@@ -52,5 +53,4 @@ buildTileStatic topology =
   network = buildSparseWalkingNetworkComponents (Vector.length tiles)
     [(cid, ix, Tile packed) | (ix, packed) <- Vector.toList (Vector.indexed tiles), cid <- Vector.toList (comps Boxed.! ix)]
   world = topologyWorld topology
-
 

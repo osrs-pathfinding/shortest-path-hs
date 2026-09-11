@@ -74,6 +74,7 @@ walkingNeighborsRaw :: World -> Tile -> [Tile]
 walkingNeighborsRaw = walkingNeighborsMode False
 
 walkingNeighborsMode :: Bool -> World -> Tile -> [Tile]
+{-# INLINE walkingNeighborsMode #-}
 walkingNeighborsMode useWalls world tile =
   let (x, y, p) = unpackTile tile
       ordinary =
@@ -122,6 +123,7 @@ walkingNeighborsMode useWalls world tile =
   blockedEdges = virtualWallEdgeSet
 
 isWalkable :: CollisionMap -> Tile -> Bool
+{-# INLINE isWalkable #-}
 isWalkable cm tile =
   let (x, y, p) = unpackTile tile
    in or

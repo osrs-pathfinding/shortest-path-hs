@@ -158,10 +158,12 @@ pointAttachmentDetails topology point =
   components = topologyNaturalComponents topology
 
 structurallyReachablePointAttachments :: WorldTopology -> Tile -> [Int]
+{-# INLINE structurallyReachablePointAttachments #-}
 structurallyReachablePointAttachments topology =
   filter (componentIsStructurallyReachable topology) . pointAttachments topology
 
 componentIsStructurallyReachable :: WorldTopology -> Int -> Bool
+{-# INLINE componentIsStructurallyReachable #-}
 componentIsStructurallyReachable topology cid =
   IntSet.member cid (structurallyReachableIds (topologyStructuralReachability topology))
 

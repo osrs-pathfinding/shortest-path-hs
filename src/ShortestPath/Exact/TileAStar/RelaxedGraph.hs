@@ -121,9 +121,11 @@ targetSeeds graph target =
   ]
 
 stateId :: Int -> Bool -> Int
+{-# INLINE stateId #-}
 stateId node banked = node * 2 + if banked then 1 else 0
 
 chebyshevPacked :: Int -> Int -> Int
+{-# INLINE chebyshevPacked #-}
 chebyshevPacked a b =
   let (ax, ay, ap) = unpackTile (Tile a)
       (bx, by, bp) = unpackTile (Tile b)
@@ -138,6 +140,7 @@ reverseAdjacency size edges = runST $ do
   Boxed.map Vector.fromList <$> Boxed.freeze lists
 
 binarySearch :: Int -> Vector.Vector Int -> Maybe Int
+{-# INLINE binarySearch #-}
 binarySearch needle values = go 0 (Vector.length values - 1)
  where
   go lo hi

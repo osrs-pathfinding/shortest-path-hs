@@ -8,6 +8,7 @@ common warnings
 
 library
   import: warnings
+  ghc-options: -fexpose-all-unfoldings -funfolding-use-threshold=1000
   exposed-modules:
     ShortestPath.Account
     ShortestPath.AccountSemantics

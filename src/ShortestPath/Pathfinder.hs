@@ -84,15 +84,18 @@ prepareQueryTransports world query =
   filterAvailable banked = filter (transportAvailable query banked)
 
 preparedLocalTransportsAt :: QueryTransportAvailability -> Bool -> Tile -> [Transport]
+{-# INLINE preparedLocalTransportsAt #-}
 preparedLocalTransportsAt availability banked tile =
   filter ((/= "VIRTUAL_WALL") . transportType) $ Map.findWithDefault [] tile
     (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
 
 preparedGlobalTransports :: QueryTransportAvailability -> Bool -> [Transport]
+{-# INLINE preparedGlobalTransports #-}
 preparedGlobalTransports availability banked =
   if banked then bankedGlobalTransports availability else carriedGlobalTransports availability
 
 preparedTransport :: Query -> Transport -> Maybe (Tile, Int, RouteStep)
+{-# INLINE preparedTransport #-}
 preparedTransport query transport = do
   target <- destination transport
   pure
@@ -107,6 +110,7 @@ transportLabel transport
   | otherwise = displayInfo transport
 
 bankTransitionAvailable :: Query -> Set.Set Tile -> Bool -> Tile -> Bool
+{-# INLINE bankTransitionAvailable #-}
 bankTransitionAvailable query banks banked tile =
   bankPathEnabled query && not banked && Set.member tile banks
 

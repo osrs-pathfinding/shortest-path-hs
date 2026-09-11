@@ -77,6 +77,7 @@ prepareHeuristicProfiled config astar q availability = do
       pure (distances, emptyReverseCounters)
 
 heuristicAt :: WorldTopology -> Heuristic -> Tile -> Bool -> Maybe Int
+{-# INLINE heuristicAt #-}
 heuristicAt topology heuristic tile banked =
   minimumMaybe (exactSiteDistance : map componentDistance (structurallyReachablePointAttachments topology tile))
  where

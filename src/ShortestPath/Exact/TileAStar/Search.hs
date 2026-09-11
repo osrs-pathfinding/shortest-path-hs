@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -ddump-simpl -ddump-to-file #-}
+
 module ShortestPath.Exact.TileAStar.Search
   ( search
   ) where
@@ -260,10 +262,10 @@ emptyCounters = TileAStarCounters
   }
 
 searchSpace :: TileAStar -> Query -> SearchSpace
-searchSpace (TileAStar topology _) q =
+searchSpace (TileAStar topology static) q =
   SearchSpace base extras (Vector.length base + Vector.length extras)
  where
-  base = Vector.fromList (map fst (reachableComponentTiles topology))
+  base = staticSearchTiles static
   endpoints =
     queryStart q : queryTarget q : Set.toList (worldBanks world) <>
       [ tile
