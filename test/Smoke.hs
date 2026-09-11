@@ -1,9 +1,11 @@
 module Main (main) where
 
+import Control.Monad.ST (runST)
 import Data.Either (isRight)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.List (find)
+import Data.STRef (modifySTRef', newSTRef, readSTRef)
 
 import ShortestPath.Requirements
 import ShortestPath.Account
@@ -17,6 +19,7 @@ import ShortestPath.Transport
 import ShortestPath.World
 import ShortestPath.Pathfinder
 import ShortestPath.Exact.ReferenceDijkstra
+import ShortestPath.Exact.TileAStar.Search (walkingNeighborsRawDirect)
 
 main :: IO ()
 main = do
@@ -284,6 +287,17 @@ semanticProfileChecks = do
   assert (all (maybe False (available mid)) balloons)
   assert (maybe False (available early) primio)
   world <- loadWorld defaultSourcePaths
+  let transportSites =
+        [ site
+        | transport <- concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
+        , Just site <- [origin transport, destination transport]
+        ]
+      walkingSamples = take 4096 (collisionTiles (worldCollision world)) <> transportSites
+      directNeighbors tile = runST $ do
+        found <- newSTRef []
+        walkingNeighborsRawDirect world tile (\next -> modifySTRef' found (next :))
+        reverse <$> readSTRef found
+  assert (all (\tile -> directNeighbors tile == walkingNeighborsRaw world tile) walkingSamples)
   topology <- buildWorldTopology world
   let wallTiles =
         [ packTile x y 0
