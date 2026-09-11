@@ -31,7 +31,7 @@ import ShortestPath.Exact.TileAStar.Debug
 import ShortestPath.Exact.TileAStar.Preprocessing (componentTileGroups)
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Internal.DistanceTransform
-import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..))
+import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..), findRouteReferenceDijkstra)
 import ShortestPath.Account
   ( AccountState(..), CooldownState(..), PohBuild(..), PohPortalAccess(..), RequirementMode(..), RuntimeState(..) )
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkNowMinutes)
@@ -287,7 +287,7 @@ serveRequest tileConfig useCTransform world tileAStar line =
           case maybe "tile-full" id (requestFinder request) of
             "reference" -> do
               started <- getMonotonicTimeNSec
-              let route = findRoute (ReferenceDijkstra (tileTopology tileAStar)) query
+              let route = findRouteReferenceDijkstra (ReferenceDijkstra (tileTopology tileAStar)) query
               _ <- evaluate (routeCost route + routeExpandedNodes route + length (routeSteps route))
               finished <- getMonotonicTimeNSec
               pure (routeResponse request route [] [] (rawTimingsJson route started finished))

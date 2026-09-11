@@ -1,5 +1,4 @@
 {-# LANGUAGE MonoLocalBinds #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 
 module ShortestPath.Exact.TileAStar
   ( TileAStar
@@ -14,6 +13,7 @@ module ShortestPath.Exact.TileAStar
   , buildTileAStarWithPolicy
   , buildTileAStarFromTopology
   , tileTopology
+  , findRouteTileAStar
   , findRouteProfiledTileAStar
   , findRouteProfiledTileAStarWithConfig
   , findRouteProfiledTileAStarWithTrace
@@ -37,15 +37,11 @@ import ShortestPath.Tile
 import ShortestPath.Topology
 import ShortestPath.World
 
--- The public facade deliberately owns the instance while the specialised data
--- and search implementations live in internal modules.
-
-instance RouteFinder TileAStar where
-  routeName _ = "tile-astar"
-  findRoute astar q =
-    let availability = prepareQueryTransports (tileWorld astar) q
-        (route, _, _) = search False astar q availability (prepareHeuristic astar q availability)
-     in route
+findRouteTileAStar :: TileAStar -> Query -> Route
+findRouteTileAStar astar q =
+  let availability = prepareQueryTransports (tileWorld astar) q
+      (route, _, _) = search False astar q availability (prepareHeuristic astar q availability)
+   in route
 
 buildTileAStar :: World -> IO TileAStar
 buildTileAStar world = buildWorldTopology world >>= buildTileAStarFromTopology

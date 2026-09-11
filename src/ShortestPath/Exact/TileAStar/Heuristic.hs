@@ -48,7 +48,7 @@ data Heuristic = Heuristic
   , heuristicReverseCounters :: !TileReverseCounters
   }
 
--- | The production, untimed heuristic used by the pure RouteFinder API.
+-- | The production, untimed heuristic used by the pure Tile A* entry point.
 prepareHeuristic :: TileAStar -> Query -> QueryTransportAvailability -> Heuristic
 prepareHeuristic astar q availability =
   heuristicFromDistances components graph distances 0 0 emptyReverseCounters

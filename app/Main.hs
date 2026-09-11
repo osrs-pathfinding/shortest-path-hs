@@ -33,13 +33,13 @@ main = do
       world <- loadWorld defaultSourcePaths
       pathfinder <- buildTileAStar world
       let q = defaultQuery (packTile (read sx) (read sy) (read sp)) (packTile (read tx) (read ty) (read tp))
-          r = findRoute pathfinder q
+          r = findRouteTileAStar pathfinder q
       LBS.putStrLn (encode (routeJson r))
     ["walk-route", sx, sy, sp, tx, ty, tp] -> do
       world <- loadWorld defaultSourcePaths
       pathfinder <- buildTileAStar world
       let q = (defaultQuery (packTile (read sx) (read sy) (read sp)) (packTile (read tx) (read ty) (read tp))) {allowTransports = False}
-          r = findRoute pathfinder q
+          r = findRouteTileAStar pathfinder q
       LBS.putStrLn (encode (routeJson r))
     ["dashboard-json"] -> do
       items <- loadDashboardItems defaultSourcePaths

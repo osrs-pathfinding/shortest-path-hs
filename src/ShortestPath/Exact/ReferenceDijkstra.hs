@@ -1,5 +1,6 @@
 module ShortestPath.Exact.ReferenceDijkstra
   ( ReferenceDijkstra(..)
+  , findRouteReferenceDijkstra
   ) where
 
 import qualified Data.Map.Strict as Map
@@ -18,9 +19,8 @@ data State = State Tile Bool
 data Prev = Prev State RouteStep
   deriving stock (Eq, Show)
 
-instance RouteFinder ReferenceDijkstra where
-  routeName _ = "reference-dijkstra"
-  findRoute (ReferenceDijkstra topology) q = search (Set.singleton (0, start)) (Map.singleton start 0) Map.empty Set.empty 0
+findRouteReferenceDijkstra :: ReferenceDijkstra -> Query -> Route
+findRouteReferenceDijkstra (ReferenceDijkstra topology) q = search (Set.singleton (0, start)) (Map.singleton start 0) Map.empty Set.empty 0
    where
     world = topologyWorld topology
     availability = prepareQueryTransports world q

@@ -27,8 +27,8 @@ main = do
   let reference = ReferenceDijkstra (tileTopology tileAStar)
   mapM_ (checkRoute reference tileAStar world) (cases tiles)
   let globalQuery = query (tA3 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
-      rawGlobalRoute = findRoute reference globalQuery
-      tileGlobalRoute = findRoute tileAStar globalQuery
+      rawGlobalRoute = findRouteReferenceDijkstra reference globalQuery
+      tileGlobalRoute = findRouteTileAStar tileAStar globalQuery
   assert (routeSteps rawGlobalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
   assert (routeSteps tileGlobalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
   checkReversePathDebug tileAStar tiles
@@ -50,12 +50,12 @@ checkMultiplePointAttachments = do
   tileAStar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy left) world
   let reference = ReferenceDijkstra (tileTopology tileAStar)
       attachments = pointAttachments (tileTopology tileAStar) point
-      referenceRoute = findRoute reference routeQuery
-      tileRoute = findRoute tileAStar routeQuery
+      referenceRoute = findRouteReferenceDijkstra reference routeQuery
+      tileRoute = findRouteTileAStar tileAStar routeQuery
   assertMsg ("attachments: " <> show attachments) (length attachments == 2)
   assertMsg ("reference route: " <> show referenceRoute) (routeCost referenceRoute == 2)
   assertMsg ("tile route: " <> show tileRoute) (routeCost tileRoute == 2)
-  assertMsg "reverse shared-point route" (routeCost (findRoute tileAStar (query right left (Set.singleton "SYNTHETIC_SHARED_POINT") False)) == 2)
+  assertMsg "reverse shared-point route" (routeCost (findRouteTileAStar tileAStar (query right left (Set.singleton "SYNTHETIC_SHARED_POINT") False)) == 2)
 
 collisionMap :: [Tile] -> CollisionMap
 collisionMap tiles = CollisionMap (Map.fromList [(region, bytes region) | region <- Set.toList (Set.fromList (map tileRegion tiles))])
@@ -185,8 +185,8 @@ walkingQuery start target = (query start target Set.empty False) { allowTranspor
 
 checkRoute :: ReferenceDijkstra -> TileAStar -> World -> Case -> IO ()
 checkRoute raw tileAStar world (Case name q expectation) = do
-  let flat = findRoute raw q
-      tile = findRoute tileAStar q
+  let flat = findRouteReferenceDijkstra raw q
+      tile = findRouteTileAStar tileAStar q
   (sparse, _) <- findRouteProfiledTileAStarWithConfig sparseConfig tileAStar q
   case expectation of
     Reachable -> do
@@ -247,8 +247,8 @@ checkHeuristicPruning tileAStar tiles = do
 checkTransportOnlyEndpoint :: ReferenceDijkstra -> TileAStar -> Tiles -> IO ()
 checkTransportOnlyEndpoint raw tileAStar tiles = do
   let targetQuery = query (tA0 tiles) (tUnknown tiles) (Set.singleton "SYNTHETIC_UNKNOWN") False
-      rawRoute = findRoute raw targetQuery
-      tileRoute = findRoute tileAStar targetQuery
+      rawRoute = findRouteReferenceDijkstra raw targetQuery
+      tileRoute = findRouteTileAStar tileAStar targetQuery
       expected = [UseTransport "SYNTHETIC_UNKNOWN" (tUnknown tiles)]
   assert (routeCost rawRoute == 1)
   assert (routeCost tileRoute == 1)
@@ -258,8 +258,8 @@ checkIntermediateTransportEndpoint :: ReferenceDijkstra -> TileAStar -> Tiles ->
 checkIntermediateTransportEndpoint raw tileAStar tiles = do
   let enabled = Set.fromList ["SYNTHETIC_X_1", "SYNTHETIC_X_2", "SYNTHETIC_DEAD_END"]
       routeQuery = query (tA0 tiles) (tC0 tiles) enabled False
-      rawRoute = findRoute raw routeQuery
-      tileRoute = findRoute tileAStar routeQuery
+      rawRoute = findRouteReferenceDijkstra raw routeQuery
+      tileRoute = findRouteTileAStar tileAStar routeQuery
       expected = [ UseTransport "SYNTHETIC_X_1" (tX tiles)
                  , UseTransport "SYNTHETIC_X_2" (tC0 tiles)
                  ]

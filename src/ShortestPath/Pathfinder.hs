@@ -10,7 +10,6 @@ module ShortestPath.Pathfinder
   , bankTransitionAvailable
   , Route(..)
   , RouteStep(..)
-  , RouteFinder(..)
   , defaultQuery
   , transportAvailable
   , transportExplanation
@@ -54,10 +53,6 @@ data Route = Route
   , routeSteps :: [RouteStep]
   }
   deriving stock (Eq, Show)
-
-class RouteFinder a where
-  routeName :: a -> String
-  findRoute :: a -> Query -> Route
 
 defaultQuery :: Tile -> Tile -> Query
 defaultQuery start target =

@@ -23,10 +23,10 @@ import System.IO (hFlush, stdout)
 
 import ShortestPath.Account (AccountState, RequirementMode(..))
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkProfileVariableGaps, benchmarkNowMinutes)
-import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..))
+import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..), findRouteReferenceDijkstra)
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Exact.TileAStar.Configuration
-import ShortestPath.Pathfinder hiding (routeName)
+import ShortestPath.Pathfinder
 import ShortestPath.Tile
 import ShortestPath.Topology
 import ShortestPath.Transport (Transport, defaultSourcePaths)
@@ -171,7 +171,7 @@ writeOracles options topology cases = do
 
   oracleFor route profile = do
     started <- getMonotonicTimeNSec
-    let result = findRoute (ReferenceDijkstra topology) (query route profile)
+    let result = findRouteReferenceDijkstra (ReferenceDijkstra topology) (query route profile)
         cost = routeCost result
     resolvedCost <- evaluate cost
     finished <- getMonotonicTimeNSec
@@ -225,7 +225,7 @@ runBench tileConfig options world astar cases = do
         ]
       when (diagnostic options) $ do
         started <- getMonotonicTimeNSec
-        let raw = findRoute (ReferenceDijkstra (tileTopology astar)) (query route profile)
+        let raw = findRouteReferenceDijkstra (ReferenceDijkstra (tileTopology astar)) (query route profile)
         voidRoute raw
         finished <- getMonotonicTimeNSec
         when (routeCost raw /= routeCost result) (die ("raw Dijkstra mismatch for " <> key route profileName))
