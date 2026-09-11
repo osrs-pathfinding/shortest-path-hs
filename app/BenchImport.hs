@@ -26,10 +26,11 @@ import System.Process (readProcess)
 data Options = Options
   { inputPath :: FilePath, corpusPath :: FilePath, profileSource :: FilePath
   , runId :: Maybe String, notes :: String, testbed :: String, clickhouseUrl :: String
+  , sweep :: Maybe String
   }
 
 defaultOptions :: Options
-defaultOptions = Options "" "benchmarks/corpus/routes-v1.json" "src/ShortestPath/BenchmarkProfiles.hs" Nothing "" "cedric" "http://127.0.0.1:8123"
+defaultOptions = Options "" "benchmarks/corpus/routes-v1.json" "src/ShortestPath/BenchmarkProfiles.hs" Nothing "" "cedric" "http://127.0.0.1:8123" Nothing
 
 main :: IO ()
 main = do
@@ -60,7 +61,11 @@ main = do
         , "suite_id" .= suiteId, "benchmark_tier" .= tier
         , "route_count" .= routeCount rows, "case_count" .= caseCount rows
         , "testbed" .= testbed options, "hostname" .= host, "runner_version" .= text first "benchmarkVersion" ""
-        , "notes" .= notes options, "metadata" .= (Map.fromList [("source", inputPath options)] :: Map.Map String String)
+        , "notes" .= notes options
+        , "metadata" .= (Map.fromList
+            ([ ("source", inputPath options)
+             , ("heuristic_weight", show (numberDouble first "heuristicWeight" 1))
+             ] <> maybe [] (\value -> [("sweep", value)]) (sweep options)) :: Map.Map String String)
         ]
   _ <- clickhouse options "INSERT INTO osrs_bench.runs FORMAT JSONEachRow" (encode run <> "\n")
   putStrLn ("Imported run " <> rid <> " (" <> show (length rows) <> " samples, suite " <> suiteId <> ")")
@@ -73,6 +78,7 @@ parseOptions o ("--testbed":v:xs) = parseOptions (o {testbed = v}) xs
 parseOptions o ("--clickhouse-url":v:xs) = parseOptions (o {clickhouseUrl = v}) xs
 parseOptions o ("--corpus":v:xs) = parseOptions (o {corpusPath = v}) xs
 parseOptions o ("--profile-source":v:xs) = parseOptions (o {profileSource = v}) xs
+parseOptions o ("--sweep":v:xs) = parseOptions (o {sweep = Just v}) xs
 parseOptions o (v:xs) | null (inputPath o) = parseOptions (o {inputPath = v}) xs
 parseOptions _ _ = dieUsage
 
@@ -122,6 +128,9 @@ number raw key fallback = fromMaybe fallback (numberMaybe raw key)
 numberMaybe :: Value -> String -> Maybe Int
 numberMaybe (Object o) key = case KeyMap.lookup (Key.fromString key) o of Just (Number n) -> Just (round n); _ -> Nothing
 numberMaybe _ _ = Nothing
+numberDouble :: Value -> String -> Double -> Double
+numberDouble (Object o) key fallback = case KeyMap.lookup (Key.fromString key) o of Just (Number n) -> toRealFloat n; _ -> fallback
+numberDouble _ _ fallback = fallback
 
 routeCount rows = length (Map.keys (Map.fromList [((text (fst r) "routeId" "", text (fst r) "category" ""), ()) | r <- rows]))
 caseCount rows = length (Map.keys (Map.fromList [((text (fst r) "routeId" "", text (fst r) "accountProfile" ""), ()) | r <- rows]))
@@ -150,5 +159,5 @@ urlEncode = concatMap encodeChar
 
 trim = reverse . dropWhile (== '\n') . reverse . dropWhile (== '\n')
 
-dieUsage = die "usage: bench-import [--run-id ID] [--notes TEXT] [--testbed ID] [--clickhouse-url URL] [--corpus PATH] [--profile-source PATH] results.jsonl"
+dieUsage = die "usage: bench-import [--run-id ID] [--notes TEXT] [--testbed ID] [--clickhouse-url URL] [--corpus PATH] [--profile-source PATH] [--sweep ID] results.jsonl"
 die message = putStrLn message >> exitFailure

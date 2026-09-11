@@ -40,6 +40,13 @@ gcx resources push -p benchmark-analysis/grafana
 The dashboards require Grafana's image-renderer plugin for `gcx dashboards
 snapshot`; the ClickHouse datasource alone is sufficient for normal browsing.
 
+For a weighted-A* sweep, give every imported weight the same sweep ID:
+
+```sh
+nix-shell --run 'cabal run route-bench -- --heuristic-weight 1.25 --output out/weight-1.25.jsonl'
+nix-shell --run 'cabal run bench-import -- --sweep my-sweep --run-id my-sweep-w1.25 out/weight-1.25.jsonl'
+```
+
 `route-bench` is the canonical local runner. It runs in-process (so it does not
 measure viewer or HTTP overhead), applies all four account profiles, and writes
 one JSON object per route/profile/repetition to a JSONL file.

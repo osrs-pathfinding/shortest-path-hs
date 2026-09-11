@@ -75,10 +75,11 @@ data Options = Options
   , oracleJobs :: Int
   , rerunFailures :: Maybe FilePath
   , strictProfileVars :: Bool
+  , heuristicWeightOption :: Double
   }
 
 defaultOptions :: Options
-defaultOptions = Options "benchmarks/corpus/routes-v1.json" "benchmarks/corpus/oracle-v1.json" "out/route-benchmark.jsonl" 3 False False False Nothing "full" 4 Nothing False
+defaultOptions = Options "benchmarks/corpus/routes-v1.json" "benchmarks/corpus/oracle-v1.json" "out/route-benchmark.jsonl" 3 False False False Nothing "full" 4 Nothing False 1
 
 main :: IO ()
 main = do
@@ -119,7 +120,10 @@ parseOptions = go defaultOptions
   go options ("--diagnostic":rest) = go (options {diagnostic = True}) rest
   go options ("--rerun-failures":path:rest) = go (options {rerunFailures = Just path}) rest
   go options ("--strict-profile-vars":rest) = go (options {strictProfileVars = True}) rest
-  go _ _ = die "usage: route-bench [--seed] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic] [--rerun-failures JSONL] [--strict-profile-vars]"
+  go options ("--heuristic-weight":weight:rest) = case reads weight of
+    [(n, "")] | n > 0 -> go (options {heuristicWeightOption = n}) rest
+    _ -> die "--heuristic-weight must be positive"
+  go _ _ = die "usage: route-bench [--seed] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic] [--rerun-failures JSONL] [--strict-profile-vars] [--heuristic-weight N]"
 
 loadCases :: Options -> IO [RouteCase]
 loadCases options = do
@@ -171,7 +175,7 @@ writeOracles options topology cases = do
 
   oracleFor route profile = do
     started <- getMonotonicTimeNSec
-    let result = findRouteReferenceDijkstra (ReferenceDijkstra topology) (query route profile)
+    let result = findRouteReferenceDijkstra (ReferenceDijkstra topology) (query route profile 1)
         cost = routeCost result
     resolvedCost <- evaluate cost
     finished <- getMonotonicTimeNSec
@@ -203,20 +207,21 @@ runBench tileConfig options world astar cases = do
   let firstRoute = case queries of (route, _, _) : _ -> route; [] -> error "checked above"
   forM_ (Set.toList (Set.fromList [profileName | (_, profileName, _) <- queries])) $ \profileName -> do
     let profile = benchmarkAccount profileName (allTransports world)
-    (route, _) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query firstRoute profile)
+    (route, _) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query firstRoute profile (heuristicWeightOption options))
     voidRoute route
   forM_ (zip [1 :: Int ..] queries) $ \(queryNumber, (route, profileName, profile)) -> do
     putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName)
     expected <- maybe (die ("missing oracle for " <> key route profileName <> "; run route-bench --write-oracle")) pure (Map.lookup (key route profileName) oracles)
     forM_ [1 .. repetitions options] $ \repetition -> do
-      (result, timings) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query route profile)
+      (result, timings) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query route profile (heuristicWeightOption options))
       let reachable = routeCost result /= maxBound
       putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName <> " repetition=" <> show repetition <> " tileAStarMs=" <> show (tileTotalMilliseconds timings) <> " reachable=" <> show reachable)
       when (reachable /= oracleReachable expected || (reachable && Just (routeCost result) /= oracleCost expected)) $
         putStrLn ("oracle mismatch for " <> key route profileName)
       append (outputPath options) options $ object
         [ "benchmarkVersion" .= ("v1" :: String), "generatedAt" .= show now, "gitCommit" .= commit, "gitBranch" .= branch, "gitDirty" .= dirty, "testbed" .= (os <> "-" <> arch)
-        , "benchmarkTier" .= benchmarkTier options, "routeId" .= stableId route, "routeName" .= routeName route, "category" .= routeCategory route
+        , "benchmarkTier" .= benchmarkTier options, "heuristicWeight" .= heuristicWeightOption options
+        , "routeId" .= stableId route, "routeName" .= routeName route, "category" .= routeCategory route
         , "distanceTag" .= routeDistanceTag route, "planeTag" .= routePlaneTag route, "allowTransports" .= routeAllowTransports route
         , "accountProfile" .= profileName, "repetition" .= repetition, "start" .= routeStart route, "target" .= routeTarget route
         , "reachable" .= reachable, "cost" .= if reachable then Just (routeCost result) else Nothing
@@ -225,7 +230,7 @@ runBench tileConfig options world astar cases = do
         ]
       when (diagnostic options) $ do
         started <- getMonotonicTimeNSec
-        let raw = findRouteReferenceDijkstra (ReferenceDijkstra (tileTopology astar)) (query route profile)
+        let raw = findRouteReferenceDijkstra (ReferenceDijkstra (tileTopology astar)) (query route profile 1)
         voidRoute raw
         finished <- getMonotonicTimeNSec
         when (routeCost raw /= routeCost result) (die ("raw Dijkstra mismatch for " <> key route profileName))
@@ -262,12 +267,13 @@ stableId route = fromMaybe (error "indexed route missing id") (routeId route)
 key :: RouteCase -> String -> String
 key route profile = stableId route <> "/" <> profile
 
-query :: RouteCase -> Maybe AccountState -> Query
-query route profile =
+query :: RouteCase -> Maybe AccountState -> Double -> Query
+query route profile weight =
   (defaultQuery (tile (routeStart route)) (tile (routeTarget route)))
     { allowTransports = routeAllowTransports route
     , requirementMode = maybe IgnoreRequirements ConfiguredRequirements profile
     , queryNowMinutes = benchmarkNowMinutes
+    , heuristicWeight = weight
     }
  where
   tile [x, y, plane] = packTile x y plane
