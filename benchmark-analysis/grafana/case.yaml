@@ -40,7 +40,7 @@ spec:
       targets:
         - refId: A
           format: table
-          rawSql: SELECT r.created_at, r.run_id, r.git_commit, r.testbed, s.profile, s.route_id, s.route_label, s.correct, s.status, s.metrics['total_ms'] AS total_ms, s.metrics['search_ms'] AS search_ms, s.metrics['reverse_ms'] AS reverse_ms, s.metrics['states_popped'] AS states_popped FROM osrs_bench.samples s INNER JOIN osrs_bench.runs r ON r.run_id = s.run_id WHERE s.route_id = '${route}' AND s.profile = '${profile}' ORDER BY r.created_at
+          rawSql: SELECT r.created_at, r.run_id, r.git_commit, r.testbed, s.profile, s.route_id, s.route_label, s.expectation, s.reachable, s.oracle_reachable, s.cost, s.oracle_cost, s.correct, s.status, s.metrics['total_ms'] AS total_ms, s.metrics['search_ms'] AS search_ms, s.metrics['reverse_ms'] AS reverse_ms, s.metrics['states_popped'] AS states_popped FROM osrs_bench.samples s INNER JOIN osrs_bench.runs r ON r.run_id = s.run_id WHERE s.route_id = '${route}' AND s.profile = '${profile}' ORDER BY r.created_at
     - id: 2
       title: Raw JSON
       type: table

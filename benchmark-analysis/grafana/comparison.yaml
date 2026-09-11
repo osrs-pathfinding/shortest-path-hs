@@ -48,14 +48,14 @@ spec:
         current: {text: total_ms, value: total_ms, selected: true}
   panels:
     - id: 1
-      title: Matched Valid Cases
+      title: Matched Positive Cases
       type: stat
       gridPos: {x: 0, y: 0, w: 6, h: 4}
       datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
       targets:
         - refId: A
           format: table
-          rawSql: SELECT count() AS matched_cases FROM (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) c INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) b ON c.profile = b.profile AND c.route_id = b.route_id
+          rawSql: SELECT count() AS matched_cases FROM (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' AND expectation = 'positive' GROUP BY profile, route_id HAVING min(correct) = 1) c INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' AND expectation = 'positive' GROUP BY profile, route_id HAVING min(correct) = 1) b ON c.profile = b.profile AND c.route_id = b.route_id
     - id: 2
       title: Candidate Correctness Failures
       type: stat
@@ -73,7 +73,17 @@ spec:
       targets:
         - refId: A
           format: table
-          rawSql: SELECT median(100 * (c.value / b.value - 1)) AS pct_change FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0
+          rawSql: SELECT median(100 * (c.value / b.value - 1)) AS pct_change FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.expectation = b.expectation AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' AND expectation = 'positive' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' AND expectation = 'positive' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.expectation = 'positive' AND b.expectation = 'positive' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0
+    - id: 13
+      title: Corpus / Semantic Changes
+      description: Route/profile cases added, removed, or reclassified between runs.
+      type: stat
+      gridPos: {x: 18, y: 0, w: 6, h: 4}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      targets:
+        - refId: A
+          format: table
+          rawSql: WITH candidate_cases AS (SELECT DISTINCT profile, route_id, expectation FROM osrs_bench.samples WHERE run_id = '${candidate}'), baseline_cases AS (SELECT DISTINCT profile, route_id, expectation FROM osrs_bench.samples WHERE run_id = '${baseline}') SELECT countIf(ifNull(c.expectation, 'missing') != ifNull(b.expectation, 'missing')) AS changed_cases FROM candidate_cases c FULL OUTER JOIN baseline_cases b ON c.profile = b.profile AND c.route_id = b.route_id
     - id: 4
       title: Worst Regressions
       type: table
@@ -82,7 +92,7 @@ spec:
       targets:
         - refId: A
           format: table
-          rawSql: SELECT c.profile, c.route_id, c.route_label, c.category, b.value AS baseline, c.value AS candidate, 100 * (c.value / b.value - 1) AS pct_change FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0 ORDER BY pct_change DESC LIMIT 100
+          rawSql: SELECT c.profile, c.route_id, c.route_label, c.category, b.value AS baseline, c.value AS candidate, 100 * (c.value / b.value - 1) AS pct_change FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.expectation = b.expectation AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' AND expectation = 'positive' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' AND expectation = 'positive' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.expectation = 'positive' AND b.expectation = 'positive' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0 ORDER BY pct_change DESC LIMIT 100
     - id: 5
       title: Before vs After Cases
       type: table
@@ -91,7 +101,7 @@ spec:
       targets:
         - refId: A
           format: table
-          rawSql: SELECT c.profile, c.route_id, b.value AS baseline, c.value AS candidate, c.value / b.value AS ratio FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0 ORDER BY ratio DESC
+          rawSql: SELECT c.profile, c.route_id, b.value AS baseline, c.value AS candidate, c.value / b.value AS ratio FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.expectation = b.expectation AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' AND expectation = 'positive' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' AND expectation = 'positive' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.expectation = 'positive' AND b.expectation = 'positive' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0 ORDER BY ratio DESC
     - id: 6
       title: Before vs After Points
       type: table
@@ -100,10 +110,10 @@ spec:
       targets:
         - refId: A
           format: table
-          rawSql: SELECT c.profile, c.route_id, b.value AS baseline, c.value AS candidate, 100 * (c.value / b.value - 1) AS pct_change FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0 ORDER BY pct_change DESC
+          rawSql: SELECT c.profile, c.route_id, b.value AS baseline, c.value AS candidate, 100 * (c.value / b.value - 1) AS pct_change FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.expectation = b.expectation AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' AND expectation = 'positive' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' AND expectation = 'positive' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.expectation = 'positive' AND b.expectation = 'positive' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0 ORDER BY pct_change DESC
     - id: 7
       title: Total Time CDF
-      description: Matched correct corpus cases; one median total_ms value per profile and route.
+      description: Matched correct positive cases; one median total_ms value per profile and route.
       type: xychart
       gridPos: {x: 0, y: 4, w: 12, h: 10}
       datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
@@ -159,10 +169,10 @@ spec:
       targets:
         - refId: A
           format: table
-          rawSql: &totalCdfSql WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'total_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+          rawSql: &totalCdfSql WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') AND expectation = 'positive' GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'total_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
     - id: 8
       title: Search Time CDF
-      description: Matched correct corpus cases; one median search_ms value per profile and route.
+      description: Matched correct positive cases; one median search_ms value per profile and route.
       type: xychart
       gridPos: {x: 12, y: 4, w: 12, h: 10}
       datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
@@ -171,10 +181,10 @@ spec:
       targets:
         - refId: A
           format: table
-          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'search_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') AND expectation = 'positive' GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'search_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
     - id: 9
       title: Heuristic Setup CDF
-      description: Matched correct corpus cases; one median heuristic_setup_ms value per profile and route.
+      description: Matched correct positive cases; one median heuristic_setup_ms value per profile and route.
       type: xychart
       gridPos: {x: 0, y: 14, w: 12, h: 10}
       datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
@@ -183,10 +193,10 @@ spec:
       targets:
         - refId: A
           format: table
-          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'heuristic_setup_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') AND expectation = 'positive' GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'heuristic_setup_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
     - id: 10
       title: Reverse Search CDF
-      description: Matched correct corpus cases; one median reverse_ms value per profile and route.
+      description: Matched correct positive cases; one median reverse_ms value per profile and route.
       type: xychart
       gridPos: {x: 12, y: 14, w: 12, h: 10}
       datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
@@ -195,10 +205,10 @@ spec:
       targets:
         - refId: A
           format: table
-          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'reverse_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') AND expectation = 'positive' GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'reverse_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
     - id: 11
       title: States Popped CDF
-      description: Matched correct corpus cases; one median states_popped value per profile and route.
+      description: Matched correct positive cases; one median states_popped value per profile and route.
       type: xychart
       gridPos: {x: 0, y: 24, w: 12, h: 10}
       datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
@@ -237,10 +247,10 @@ spec:
       targets:
         - refId: A
           format: table
-          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'states_popped') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') AND expectation = 'positive' GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'states_popped') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
     - id: 12
       title: Expanded Nodes CDF
-      description: Matched correct corpus cases; one median expanded_nodes value per profile and route.
+      description: Matched correct positive cases; one median expanded_nodes value per profile and route.
       type: xychart
       gridPos: {x: 12, y: 24, w: 12, h: 10}
       datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
@@ -249,4 +259,4 @@ spec:
       targets:
         - refId: A
           format: table
-          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'expanded_nodes') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') AND expectation = 'positive' GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'expanded_nodes') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
