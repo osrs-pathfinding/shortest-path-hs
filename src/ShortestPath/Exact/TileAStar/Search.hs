@@ -6,10 +6,12 @@ module ShortestPath.Exact.TileAStar.Search
 
 import Control.Monad (foldM, when)
 import Control.Monad.ST (ST, runST)
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef)
+import qualified Data.Vector as Boxed
 import qualified Data.Vector.Mutable as BoxedMutable
 import qualified Data.Vector.Unboxed as Vector
 import qualified Data.Vector.Unboxed.Mutable as Mutable
@@ -27,7 +29,10 @@ import ShortestPath.World
 
 data SearchSpace = SearchSpace
   { searchBaseTiles :: Vector.Vector Int
+  , searchBaseComponents :: Vector.Vector Int
   , searchExtraTiles :: Vector.Vector Int
+  , searchExtraComponents :: Boxed.Vector (Vector.Vector Int)
+  , searchExtraSites :: Vector.Vector Int
   , searchSize :: !Int
   }
 
@@ -50,7 +55,7 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
             bestBank <- readSTRef bestBankRef
             let counters' = counters {tileBestBankCostUpdates = tileBestBankCostUpdates counters + if isBankCandidate state && cost < previousBank then 1 else 0}
             case effectiveHeuristic bestBank cost state of
-              Nothing -> pure (countHeuristicPrune (stateTile state) counters')
+              Nothing -> pure (countHeuristicPrune state counters')
               Just (h, dominated) -> do
                 Mutable.write best state cost
                 when (kind >= 0) $ do
@@ -66,7 +71,7 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
                   }) emptyCounters initialStates
   go exploredRef best prevState prevKind prevLabel queue bestBankRef counters
  where
-  space = searchSpace astar q
+  space = searchSpace astar q heuristic
   stateCount = searchSize space * 2
   startNode = maybe 0 id (nodeFor (queryStart q))
   startState = stateId startNode False
@@ -107,7 +112,7 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
             bestBank <- readSTRef bestBankRef
             let effective = effectiveHeuristic bestBank cost state
             case effective of
-              Nothing -> go exploredRef best prevState prevKind prevLabel queue bestBankRef (countHeuristicPrune (stateTile state) counters)
+              Nothing -> go exploredRef best prevState prevKind prevLabel queue bestBankRef (countHeuristicPrune state counters)
               Just (h, dominated)
                 | addCostDefault maxBound cost (weightedHeuristic h) > priority -> do
                     heapPush queue (addCostDefault maxBound cost (weightedHeuristic h)) state cost
@@ -189,7 +194,7 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
             bestBank <- readSTRef bestBankRef
             let effective = effectiveHeuristic bestBank newCost next
             case effective of
-              Nothing -> pure (countKind kind (countHeuristicPrune (stateTile next) counters'))
+              Nothing -> pure (countKind kind (countHeuristicPrune next counters'))
               Just (h, dominated) -> do
                 Mutable.write best next newCost
                 Mutable.write prevState next state
@@ -213,17 +218,33 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
   effectiveHeuristic bestBank cost state =
     let unresolved = not (stateBanked state)
         dominated = bankGlobalRelevant && unresolved && cost > bestBank
-        unbanked = heuristicAt topology heuristic (stateTile state) False
-        resolved = heuristicAt topology heuristic (stateTile state) True
+        unbanked = heuristicAtSearchNode state False
+        resolved = heuristicAtSearchNode state True
      in case if unresolved then unbanked else resolved of
       Nothing -> Nothing
       Just value -> Just (if dominated then maybe value (max value) resolved else value, dominated)
-  countHeuristicPrune tile counters =
-    counters
+  heuristicAtSearchNode state banked
+    | node < baseLength = heuristicAtComponent heuristic packed (searchBaseComponents space Vector.! node) banked
+    | otherwise = heuristicAtResolved heuristic packed
+        (searchExtraComponents space Boxed.! extra) (searchExtraSites space Vector.! extra) banked
+   where
+    node = state `div` 2
+    packed = searchTileAt space node
+    baseLength = Vector.length (searchBaseTiles space)
+    extra = node - baseLength
+  countHeuristicPrune state counters =
+    let attached = nodeHasAttachment state
+     in counters
       { tileHeuristicUnreachable = tileHeuristicUnreachable counters + 1
-      , tileUnknownComponentPrunes = tileUnknownComponentPrunes counters + if null (structurallyReachablePointAttachments topology tile) then 1 else 0
-      , tileNoReverseSeedPrunes = tileNoReverseSeedPrunes counters + if null (structurallyReachablePointAttachments topology tile) then 0 else 1
+      , tileUnknownComponentPrunes = tileUnknownComponentPrunes counters + if attached then 0 else 1
+      , tileNoReverseSeedPrunes = tileNoReverseSeedPrunes counters + if attached then 1 else 0
       }
+  nodeHasAttachment state
+    | node < baseLength = True
+    | otherwise = not (Vector.null (searchExtraComponents space Boxed.! (node - baseLength)))
+   where
+    node = state `div` 2
+    baseLength = Vector.length (searchBaseTiles space)
 
   countDestinations banked = foldl' (\count transport -> count + case destination transport >>= \dst -> stateFor dst banked of Nothing -> 0; Just _ -> 1) 0
 
@@ -267,9 +288,9 @@ emptyCounters = TileAStarCounters
   , tileBankGlobalTrace = []
   }
 
-searchSpace :: TileAStar -> Query -> SearchSpace
-searchSpace (TileAStar topology static) q =
-  SearchSpace base extras (Vector.length base + Vector.length extras)
+searchSpace :: TileAStar -> Query -> Heuristic -> SearchSpace
+searchSpace (TileAStar topology static) q heuristic =
+  SearchSpace base (staticSearchComponents static) extras extraComponents extraSites (Vector.length base + Vector.length extras)
  where
   base = staticSearchTiles static
   endpoints =
@@ -284,6 +305,11 @@ searchSpace (TileAStar topology static) q =
       | packed <- IntSet.toAscList (IntSet.fromList (map unTile endpoints))
       , binarySearch packed base == Nothing
       ]
+  extraComponents = Boxed.fromList
+    [ Vector.fromList (structurallyReachablePointAttachments topology (Tile packed))
+    | packed <- Vector.toList extras
+    ]
+  extraSites = Vector.map (\packed -> IntMap.findWithDefault (-1) packed (heuristicSiteIndex heuristic)) extras
   world = topologyWorld topology
 
 searchNodeFor :: SearchSpace -> Tile -> Maybe Int

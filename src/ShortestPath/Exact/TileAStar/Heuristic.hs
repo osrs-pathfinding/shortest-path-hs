@@ -4,6 +4,8 @@ module ShortestPath.Exact.TileAStar.Heuristic
   , TileAStarConfig(..)
   , defaultTileAStarConfig
   , heuristicAt
+  , heuristicAtComponent
+  , heuristicAtResolved
   , heuristicFromDistances
   , prepareHeuristic
   , prepareHeuristicProfiled
@@ -79,19 +81,37 @@ prepareHeuristicProfiled config astar q availability = do
 heuristicAt :: WorldTopology -> Heuristic -> Tile -> Bool -> Maybe Int
 {-# INLINE heuristicAt #-}
 heuristicAt topology heuristic tile banked =
-  minimumMaybe (exactSiteDistance : map componentDistance (structurallyReachablePointAttachments topology tile))
+  heuristicAtResolved heuristic packed attachments site banked
  where
-  exactSiteDistance = do
-    node <- IntMap.lookup (unTile tile) (heuristicSiteIndex heuristic)
-    distance <- heuristicSiteDistances heuristic Vector.!? stateId node banked
-    if distance == maxBound then Nothing else Just distance
-  seedDistance (packed, cost) = addCostDefault maxBound cost (chebyshevPacked (unTile tile) packed)
-  componentDistance cid =
-    let seeds = heuristicSeeds heuristic Boxed.! seedKey cid banked
-     in if Vector.null seeds then Nothing else Just (Vector.minimum (Vector.map seedDistance seeds))
-  minimumMaybe values = case [value | Just value <- values] of
-    [] -> Nothing
-    finite -> Just (minimum finite)
+  packed = unTile tile
+  attachments = Vector.fromList (structurallyReachablePointAttachments topology tile)
+  site = IntMap.findWithDefault (-1) packed (heuristicSiteIndex heuristic)
+
+heuristicAtComponent :: Heuristic -> Int -> Int -> Bool -> Maybe Int
+{-# INLINE heuristicAtComponent #-}
+heuristicAtComponent heuristic packed cid banked =
+  finite (componentDistance heuristic packed cid banked)
+
+heuristicAtResolved :: Heuristic -> Int -> Vector.Vector Int -> Int -> Bool -> Maybe Int
+{-# INLINE heuristicAtResolved #-}
+heuristicAtResolved heuristic packed components site banked =
+  finite (Vector.foldl' (\best cid -> min best (componentDistance heuristic packed cid banked)) exact components)
+ where
+  exact
+    | site < 0 = maxBound
+    | otherwise = heuristicSiteDistances heuristic Vector.! stateId site banked
+
+componentDistance :: Heuristic -> Int -> Int -> Bool -> Int
+{-# INLINE componentDistance #-}
+componentDistance heuristic packed cid banked =
+  Vector.foldl' (\best (seed, cost) -> min best (addCostDefault maxBound cost (chebyshevPacked packed seed))) maxBound
+    (heuristicSeeds heuristic Boxed.! seedKey cid banked)
+
+finite :: Int -> Maybe Int
+{-# INLINE finite #-}
+finite value
+  | value == maxBound = Nothing
+  | otherwise = Just value
 
 heuristicFromDistances :: NaturalComponents -> SiteGraph -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
 heuristicFromDistances components graph distances reverseMs seedMs counters =

@@ -2,11 +2,14 @@ module Main (main) where
 
 import Data.Bits (setBit)
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Vector.Unboxed as Vector
 
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Exact.TileAStar.Debug
+import ShortestPath.Exact.TileAStar.Heuristic (Heuristic(..), heuristicAt, heuristicAtComponent, heuristicAtResolved, prepareHeuristic)
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Exact.ReferenceDijkstra
 import ShortestPath.Account
@@ -26,6 +29,7 @@ main = do
   tileAStar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy (tA0 tiles)) world
   let reference = ReferenceDijkstra (tileTopology tileAStar)
   mapM_ (checkRoute reference tileAStar world) (cases tiles)
+  checkHeuristicLookup tileAStar tiles
   let globalQuery = query (tA3 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
       rawGlobalRoute = findRouteReferenceDijkstra reference globalQuery
       tileGlobalRoute = findRouteTileAStar tileAStar globalQuery
@@ -52,10 +56,41 @@ checkMultiplePointAttachments = do
       attachments = pointAttachments (tileTopology tileAStar) point
       referenceRoute = findRouteReferenceDijkstra reference routeQuery
       tileRoute = findRouteTileAStar tileAStar routeQuery
+      heuristic = prepareHeuristic tileAStar routeQuery (prepareQueryTransports world routeQuery)
   assertMsg ("attachments: " <> show attachments) (length attachments == 2)
   assertMsg ("reference route: " <> show referenceRoute) (routeCost referenceRoute == 2)
   assertMsg ("tile route: " <> show tileRoute) (routeCost tileRoute == 2)
   assertMsg "reverse shared-point route" (routeCost (findRouteTileAStar tileAStar (query right left (Set.singleton "SYNTHETIC_SHARED_POINT") False)) == 2)
+  assertResolvedHeuristic tileAStar heuristic point
+
+checkHeuristicLookup :: TileAStar -> Tiles -> IO ()
+checkHeuristicLookup tileAStar tiles = do
+  let routeQuery = query (tA0 tiles) (tC0 tiles)
+        (Set.fromList ["SYNTHETIC_BOAT", "SYNTHETIC_RING", "SYNTHETIC_X_1", "SYNTHETIC_X_2", "SYNTHETIC_DEAD_END"]) True
+      heuristic = prepareHeuristic tileAStar routeQuery (prepareQueryTransports (tileWorld tileAStar) routeQuery)
+      samples = [tA0 tiles, tA1 tiles, tE0 tiles, tD1 tiles, tX tiles, tY tiles, tUnknown tiles]
+  mapM_ (assertResolvedHeuristic tileAStar heuristic) samples
+  mapM_ (assertComponentHeuristic tileAStar heuristic) [tA0 tiles, tA1 tiles, tD1 tiles]
+
+assertResolvedHeuristic :: TileAStar -> Heuristic -> Tile -> IO ()
+assertResolvedHeuristic tileAStar heuristic tile =
+  mapM_ check [False, True]
+ where
+  topology = tileTopology tileAStar
+  packed = unTile tile
+  attachments = Vector.fromList (structurallyReachablePointAttachments topology tile)
+  site = IntMap.findWithDefault (-1) packed (heuristicSiteIndex heuristic)
+  check banked = assertMsg ("resolved heuristic mismatch at " <> show tile <> " banked=" <> show banked)
+    (heuristicAt topology heuristic tile banked == heuristicAtResolved heuristic packed attachments site banked)
+
+assertComponentHeuristic :: TileAStar -> Heuristic -> Tile -> IO ()
+assertComponentHeuristic tileAStar heuristic tile =
+  case componentOfTile (topologyNaturalComponents topology) tile of
+    Nothing -> fail ("missing component for " <> show tile)
+    Just cid -> mapM_ (\banked -> assertMsg ("component heuristic mismatch at " <> show tile <> " banked=" <> show banked)
+      (heuristicAt topology heuristic tile banked == heuristicAtComponent heuristic (unTile tile) cid banked)) [False, True]
+ where
+  topology = tileTopology tileAStar
 
 collisionMap :: [Tile] -> CollisionMap
 collisionMap tiles = CollisionMap (Map.fromList [(region, bytes region) | region <- Set.toList (Set.fromList (map tileRegion tiles))])

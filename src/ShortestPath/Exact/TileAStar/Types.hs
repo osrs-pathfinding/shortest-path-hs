@@ -36,6 +36,7 @@ tileTopology (TileAStar topology _) = topology
 
 data TileStatic = TileStatic
   { staticSearchTiles :: Vector.Vector Int
+  , staticSearchComponents :: Vector.Vector Int
   , staticTiles :: Vector.Vector Int
   , staticComponents :: Boxed.Vector (Vector.Vector Int)
   , staticWalkingNetwork :: SparseWalkingNetwork
@@ -44,12 +45,14 @@ data TileStatic = TileStatic
 instance Binary TileStatic where
   put value = do
     put (Vector.toList (staticSearchTiles value))
+    put (Vector.toList (staticSearchComponents value))
     put (Vector.toList (staticTiles value))
     put (map Vector.toList (Boxed.toList (staticComponents value)))
     put (staticWalkingNetwork value)
   get =
     TileStatic
       <$> (Vector.fromList <$> get)
+      <*> (Vector.fromList <$> get)
       <*> (Vector.fromList <$> get)
       <*> (Boxed.fromList . map Vector.fromList <$> get)
       <*> get

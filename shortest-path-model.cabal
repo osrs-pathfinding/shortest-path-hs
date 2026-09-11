@@ -216,7 +216,8 @@ test-suite pathfinder-synthetic
     base,
     bytestring,
     containers,
-    shortest-path-model
+    shortest-path-model,
+    vector
   default-language: GHC2024
 
 test-suite tile-astar
