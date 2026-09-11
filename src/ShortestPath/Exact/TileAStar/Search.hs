@@ -2,6 +2,7 @@
 
 module ShortestPath.Exact.TileAStar.Search
   ( search
+  , walkingNeighborsRawDirect
   ) where
 
 import Control.Monad (foldM, when)
@@ -326,3 +327,60 @@ searchTileAt space node
   | otherwise = searchExtraTiles space Vector.! (node - baseLength)
  where
   baseLength = Vector.length (searchBaseTiles space)
+
+walkingNeighborsRawDirect :: Monad m => World -> Tile -> (Tile -> m ()) -> m ()
+{-# INLINE walkingNeighborsRawDirect #-}
+walkingNeighborsRawDirect world tile yield =
+  if isWalkable cm tile
+    then do
+      emit westOpen west
+      emit eastOpen east
+      emit southOpen south
+      emit northOpen north
+      emit southWestOpen southWest
+      emit southEastOpen southEast
+      emit northWestOpen northWest
+      emit northEastOpen northEast
+      blockedOrigin west
+      blockedOrigin east
+      blockedOrigin south
+      blockedOrigin north
+    else do
+      blockedExit True west
+      blockedExit True east
+      blockedExit True south
+      blockedExit True north
+      blockedExit southWestCardinals southWest
+      blockedExit southEastCardinals southEast
+      blockedExit northWestCardinals northWest
+      blockedExit northEastCardinals northEast
+ where
+  cm = worldCollision world
+  (x, y, p) = unpackTile tile
+  west = packTile (x - 1) y p
+  east = packTile (x + 1) y p
+  south = packTile x (y - 1) p
+  north = packTile x (y + 1) p
+  southWest = packTile (x - 1) (y - 1) p
+  southEast = packTile (x + 1) (y - 1) p
+  northWest = packTile (x - 1) (y + 1) p
+  northEast = packTile (x + 1) (y + 1) p
+  northAt a b = collisionFlag cm a b p 0
+  southAt a b = northAt a (b - 1)
+  eastAt a b = collisionFlag cm a b p 1
+  westAt a b = eastAt (a - 1) b
+  westOpen = westAt x y
+  eastOpen = eastAt x y
+  southOpen = southAt x y
+  northOpen = northAt x y
+  southWestOpen = southOpen && westAt x (y - 1) && westOpen && southAt (x - 1) y
+  southEastOpen = southOpen && eastAt x (y - 1) && eastOpen && southAt (x + 1) y
+  northWestOpen = northOpen && westAt x (y + 1) && westOpen && northAt (x - 1) y
+  northEastOpen = northOpen && eastAt x (y + 1) && eastOpen && northAt (x + 1) y
+  southWestCardinals = isWalkable cm west && isWalkable cm south
+  southEastCardinals = isWalkable cm east && isWalkable cm south
+  northWestCardinals = isWalkable cm west && isWalkable cm north
+  northEastCardinals = isWalkable cm east && isWalkable cm north
+  emit allowed next = when allowed (yield next)
+  blockedOrigin next = when (not (isWalkable cm next) && Map.member next (worldTransports world)) (yield next)
+  blockedExit cardinals next = when (isWalkable cm next && cardinals) (yield next)
