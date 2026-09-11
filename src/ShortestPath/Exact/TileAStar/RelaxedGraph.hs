@@ -22,6 +22,7 @@ import qualified Data.Vector.Unboxed as Vector
 
 import ShortestPath.Exact.TileAStar.SparseWalking
 import ShortestPath.Exact.TileAStar.Types
+import ShortestPath.Internal.Cost
 import ShortestPath.Pathfinder
 import ShortestPath.Tile
 import ShortestPath.Topology
@@ -121,14 +122,6 @@ targetSeeds graph target =
 
 stateId :: Int -> Bool -> Int
 stateId node banked = node * 2 + if banked then 1 else 0
-
-addCost :: Int -> Int -> Maybe Int
-addCost a b
-  | a == maxBound || b == maxBound || b < 0 || a > maxBound - b = Nothing
-  | otherwise = Just (a + b)
-
-addCostDefault :: Int -> Int -> Int -> Int
-addCostDefault fallback a b = maybe fallback id (addCost a b)
 
 chebyshevPacked :: Int -> Int -> Int
 chebyshevPacked a b =

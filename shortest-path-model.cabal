@@ -15,6 +15,7 @@ library
     ShortestPath.GameVars
     ShortestPath.GameVars.Varbits
     ShortestPath.GameVars.VarPlayers
+    ShortestPath.Internal.Cost
     ShortestPath.Internal.DistanceTransform
     ShortestPath.Internal.MutableHeap
     ShortestPath.Internal.RgbaTile

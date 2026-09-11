@@ -17,7 +17,7 @@ import Foreign.ForeignPtr (mallocForeignPtrArray, withForeignPtr)
 import Foreign.Ptr (Ptr)
 import System.IO.Unsafe (unsafePerformIO)
 
-import ShortestPath.Exact.TileAStar.RelaxedGraph (addCostDefault)
+import ShortestPath.Internal.Cost
 import ShortestPath.Tile
 
 data Box = Box

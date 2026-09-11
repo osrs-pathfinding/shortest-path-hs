@@ -15,6 +15,7 @@ import qualified Data.Vector.Unboxed as Vector
 import qualified Data.Vector.Unboxed.Mutable as Mutable
 
 import ShortestPath.Internal.MutableHeap
+import ShortestPath.Internal.Cost
 import ShortestPath.Tile
 
 -- | A CSR graph preserving twice the Chebyshev distance between original
@@ -200,8 +201,3 @@ undirectedAdjacency size edges = runST $ do
     Mutable.write destinations ix to
     Mutable.write weights ix cost
     Mutable.write cursors from (ix + 1)
-
-addCost :: Int -> Int -> Maybe Int
-addCost a b
-  | a == maxBound || b == maxBound || b < 0 || a > maxBound - b = Nothing
-  | otherwise = Just (a + b)
