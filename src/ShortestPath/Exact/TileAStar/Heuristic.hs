@@ -5,7 +5,9 @@ module ShortestPath.Exact.TileAStar.Heuristic
   , defaultTileAStarConfig
   , heuristicAt
   , heuristicAtComponent
+  , heuristicAtComponentRaw
   , heuristicAtResolved
+  , heuristicAtResolvedRaw
   , heuristicFromDistances
   , prepareHeuristic
   , prepareHeuristicProfiled
@@ -90,12 +92,21 @@ heuristicAt topology heuristic tile banked =
 heuristicAtComponent :: Heuristic -> Int -> Int -> Bool -> Maybe Int
 {-# INLINE heuristicAtComponent #-}
 heuristicAtComponent heuristic packed cid banked =
-  finite (componentDistance heuristic packed cid banked)
+  finite (heuristicAtComponentRaw heuristic packed cid banked)
+
+heuristicAtComponentRaw :: Heuristic -> Int -> Int -> Bool -> Int
+{-# INLINE heuristicAtComponentRaw #-}
+heuristicAtComponentRaw = componentDistance
 
 heuristicAtResolved :: Heuristic -> Int -> Vector.Vector Int -> Int -> Bool -> Maybe Int
 {-# INLINE heuristicAtResolved #-}
 heuristicAtResolved heuristic packed components site banked =
-  finite (Vector.foldl' (\best cid -> min best (componentDistance heuristic packed cid banked)) exact components)
+  finite (heuristicAtResolvedRaw heuristic packed components site banked)
+
+heuristicAtResolvedRaw :: Heuristic -> Int -> Vector.Vector Int -> Int -> Bool -> Int
+{-# INLINE heuristicAtResolvedRaw #-}
+heuristicAtResolvedRaw heuristic packed components site banked =
+  Vector.foldl' (\best cid -> min best (componentDistance heuristic packed cid banked)) exact components
  where
   exact
     | site < 0 = maxBound
