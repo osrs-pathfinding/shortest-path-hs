@@ -17,6 +17,7 @@ module ShortestPath.Exact.TileAStar.Types
   ) where
 
 import Data.Binary (Binary(..))
+import Data.Int (Int64)
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
 
@@ -111,6 +112,7 @@ data TileAStarTimings = TileAStarTimings
   , tileReverseDijkstraMilliseconds :: !Double
   , tileSeedTableMilliseconds :: !Double
   , tileSearchMilliseconds :: !Double
+  , tileForwardAllocatedBytes :: !Int64
   , tileTotalMilliseconds :: !Double
   , tileSearchCounters :: !TileAStarCounters
   , tileReverseCounters :: !TileReverseCounters

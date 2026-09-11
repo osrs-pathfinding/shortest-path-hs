@@ -306,7 +306,9 @@ putProgress message = putStrLn message >> hFlush stdout
 timingsJson :: TileAStarTimings -> Value
 timingsJson timings = object
   [ "setupMs" .= tileHeuristicSetupMilliseconds timings, "reverseDijkstraMs" .= tileReverseDijkstraMilliseconds timings
-  , "seedTableMs" .= tileSeedTableMilliseconds timings, "searchMs" .= tileSearchMilliseconds timings, "totalMs" .= tileTotalMilliseconds timings
+  , "seedTableMs" .= tileSeedTableMilliseconds timings, "searchMs" .= tileSearchMilliseconds timings
+  , "forwardAllocatedBytes" .= tileForwardAllocatedBytes timings, "forwardNsPerState" .= perState (tileSearchMilliseconds timings * 1000000)
+  , "forwardAllocatedBytesPerState" .= perState (fromIntegral (tileForwardAllocatedBytes timings)), "totalMs" .= tileTotalMilliseconds timings
   , "statesPopped" .= tileStatesPopped (tileSearchCounters timings), "uniqueStatesReached" .= tileUniqueStatesReached (tileSearchCounters timings)
   , "pqPushes" .= tilePqPushes (tileSearchCounters timings), "staleEntries" .= tileStalePqEntries (tileSearchCounters timings)
   , "walkingRelaxations" .= tileWalkingRelaxations (tileSearchCounters timings), "transportRelaxations" .= tileTransportRelaxations (tileSearchCounters timings)
@@ -314,6 +316,12 @@ timingsJson timings = object
   , "unknownComponentPrunes" .= tileUnknownComponentPrunes (tileSearchCounters timings), "noReverseSeedPrunes" .= tileNoReverseSeedPrunes (tileSearchCounters timings)
   , "bestBankUpdates" .= tileBestBankCostUpdates (tileSearchCounters timings), "finalBestBankCost" .= tileFinalBestBankCost (tileSearchCounters timings)
   ]
+ where
+  perState :: Double -> Maybe Double
+  perState total
+    | states == 0 = Nothing
+    | otherwise = Just (total / fromIntegral states)
+  states = tileStatesPopped (tileSearchCounters timings)
 
 die :: String -> IO a
 die message = putStrLn message >> exitFailure

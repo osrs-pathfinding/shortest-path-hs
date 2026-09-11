@@ -7,19 +7,26 @@ import qualified Data.Vector.Mutable as BoxedMutable
 import qualified Data.Vector.Unboxed.Mutable as Mutable
 
 import ShortestPath.Pathfinder
+import ShortestPath.Tile
 
 -- | Interpret predecessor transitions recorded by the search. All movement and
 -- account semantics have already been resolved before entries reach this table.
 reconstructRouteSteps ::
+  (Int -> Tile) ->
   Mutable.MVector s Int ->
-  BoxedMutable.MVector s (Maybe RouteStep) ->
+  Mutable.MVector s Int ->
+  BoxedMutable.MVector s String ->
   Int ->
   ST s [RouteStep]
-reconstructRouteSteps prevState prevStep state = reverse <$> collect state
+reconstructRouteSteps stateTile prevState prevKind prevLabel state = reverse <$> collect state
  where
   collect current = do
     previous <- Mutable.read prevState current
-    step <- BoxedMutable.read prevStep current
-    case step of
-      Nothing -> pure []
-      Just value -> (value :) <$> collect previous
+    if previous == maxBound
+      then pure []
+      else do
+        kind <- Mutable.read prevKind current
+        step <- if kind == 0
+          then pure (Walk (stateTile current))
+          else UseTransport <$> BoxedMutable.read prevLabel current <*> pure (stateTile current)
+        (step :) <$> collect previous

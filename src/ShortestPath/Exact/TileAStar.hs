@@ -25,6 +25,8 @@ module ShortestPath.Exact.TileAStar
 import Control.Exception (evaluate)
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
+import GHC.Clock (getMonotonicTimeNSec)
+import System.Mem (getAllocationCounter)
 
 import ShortestPath.Pathfinder
 import ShortestPath.Exact.TileAStar.Heuristic
@@ -87,7 +89,14 @@ findRouteProfiledTileAStarWithTraceConfig config trace astar query =
   do
     let availability = prepareQueryTransports (tileWorld astar) query
     (heuristic, setupMs) <- timedIO forceHeuristic (prepareHeuristicProfiled config astar query availability)
-    ((route, counters, explored), searchMs) <- timedIO forceSearch (pure (search trace astar query availability heuristic))
+    beforeAlloc <- getAllocationCounter
+    started <- getMonotonicTimeNSec
+    let result@(route, counters, explored) = search trace astar query availability heuristic
+    _ <- forceSearch result
+    finished <- getMonotonicTimeNSec
+    afterAlloc <- getAllocationCounter
+    let searchMs = milliseconds started finished
+        allocatedBytes = beforeAlloc - afterAlloc
     let totalMs = setupMs + searchMs
     pure
       ( route
@@ -96,6 +105,7 @@ findRouteProfiledTileAStarWithTraceConfig config trace astar query =
           (heuristicReverseMilliseconds heuristic)
           (heuristicSeedTableMilliseconds heuristic)
           searchMs
+          allocatedBytes
           totalMs
           counters
           (heuristicReverseCounters heuristic)
