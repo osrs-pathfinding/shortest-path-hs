@@ -24,13 +24,13 @@ import System.IO (hClose, openBinaryTempFile)
 import System.Process (readProcess)
 
 data Options = Options
-  { inputPath :: FilePath, corpusPath :: FilePath, profileSource :: FilePath
+  { inputPath :: FilePath, corpusPath :: FilePath, exclusionsPath :: FilePath, profileSource :: FilePath
   , runId :: Maybe String, notes :: String, testbed :: String, clickhouseUrl :: String
   , sweep :: Maybe String
   }
 
 defaultOptions :: Options
-defaultOptions = Options "" "benchmarks/corpus/routes-v1.json" "src/ShortestPath/BenchmarkProfiles.hs" Nothing "" "cedric" "http://127.0.0.1:8123" Nothing
+defaultOptions = Options "" "benchmarks/corpus/routes-v1.json" "benchmarks/corpus/excluded-routes-v1.json" "src/ShortestPath/BenchmarkProfiles.hs" Nothing "" "cedric" "http://127.0.0.1:8123" Nothing
 
 main :: IO ()
 main = do
@@ -39,12 +39,15 @@ main = do
   raw <- BS.readFile (inputPath options)
   rows <- either die pure (mapM decodeLine (filter (not . BS.null) (BS.split 10 raw)))
   when (null rows) (die "input JSONL is empty")
+  unless (all validResult rows) (die "every result must contain expectation=positive|negative, reachable, and oracleReachable")
   let first = case rows of (row, _):_ -> row; [] -> error "checked above"
       rid = fromMaybe (generatedRunId first) (runId options)
       samples = map (sampleRow rid) rows
   corpus <- BS.readFile (corpusPath options)
+  exclusions <- BS.readFile (exclusionsPath options)
+  excludedRoutes <- either die pure (eitherDecodeStrict' exclusions :: Either String [Value])
   profiles <- BS.readFile (profileSource options)
-  corpusId <- gitHash corpus
+  corpusId <- gitHash (corpus <> "\n" <> exclusions)
   profileId <- gitHash profiles
   let tier = text first "benchmarkTier" "full"
       suiteInput = BSC.pack (corpusId <> "\n" <> profileId <> "\n" <> tier)
@@ -65,6 +68,9 @@ main = do
         , "metadata" .= (Map.fromList
             ([ ("source", inputPath options)
              , ("heuristic_weight", show (numberDouble first "heuristicWeight" 1))
+             , ("positive_case_count", show (caseCountFor "positive" rows))
+             , ("negative_case_count", show (caseCountFor "negative" rows))
+             , ("excluded_route_count", show (length excludedRoutes))
              ] <> maybe [] (\value -> [("sweep", value)]) (sweep options)) :: Map.Map String String)
         ]
   _ <- clickhouse options "INSERT INTO osrs_bench.runs FORMAT JSONEachRow" (encode run <> "\n")
@@ -77,6 +83,7 @@ parseOptions o ("--notes":v:xs) = parseOptions (o {notes = v}) xs
 parseOptions o ("--testbed":v:xs) = parseOptions (o {testbed = v}) xs
 parseOptions o ("--clickhouse-url":v:xs) = parseOptions (o {clickhouseUrl = v}) xs
 parseOptions o ("--corpus":v:xs) = parseOptions (o {corpusPath = v}) xs
+parseOptions o ("--exclusions":v:xs) = parseOptions (o {exclusionsPath = v}) xs
 parseOptions o ("--profile-source":v:xs) = parseOptions (o {profileSource = v}) xs
 parseOptions o ("--sweep":v:xs) = parseOptions (o {sweep = Just v}) xs
 parseOptions o (v:xs) | null (inputPath o) = parseOptions (o {inputPath = v}) xs
@@ -91,6 +98,11 @@ sampleRow rid (raw, rawJson) = object
   , "route_id" .= text raw "routeId" "", "route_label" .= text raw "routeName" ""
   , "category" .= text raw "category" "unknown", "distance_tag" .= text raw "distanceTag" "unknown"
   , "plane_tag" .= text raw "planeTag" "unknown", "sample_index" .= (number raw "repetition" 1 - 1)
+  , "expectation" .= text raw "expectation" ""
+  , "reachable" .= (if bool raw "reachable" False then (1 :: Int) else 0)
+  , "cost" .= numberMaybe raw "cost"
+  , "oracle_reachable" .= (if bool raw "oracleReachable" False then (1 :: Int) else 0)
+  , "oracle_cost" .= firstNumberMaybe raw ["oracleCost", "expectedCost"]
   , "status" .= status raw, "correct" .= (if bool raw "correct" True then (1 :: Int) else 0)
   , "metrics" .= metrics raw, "dimensions" .= dimensions raw, "raw_json" .= rawJson
   ]
@@ -131,7 +143,9 @@ dimensions raw = Map.fromList
   ]
 
 status :: Value -> String
-status raw = if bool raw "correct" True then if bool raw "reachable" False then "ok" else "unreachable" else "incorrect"
+status raw = if bool raw "correct" True then "ok" else "incorrect"
+
+validResult (raw, _) = text raw "expectation" "" `elem` ["positive", "negative"] && boolMaybe raw "reachable" /= Nothing && boolMaybe raw "oracleReachable" /= Nothing
 
 text (Object o) key fallback = case KeyMap.lookup (Key.fromString key) o of Just (String v) -> Text.unpack v; _ -> fallback
 text _ _ fallback = fallback
@@ -146,6 +160,8 @@ number raw key fallback = fromMaybe fallback (numberMaybe raw key)
 numberMaybe :: Value -> String -> Maybe Int
 numberMaybe (Object o) key = case KeyMap.lookup (Key.fromString key) o of Just (Number n) -> Just (round n); _ -> Nothing
 numberMaybe _ _ = Nothing
+firstNumberMaybe _ [] = Nothing
+firstNumberMaybe raw (key:keys) = case numberMaybe raw key of Just n -> Just n; Nothing -> firstNumberMaybe raw keys
 numberDouble :: Value -> String -> Double -> Double
 numberDouble raw key fallback = fromMaybe fallback (numberDoubleMaybe raw key)
 numberDoubleMaybe :: Value -> String -> Maybe Double
@@ -154,6 +170,7 @@ numberDoubleMaybe _ _ = Nothing
 
 routeCount rows = length (Map.keys (Map.fromList [((text (fst r) "routeId" "", text (fst r) "category" ""), ()) | r <- rows]))
 caseCount rows = length (Map.keys (Map.fromList [((text (fst r) "routeId" "", text (fst r) "accountProfile" ""), ()) | r <- rows]))
+caseCountFor expectation rows = length (Map.keys (Map.fromList [((text raw "routeId" "", text raw "accountProfile" ""), ()) | (raw, _) <- rows, text raw "expectation" "" == expectation]))
 generatedRunId first = map clean (text first "generatedAt" "run") <> "-" <> take 8 (text first "gitCommit" "unknown")
  where clean ' ' = 'T'; clean ':' = '-'; clean c = c
 
@@ -179,5 +196,5 @@ urlEncode = concatMap encodeChar
 
 trim = reverse . dropWhile (== '\n') . reverse . dropWhile (== '\n')
 
-dieUsage = die "usage: bench-import [--run-id ID] [--notes TEXT] [--testbed ID] [--clickhouse-url URL] [--corpus PATH] [--profile-source PATH] [--sweep ID] results.jsonl"
+dieUsage = die "usage: bench-import [--run-id ID] [--notes TEXT] [--testbed ID] [--clickhouse-url URL] [--corpus PATH] [--exclusions PATH] [--profile-source PATH] [--sweep ID] results.jsonl"
 die message = putStrLn message >> exitFailure
