@@ -22,7 +22,7 @@ nix-shell --run \
 
 echo "[2/3] Tile A* correctness and diagnostic comparison"
 nix-shell --run \
-  "cabal run route-bench -- --corpus '$corpus' --oracle '$oracle' --output '$tileOutput' --tier '$tier' --runs '$runs' --diagnostic --jobs '$jobs'" \
+  "cabal run route-bench -- --corpus '$corpus' --oracle '$oracle' --output '$tileOutput' --tier '$tier' --runs '$runs' --jobs '$jobs'" \
   2>&1 | tee "$output/tile-astar.log"
 
 if rg -q '"correct"\s*:\s*false' "$tileOutput"; then
