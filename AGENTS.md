@@ -6,7 +6,13 @@ This repository is an experimental/production-oriented OSRS pathfinding implemen
 
 Key Haskell modules:
 
-* `src/ShortestPath/Exact/TileAStar.hs` — current primary tile A* implementation and heuristic/lifecycle logic.
+* `src/ShortestPath/Exact/TileAStar.hs` — Tile A* public API and orchestration.
+* `src/ShortestPath/Exact/TileAStar/Search.hs` — specialised forward search and lifecycle logic.
+* `src/ShortestPath/Exact/TileAStar/Heuristic.hs` — heuristic construction and lookup.
+* `src/ShortestPath/Exact/TileAStar/RelaxedGraph.hs` — query-specific relaxed transport/site graph.
+* `src/ShortestPath/Exact/TileAStar/ReverseSearch.hs` — reverse shortest-path implementations.
+* `src/ShortestPath/Exact/TileAStar/SparseWalking.hs` — exact sparse same-component walking network.
+* `src/ShortestPath/Exact/TileAStar/Reconstruct.hs` — predecessor interpretation.
 * `src/ShortestPath/Exact/ReferenceDijkstra.hs` — deliberately simple correctness/reference solver.
 * `src/ShortestPath/World.hs` — collision-backed walkability and authoritative walking neighbours.
 * `src/ShortestPath/Topology.hs` — natural components, point attachments and structural reachability.
@@ -124,10 +130,16 @@ Do not optimise from one hand-picked route.
 
 ## Changing the core algorithm
 
-Start in:
+Start at the public entry point, then follow the relevant stage:
 
 ```text
 src/ShortestPath/Exact/TileAStar.hs
+    ├── Search.hs
+    ├── Heuristic.hs
+    │   ├── RelaxedGraph.hs
+    │   └── ReverseSearch.hs
+    │       └── SparseWalking.hs
+    └── Reconstruct.hs
 ```
 
 Then inspect the corresponding world/transport helpers before duplicating logic.

@@ -152,8 +152,10 @@ Run correctness checks:
 ```sh
 nix-shell --run 'cabal test tile-astar'
 nix-shell --run 'cabal test pathfinder-synthetic'
-nix-shell --run 'SPM_TILE_REVERSE_IMPL=manhattan cabal test pathfinder-synthetic'
 ```
+
+The synthetic suite directly exercises both reverse implementations and checks
+the sparse labels against the production clique labels.
 
 Run the Kourend -> Desert benchmark through the direct server protocol:
 
@@ -197,6 +199,9 @@ SPM_TILE_COMPARE_REVERSE=1        compare sparse labels against clique labels
 SPM_TILE_REVERSE_COUNTERS=1       enable expensive reverse diagnostics
 SPM_HEURISTIC_TRANSFORM=c         use C Chebyshev transform for heuristic image rendering
 ```
+
+These values are parsed once by the executable layer into explicit Tile A*
+configuration; routing modules do not read process environment state.
 
 Recent laptop baseline for Kourend -> Desert, 5 warm in-process runs:
 

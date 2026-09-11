@@ -15,6 +15,30 @@ authoritative `WorldTopology`, plus shared transition helpers in
 maps, predecessor storage, state representation, and search loops remain
 independent so agreement is meaningful correctness evidence.
 
+## Tile A* implementation pipeline
+
+The implementation is split by its existing algorithmic stages:
+
+```text
+Prepared query + WorldTopology
+    -> TileAStar.RelaxedGraph
+    -> TileAStar.ReverseSearch
+    -> TileAStar.Heuristic
+    -> TileAStar.Search
+    -> TileAStar.Reconstruct
+```
+
+`ShortestPath.Exact.TileAStar` is the public facade and owns orchestration.
+`TileAStar.Preprocessing` builds reusable static site data, while
+`TileAStar.Debug` owns reverse-path inspection and viewer rendering. Process
+environment settings are parsed by `TileAStar.Configuration` and passed into
+the algorithm explicitly.
+
+The hot paths intentionally retain packed `Int` states, dense IDs, unboxed
+vectors, mutable ST loops, and a specialised growable heap. These structures
+avoid per-transition allocation; the module boundaries do not generalise the
+solver into a generic graph framework.
+
 ## Authoritative world topology
 
 `ShortestPath.Topology` owns the maintained topology model:
@@ -272,7 +296,7 @@ The code also contains an exact sparse Manhattan-network representation of same-
 
 It transforms Chebyshev geometry into Manhattan geometry and introduces Steiner vertices to avoid the conceptual complete walking clique.
 
-This currently exists as an optional reverse-search implementation (`SPM_TILE_REVERSE_IMPL=manhattan`) with an assertion mode for checking that its labels match the clique implementation.
+This remains an optional reverse-search implementation (`SPM_TILE_REVERSE_IMPL=manhattan`) isolated in `TileAStar.ReverseSearch`, with an assertion mode for checking that its labels match the production clique implementation. The separate counted clique loop is retained only for diagnostics because threading counters changes measured performance.
 
 It should therefore be considered an implemented alternative backend, not yet the default core algorithm.
 
