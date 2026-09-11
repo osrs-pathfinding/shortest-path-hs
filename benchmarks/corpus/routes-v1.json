@@ -383,96 +383,6 @@
     }
   },
   {
-    "id": "gps-natural-0005",
-    "name": "Lesser demons — Crandor and Karamja Dungeon → Cold War quest step",
-    "category": "gps-natural",
-    "rawStart": [
-      2838,
-      9592,
-      0
-    ],
-    "start": [
-      2837,
-      9594,
-      0
-    ],
-    "rawTarget": [
-      2639,
-      10422,
-      0
-    ],
-    "target": [
-      2639,
-      10422,
-      0
-    ],
-    "startName": "Lesser demons — Crandor and Karamja Dungeon",
-    "targetName": "Cold War quest step",
-    "startSource": "oldschool-wiki:Lesser_demon@15315065#Locations",
-    "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/coldwar/ColdWar.java:235",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "long",
-    "planeTag": "0-to-0",
-    "startRegion": "5,18",
-    "targetRegion": "5,20",
-    "startResolution": {
-      "raw": [
-        2838,
-        9592,
-        0
-      ],
-      "resolved": [
-        2837,
-        9594,
-        0
-      ],
-      "distance": 2,
-      "method": "nearest_reachable",
-      "componentIds": [
-        13427
-      ],
-      "candidates": [
-        [
-          2837,
-          9594,
-          0
-        ],
-        [
-          2836,
-          9594,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2639,
-        10422,
-        0
-      ],
-      "resolved": [
-        2639,
-        10422,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        17633
-      ],
-      "candidates": [
-        [
-          2639,
-          10422,
-          0
-        ]
-      ]
-    }
-  },
-  {
     "id": "gps-natural-0006",
     "name": "Cold War quest step → Lesser demons — Crandor and Karamja Dungeon",
     "category": "gps-natural",
@@ -1111,7 +1021,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0013",
@@ -1196,7 +1109,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0014",
@@ -1852,7 +1768,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0021",
@@ -2747,161 +2666,6 @@
     }
   },
   {
-    "id": "gps-natural-0031",
-    "name": "River Molch → Camdozaal Mines",
-    "category": "gps-natural",
-    "rawStart": [
-      1260,
-      3672,
-      0
-    ],
-    "start": [
-      1260,
-      3674,
-      0
-    ],
-    "rawTarget": [
-      2924,
-      5814,
-      0
-    ],
-    "target": [
-      2921,
-      5814,
-      0
-    ],
-    "startName": "River Molch",
-    "targetName": "Camdozaal Mines",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3079",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2230",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "0-to-0",
-    "startRegion": "2,7",
-    "targetRegion": "5,11",
-    "startResolution": {
-      "raw": [
-        1260,
-        3672,
-        0
-      ],
-      "resolved": [
-        1260,
-        3674,
-        0
-      ],
-      "distance": 2,
-      "method": "nearest_reachable",
-      "componentIds": [
-        2954
-      ],
-      "candidates": [
-        [
-          1260,
-          3674,
-          0
-        ],
-        [
-          1261,
-          3674,
-          0
-        ],
-        [
-          1262,
-          3673,
-          0
-        ],
-        [
-          1262,
-          3674,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2924,
-        5814,
-        0
-      ],
-      "resolved": [
-        2921,
-        5814,
-        0
-      ],
-      "distance": 3,
-      "method": "nearest_reachable",
-      "componentIds": [
-        7270
-      ],
-      "candidates": [
-        [
-          2921,
-          5814,
-          0
-        ],
-        [
-          2924,
-          5811,
-          0
-        ],
-        [
-          2921,
-          5813,
-          0
-        ],
-        [
-          2921,
-          5815,
-          0
-        ],
-        [
-          2923,
-          5811,
-          0
-        ],
-        [
-          2925,
-          5811,
-          0
-        ],
-        [
-          2921,
-          5816,
-          0
-        ],
-        [
-          2922,
-          5811,
-          0
-        ],
-        [
-          2926,
-          5811,
-          0
-        ],
-        [
-          2921,
-          5811,
-          0
-        ],
-        [
-          2921,
-          5817,
-          0
-        ],
-        [
-          2927,
-          5811,
-          0
-        ]
-      ]
-    }
-  },
-  {
     "id": "gps-natural-0032",
     "name": "Tear of the Soul → Cave crawlers",
     "category": "gps-natural",
@@ -3069,7 +2833,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0034",
@@ -3440,7 +3207,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0038",
@@ -3803,91 +3573,6 @@
         [
           2523,
           10025,
-          0
-        ]
-      ]
-    }
-  },
-  {
-    "id": "gps-natural-0042",
-    "name": "River Crannmor → Dave's Basement of Doom",
-    "category": "gps-natural",
-    "rawStart": [
-      2379,
-      3458,
-      0
-    ],
-    "start": [
-      2379,
-      3458,
-      0
-    ],
-    "rawTarget": [
-      3080,
-      9892,
-      0
-    ],
-    "target": [
-      3080,
-      9892,
-      0
-    ],
-    "startName": "River Crannmor",
-    "targetName": "Dave's Basement of Doom",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3073",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2237",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "0-to-0",
-    "startRegion": "4,6",
-    "targetRegion": "6,19",
-    "startResolution": {
-      "raw": [
-        2379,
-        3458,
-        0
-      ],
-      "resolved": [
-        2379,
-        3458,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        2871
-      ],
-      "candidates": [
-        [
-          2379,
-          3458,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        3080,
-        9892,
-        0
-      ],
-      "resolved": [
-        3080,
-        9892,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        15177
-      ],
-      "candidates": [
-        [
-          3080,
-          9892,
           0
         ]
       ]
@@ -4948,7 +4633,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0055",
@@ -5118,7 +4806,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0057",
@@ -6517,7 +6208,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0073",
@@ -8539,106 +8233,6 @@
     }
   },
   {
-    "id": "gps-natural-0095",
-    "name": "Spectres → Alchemical Society",
-    "category": "gps-natural",
-    "rawStart": [
-      1613,
-      10010,
-      0
-    ],
-    "start": [
-      1610,
-      10010,
-      0
-    ],
-    "rawTarget": [
-      1394,
-      9327,
-      0
-    ],
-    "target": [
-      1394,
-      9327,
-      0
-    ],
-    "startName": "Spectres",
-    "targetName": "Alchemical Society",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3152",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2580",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "long",
-    "planeTag": "0-to-0",
-    "startRegion": "3,19",
-    "targetRegion": "2,18",
-    "startResolution": {
-      "raw": [
-        1613,
-        10010,
-        0
-      ],
-      "resolved": [
-        1610,
-        10010,
-        0
-      ],
-      "distance": 3,
-      "method": "nearest_reachable",
-      "componentIds": [
-        15796
-      ],
-      "candidates": [
-        [
-          1610,
-          10010,
-          0
-        ],
-        [
-          1610,
-          10009,
-          0
-        ],
-        [
-          1610,
-          10011,
-          0
-        ],
-        [
-          1610,
-          10012,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        1394,
-        9327,
-        0
-      ],
-      "resolved": [
-        1394,
-        9327,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        12426
-      ],
-      "candidates": [
-        [
-          1394,
-          9327,
-          0
-        ]
-      ]
-    }
-  },
-  {
     "id": "gps-natural-0096",
     "name": "Kalphite Lair → Muggers",
     "category": "gps-natural",
@@ -9272,7 +8866,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0103",
@@ -11068,91 +10665,6 @@
     }
   },
   {
-    "id": "gps-natural-0122",
-    "name": "Chaeldar — Slayer master → Ungael",
-    "category": "gps-natural",
-    "rawStart": [
-      2446,
-      4430,
-      0
-    ],
-    "start": [
-      2446,
-      4430,
-      0
-    ],
-    "rawTarget": [
-      2260,
-      4078,
-      0
-    ],
-    "target": [
-      2260,
-      4078,
-      0
-    ],
-    "startName": "Chaeldar — Slayer master",
-    "targetName": "Ungael",
-    "startSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/achievementdiaries/lumbridgeanddraynor/LumbridgeMedium.java:242",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3260",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "regional",
-    "planeTag": "0-to-0",
-    "startRegion": "4,8",
-    "targetRegion": "4,7",
-    "startResolution": {
-      "raw": [
-        2446,
-        4430,
-        0
-      ],
-      "resolved": [
-        2446,
-        4430,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        5136
-      ],
-      "candidates": [
-        [
-          2446,
-          4430,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2260,
-        4078,
-        0
-      ],
-      "resolved": [
-        2260,
-        4078,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        4779
-      ],
-      "candidates": [
-        [
-          2260,
-          4078,
-          0
-        ]
-      ]
-    }
-  },
-  {
     "id": "gps-natural-0123",
     "name": "My Arms Big Adventure quest step → Shura",
     "category": "gps-natural",
@@ -11596,7 +11108,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0128",
@@ -11681,7 +11196,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0129",
@@ -13073,91 +12591,6 @@
     }
   },
   {
-    "id": "gps-natural-0144",
-    "name": "Tirannwn → Lithkren",
-    "category": "gps-natural",
-    "rawStart": [
-      2240,
-      3264,
-      0
-    ],
-    "start": [
-      2240,
-      3264,
-      0
-    ],
-    "rawTarget": [
-      3567,
-      4003,
-      0
-    ],
-    "target": [
-      3567,
-      4003,
-      0
-    ],
-    "startName": "Tirannwn",
-    "targetName": "Lithkren",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3232",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2938",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "0-to-0",
-    "startRegion": "4,6",
-    "targetRegion": "6,7",
-    "startResolution": {
-      "raw": [
-        2240,
-        3264,
-        0
-      ],
-      "resolved": [
-        2240,
-        3264,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        1760
-      ],
-      "candidates": [
-        [
-          2240,
-          3264,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        3567,
-        4003,
-        0
-      ],
-      "resolved": [
-        3567,
-        4003,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        4712
-      ],
-      "candidates": [
-        [
-          3567,
-          4003,
-          0
-        ]
-      ]
-    }
-  },
-  {
     "id": "gps-natural-0145",
     "name": "Toll Gate → Lum Lagoon",
     "category": "gps-natural",
@@ -13968,92 +13401,6 @@
         [
           2522,
           3232,
-          0
-        ]
-      ]
-    }
-  },
-  {
-    "id": "gps-natural-0154",
-    "name": "Prifddinas Altar → Ramarno",
-    "category": "gps-natural",
-    "rawStart": [
-      3246,
-      6115,
-      0
-    ],
-    "start": [
-      3246,
-      6115,
-      0
-    ],
-    "rawTarget": [
-      2956,
-      5806,
-      0
-    ],
-    "target": [
-      2957,
-      5806,
-      0
-    ],
-    "startName": "Prifddinas Altar",
-    "targetName": "Ramarno",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:331",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3058",
-    "allowTransports": true,
-    "tiers": [
-      "standard",
-      "full"
-    ],
-    "distanceTag": "regional",
-    "planeTag": "0-to-0",
-    "startRegion": "6,11",
-    "targetRegion": "5,11",
-    "startResolution": {
-      "raw": [
-        3246,
-        6115,
-        0
-      ],
-      "resolved": [
-        3246,
-        6115,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        7923
-      ],
-      "candidates": [
-        [
-          3246,
-          6115,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2956,
-        5806,
-        0
-      ],
-      "resolved": [
-        2957,
-        5806,
-        0
-      ],
-      "distance": 1,
-      "method": "point_access",
-      "componentIds": [
-        7270
-      ],
-      "candidates": [
-        [
-          2957,
-          5806,
           0
         ]
       ]
@@ -15156,92 +14503,6 @@
     }
   },
   {
-    "id": "gps-natural-0167",
-    "name": "Crash Island → Anglers' Retreat",
-    "category": "gps-natural",
-    "rawStart": [
-      2915,
-      2723,
-      0
-    ],
-    "start": [
-      2915,
-      2723,
-      0
-    ],
-    "rawTarget": [
-      2477,
-      2711,
-      0
-    ],
-    "target": [
-      2476,
-      2712,
-      0
-    ],
-    "startName": "Crash Island",
-    "targetName": "Anglers' Retreat",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2711",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2590",
-    "allowTransports": true,
-    "tiers": [
-      "standard",
-      "full"
-    ],
-    "distanceTag": "long",
-    "planeTag": "0-to-0",
-    "startRegion": "5,5",
-    "targetRegion": "4,5",
-    "startResolution": {
-      "raw": [
-        2915,
-        2723,
-        0
-      ],
-      "resolved": [
-        2915,
-        2723,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        218
-      ],
-      "candidates": [
-        [
-          2915,
-          2723,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2477,
-        2711,
-        0
-      ],
-      "resolved": [
-        2476,
-        2712,
-        0
-      ],
-      "distance": 1,
-      "method": "nearest_reachable",
-      "componentIds": [
-        210
-      ],
-      "candidates": [
-        [
-          2476,
-          2712,
-          0
-        ]
-      ]
-    }
-  },
-  {
     "id": "gps-natural-0168",
     "name": "Rellekka Spinning wheel → Lacerta Falls",
     "category": "gps-natural",
@@ -15494,7 +14755,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0171",
@@ -15579,7 +14843,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0172",
@@ -16200,7 +15467,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "gps-natural-0179",
@@ -16626,7 +15896,12 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid",
+      "end"
+    ]
   },
   {
     "id": "gps-natural-0184",
@@ -16878,92 +16153,6 @@
         [
           3079,
           3848,
-          0
-        ]
-      ]
-    }
-  },
-  {
-    "id": "gps-natural-0187",
-    "name": "Pandemonium quest step → Ynysdail",
-    "category": "gps-natural",
-    "rawStart": [
-      3025,
-      3208,
-      0
-    ],
-    "start": [
-      3025,
-      3208,
-      0
-    ],
-    "rawTarget": [
-      2218,
-      3476,
-      0
-    ],
-    "target": [
-      2219,
-      3476,
-      0
-    ],
-    "startName": "Pandemonium quest step",
-    "targetName": "Ynysdail",
-    "startSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/pandemonium/Pandemonium.java:204",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3319",
-    "allowTransports": true,
-    "tiers": [
-      "standard",
-      "full"
-    ],
-    "distanceTag": "long",
-    "planeTag": "0-to-0",
-    "startRegion": "5,6",
-    "targetRegion": "4,6",
-    "startResolution": {
-      "raw": [
-        3025,
-        3208,
-        0
-      ],
-      "resolved": [
-        3025,
-        3208,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        657
-      ],
-      "candidates": [
-        [
-          3025,
-          3208,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2218,
-        3476,
-        0
-      ],
-      "resolved": [
-        2219,
-        3476,
-        0
-      ],
-      "distance": 1,
-      "method": "point_access",
-      "componentIds": [
-        3344
-      ],
-      "candidates": [
-        [
-          2219,
-          3476,
           0
         ]
       ]
@@ -17811,91 +17000,6 @@
     }
   },
   {
-    "id": "gps-natural-0197",
-    "name": "Fountain of Heroes → Mountain dwarves",
-    "category": "gps-natural",
-    "rawStart": [
-      2906,
-      9877,
-      0
-    ],
-    "start": [
-      2906,
-      9877,
-      0
-    ],
-    "rawTarget": [
-      2853,
-      9872,
-      0
-    ],
-    "target": [
-      2849,
-      9876,
-      0
-    ],
-    "startName": "Fountain of Heroes",
-    "targetName": "Mountain dwarves",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2798",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2990",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "local",
-    "planeTag": "0-to-0",
-    "startRegion": "5,19",
-    "targetRegion": "5,19",
-    "startResolution": {
-      "raw": [
-        2906,
-        9877,
-        0
-      ],
-      "resolved": [
-        2906,
-        9877,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        15155
-      ],
-      "candidates": [
-        [
-          2906,
-          9877,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2853,
-        9872,
-        0
-      ],
-      "resolved": [
-        2849,
-        9876,
-        0
-      ],
-      "distance": 4,
-      "method": "nearest_reachable",
-      "componentIds": [
-        15081
-      ],
-      "candidates": [
-        [
-          2849,
-          9876,
-          0
-        ]
-      ]
-    }
-  },
-  {
     "id": "gps-natural-0198",
     "name": "Varrock West Anvil → Falador East",
     "category": "gps-natural",
@@ -18343,106 +17447,6 @@
         [
           1761,
           3850,
-          0
-        ]
-      ]
-    }
-  },
-  {
-    "id": "clue-natural-0003",
-    "name": "Cryptic Clue clue at 3219, 9617 → Dave's Basement of Doom",
-    "category": "clue-natural",
-    "rawStart": [
-      3219,
-      9617,
-      0
-    ],
-    "start": [
-      3218,
-      9617,
-      0
-    ],
-    "rawTarget": [
-      3080,
-      9892,
-      0
-    ],
-    "target": [
-      3080,
-      9892,
-      0
-    ],
-    "startName": "Cryptic Clue clue at 3219, 9617",
-    "targetName": "Dave's Basement of Doom",
-    "startSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:1214",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2237",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "regional",
-    "planeTag": "0-to-0",
-    "startRegion": "6,18",
-    "targetRegion": "6,19",
-    "startResolution": {
-      "raw": [
-        3219,
-        9617,
-        0
-      ],
-      "resolved": [
-        3218,
-        9617,
-        0
-      ],
-      "distance": 1,
-      "method": "nearest_reachable",
-      "componentIds": [
-        13750
-      ],
-      "candidates": [
-        [
-          3218,
-          9617,
-          0
-        ],
-        [
-          3219,
-          9618,
-          0
-        ],
-        [
-          3218,
-          9616,
-          0
-        ],
-        [
-          3218,
-          9618,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        3080,
-        9892,
-        0
-      ],
-      "resolved": [
-        3080,
-        9892,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        15177
-      ],
-      "candidates": [
-        [
-          3080,
-          9892,
           0
         ]
       ]
@@ -19213,7 +18217,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "clue-natural-0012",
@@ -20315,7 +19322,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "clue-natural-0024",
@@ -20728,7 +19738,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "clue-natural-0028",
@@ -21409,7 +20422,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "clue-natural-0036",
@@ -23656,7 +22672,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "quest-natural-0012",
@@ -24122,7 +23141,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "quest-natural-0016",
@@ -24823,7 +23845,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "quest-natural-0023",
@@ -26519,91 +25544,6 @@
     }
   },
   {
-    "id": "quest-natural-0040",
-    "name": "Party Room → Cold War quest step",
-    "category": "quest-natural",
-    "rawStart": [
-      3046,
-      3380,
-      0
-    ],
-    "start": [
-      3046,
-      3380,
-      0
-    ],
-    "rawTarget": [
-      2639,
-      10422,
-      0
-    ],
-    "target": [
-      2639,
-      10422,
-      0
-    ],
-    "startName": "Party Room",
-    "targetName": "Cold War quest step",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3028",
-    "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/coldwar/ColdWar.java:235",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "0-to-0",
-    "startRegion": "5,6",
-    "targetRegion": "5,20",
-    "startResolution": {
-      "raw": [
-        3046,
-        3380,
-        0
-      ],
-      "resolved": [
-        3046,
-        3380,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        657
-      ],
-      "candidates": [
-        [
-          3046,
-          3380,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2639,
-        10422,
-        0
-      ],
-      "resolved": [
-        2639,
-        10422,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        17633
-      ],
-      "candidates": [
-        [
-          2639,
-          10422,
-          0
-        ]
-      ]
-    }
-  },
-  {
     "id": "quest-natural-0041",
     "name": "Dust devils — Catacombs of Kourend → Rag And Bone Man I quest step",
     "category": "quest-natural",
@@ -27002,7 +25942,10 @@
           1
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "quest-natural-0045",
@@ -28661,7 +27604,11 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid"
+    ]
   },
   {
     "id": "quest-natural-0063",
@@ -29628,7 +28575,11 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid"
+    ]
   },
   {
     "id": "quest-natural-0074",
@@ -31164,91 +30115,6 @@
     }
   },
   {
-    "id": "quest-natural-0090",
-    "name": "Secrets Of The North quest step → Cold War quest step",
-    "category": "quest-natural",
-    "rawStart": [
-      2927,
-      10348,
-      0
-    ],
-    "start": [
-      2927,
-      10348,
-      0
-    ],
-    "rawTarget": [
-      2639,
-      10422,
-      0
-    ],
-    "target": [
-      2639,
-      10422,
-      0
-    ],
-    "startName": "Secrets Of The North quest step",
-    "targetName": "Cold War quest step",
-    "startSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/secretsofthenorth/SecretsOfTheNorth.java:501",
-    "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/coldwar/ColdWar.java:235",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "regional",
-    "planeTag": "0-to-0",
-    "startRegion": "5,20",
-    "targetRegion": "5,20",
-    "startResolution": {
-      "raw": [
-        2927,
-        10348,
-        0
-      ],
-      "resolved": [
-        2927,
-        10348,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        17585
-      ],
-      "candidates": [
-        [
-          2927,
-          10348,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2639,
-        10422,
-        0
-      ],
-      "resolved": [
-        2639,
-        10422,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        17633
-      ],
-      "candidates": [
-        [
-          2639,
-          10422,
-          0
-        ]
-      ]
-    }
-  },
-  {
     "id": "quest-natural-0091",
     "name": "Ardougne Spinning wheel → Dragon Slayer II quest step",
     "category": "quest-natural",
@@ -31416,7 +30282,11 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid"
+    ]
   },
   {
     "id": "quest-natural-0093",
@@ -31612,7 +30482,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "quest-natural-0095",
@@ -34564,7 +33437,11 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid"
+    ]
   },
   {
     "id": "quest-natural-0127",
@@ -34949,7 +33826,11 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid"
+    ]
   },
   {
     "id": "quest-natural-0131",
@@ -36577,7 +35458,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "quest-natural-0148",
@@ -41457,7 +40341,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "walking-0051",
@@ -41625,91 +40512,6 @@
         [
           3658,
           3338,
-          0
-        ]
-      ]
-    }
-  },
-  {
-    "id": "walking-0053",
-    "name": "Cryptic Clue clue at 1820, 9935 → Alchemical Society",
-    "category": "walking-focused",
-    "rawStart": [
-      1820,
-      9935,
-      0
-    ],
-    "start": [
-      1820,
-      9935,
-      0
-    ],
-    "rawTarget": [
-      1394,
-      9327,
-      0
-    ],
-    "target": [
-      1394,
-      9327,
-      0
-    ],
-    "startName": "Cryptic Clue clue at 1820, 9935",
-    "targetName": "Alchemical Society",
-    "startSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:1949",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2580",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "long",
-    "planeTag": "0-to-0",
-    "startRegion": "3,19",
-    "targetRegion": "2,18",
-    "startResolution": {
-      "raw": [
-        1820,
-        9935,
-        0
-      ],
-      "resolved": [
-        1820,
-        9935,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        15486
-      ],
-      "candidates": [
-        [
-          1820,
-          9935,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        1394,
-        9327,
-        0
-      ],
-      "resolved": [
-        1394,
-        9327,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        12426
-      ],
-      "candidates": [
-        [
-          1394,
-          9327,
           0
         ]
       ]
@@ -42109,7 +40911,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "walking-0058",
@@ -42364,7 +41169,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "walking-0061",
@@ -42715,7 +41523,12 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid",
+      "end"
+    ]
   },
   {
     "id": "walking-0065",
@@ -42970,7 +41783,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "walking-0068",
@@ -43240,91 +42056,6 @@
         [
           3462,
           3557,
-          0
-        ]
-      ]
-    }
-  },
-  {
-    "id": "walking-0071",
-    "name": "Lletya Spinning wheel → Coordinate Clue clue at 2950, 2902",
-    "category": "walking-focused",
-    "rawStart": [
-      2324,
-      3180,
-      0
-    ],
-    "start": [
-      2324,
-      3180,
-      0
-    ],
-    "rawTarget": [
-      2950,
-      2902,
-      0
-    ],
-    "target": [
-      2950,
-      2902,
-      0
-    ],
-    "startName": "Lletya Spinning wheel",
-    "targetName": "Coordinate Clue clue at 2950, 2902",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:4518",
-    "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CoordinateClue.java:400",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "long",
-    "planeTag": "0-to-0",
-    "startRegion": "4,6",
-    "targetRegion": "5,5",
-    "startResolution": {
-      "raw": [
-        2324,
-        3180,
-        0
-      ],
-      "resolved": [
-        2324,
-        3180,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        1603
-      ],
-      "candidates": [
-        [
-          2324,
-          3180,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2950,
-        2902,
-        0
-      ],
-      "resolved": [
-        2950,
-        2902,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        678
-      ],
-      "candidates": [
-        [
-          2950,
-          2902,
           0
         ]
       ]
@@ -43949,7 +42680,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "walking-0079",
@@ -44903,91 +43637,6 @@
         [
           3181,
           3443,
-          0
-        ]
-      ]
-    }
-  },
-  {
-    "id": "walking-0089",
-    "name": "Emote Clue clue at 2463, 5149 → Mor Ul Rek",
-    "category": "walking-focused",
-    "rawStart": [
-      2463,
-      5149,
-      0
-    ],
-    "start": [
-      2463,
-      5149,
-      0
-    ],
-    "rawTarget": [
-      2496,
-      5140,
-      0
-    ],
-    "target": [
-      2496,
-      5140,
-      0
-    ],
-    "startName": "Emote Clue clue at 2463, 5149",
-    "targetName": "Mor Ul Rek",
-    "startSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/EmoteClue.java:168",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2981",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "local",
-    "planeTag": "0-to-0",
-    "startRegion": "4,10",
-    "targetRegion": "4,10",
-    "startResolution": {
-      "raw": [
-        2463,
-        5149,
-        0
-      ],
-      "resolved": [
-        2463,
-        5149,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        6682
-      ],
-      "candidates": [
-        [
-          2463,
-          5149,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2496,
-        5140,
-        0
-      ],
-      "resolved": [
-        2496,
-        5140,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        6614
-      ],
-      "candidates": [
-        [
-          2496,
-          5140,
           0
         ]
       ]
@@ -46722,7 +45371,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "transport-heavy-0008",
@@ -47062,7 +45714,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "transport-heavy-0012",
@@ -47523,7 +46178,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "transport-heavy-0017",
@@ -47608,7 +46266,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "transport-heavy-0018",
@@ -48044,7 +46705,11 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid"
+    ]
   },
   {
     "id": "transport-heavy-0023",
@@ -49664,7 +48329,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "transport-heavy-0041",
@@ -50245,7 +48913,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "transport-heavy-0047",
@@ -51058,7 +49729,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "transport-heavy-0056",
@@ -51689,7 +50363,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "transport-heavy-0063",
@@ -53119,7 +51796,12 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid",
+      "end"
+    ]
   },
   {
     "id": "wilderness-0003",
@@ -53289,7 +51971,12 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid",
+      "end"
+    ]
   },
   {
     "id": "wilderness-0005",
@@ -53550,7 +52237,12 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid",
+      "end"
+    ]
   },
   {
     "id": "wilderness-0008",
@@ -53835,7 +52527,12 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid",
+      "end"
+    ]
   },
   {
     "id": "wilderness-0011",
@@ -56226,7 +54923,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "wilderness-0037",
@@ -56937,7 +55637,12 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid",
+      "end"
+    ]
   },
   {
     "id": "wilderness-0044",
@@ -57684,7 +56389,10 @@
           2
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "geographic-0002",
@@ -58064,106 +56772,6 @@
     }
   },
   {
-    "id": "geographic-0006",
-    "name": "Waterfall Quest quest step → Dragons",
-    "category": "geographic-stratified",
-    "rawStart": [
-      2520,
-      3427,
-      1
-    ],
-    "start": [
-      2519,
-      3427,
-      1
-    ],
-    "rawTarget": [
-      1936,
-      8992,
-      1
-    ],
-    "target": [
-      1936,
-      8992,
-      1
-    ],
-    "startName": "Waterfall Quest quest step",
-    "targetName": "Dragons",
-    "startSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/waterfallquest/WaterfallQuest.java:217",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2747",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "1-to-1",
-    "startRegion": "4,6",
-    "targetRegion": "3,17",
-    "startResolution": {
-      "raw": [
-        2520,
-        3427,
-        1
-      ],
-      "resolved": [
-        2519,
-        3427,
-        1
-      ],
-      "distance": 1,
-      "method": "nearest_reachable",
-      "componentIds": [
-        20373
-      ],
-      "candidates": [
-        [
-          2519,
-          3427,
-          1
-        ],
-        [
-          2520,
-          3428,
-          1
-        ],
-        [
-          2519,
-          3426,
-          1
-        ],
-        [
-          2519,
-          3428,
-          1
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        1936,
-        8992,
-        1
-      ],
-      "resolved": [
-        1936,
-        8992,
-        1
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        24598
-      ],
-      "candidates": [
-        [
-          1936,
-          8992,
-          1
-        ]
-      ]
-    }
-  },
-  {
     "id": "geographic-0007",
     "name": "Fairy Ring Clue clue at 2073, 4846 → Emote Clue clue at 2511, 3641",
     "category": "geographic-stratified",
@@ -58447,7 +57055,10 @@
           2
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "geographic-0010",
@@ -59168,7 +57779,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "geographic-0018",
@@ -59363,92 +57977,10 @@
           0
         ]
       ]
-    }
-  },
-  {
-    "id": "geographic-0020",
-    "name": "Al Kharid Bank → City Entrance",
-    "category": "geographic-stratified",
-    "rawStart": [
-      3264,
-      3161,
-      0
-    ],
-    "start": [
-      3264,
-      3161,
-      0
-    ],
-    "rawTarget": [
-      1440,
-      9518,
-      1
-    ],
-    "target": [
-      1440,
-      9518,
-      1
-    ],
-    "startName": "Al Kharid Bank",
-    "targetName": "City Entrance",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:883",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2692",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "0-to-1",
-    "startRegion": "6,6",
-    "targetRegion": "2,18",
-    "startResolution": {
-      "raw": [
-        3264,
-        3161,
-        0
-      ],
-      "resolved": [
-        3264,
-        3161,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        657
-      ],
-      "candidates": [
-        [
-          3264,
-          3161,
-          0
-        ]
-      ]
     },
-    "targetResolution": {
-      "raw": [
-        1440,
-        9518,
-        1
-      ],
-      "resolved": [
-        1440,
-        9518,
-        1
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        27271
-      ],
-      "candidates": [
-        [
-          1440,
-          9518,
-          1
-        ]
-      ]
-    }
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "geographic-0021",
@@ -59641,92 +58173,6 @@
           2407,
           3804,
           0
-        ]
-      ]
-    }
-  },
-  {
-    "id": "geographic-0023",
-    "name": "Cryptic Clue clue at 3103, 3163 → Highlord's Chamber",
-    "category": "geographic-stratified",
-    "rawStart": [
-      3103,
-      3163,
-      2
-    ],
-    "start": [
-      3103,
-      3163,
-      2
-    ],
-    "rawTarget": [
-      1414,
-      9590,
-      1
-    ],
-    "target": [
-      1414,
-      9589,
-      1
-    ],
-    "startName": "Cryptic Clue clue at 3103, 3163",
-    "targetName": "Highlord's Chamber",
-    "startSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:994",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2861",
-    "allowTransports": true,
-    "tiers": [
-      "standard",
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "2-to-1",
-    "startRegion": "6,6",
-    "targetRegion": "2,18",
-    "startResolution": {
-      "raw": [
-        3103,
-        3163,
-        2
-      ],
-      "resolved": [
-        3103,
-        3163,
-        2
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        31671
-      ],
-      "candidates": [
-        [
-          3103,
-          3163,
-          2
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        1414,
-        9590,
-        1
-      ],
-      "resolved": [
-        1414,
-        9589,
-        1
-      ],
-      "distance": 1,
-      "method": "point_access",
-      "componentIds": [
-        27271
-      ],
-      "candidates": [
-        [
-          1414,
-          9589,
-          1
         ]
       ]
     }
@@ -60104,7 +58550,11 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid"
+    ]
   },
   {
     "id": "geographic-0028",
@@ -60279,92 +58729,11 @@
           0
         ]
       ]
-    }
-  },
-  {
-    "id": "geographic-0030",
-    "name": "Rum Deal quest step → Cryptic Clue clue at 2324, 2772",
-    "category": "geographic-stratified",
-    "rawStart": [
-      2145,
-      5108,
-      1
-    ],
-    "start": [
-      2145,
-      5108,
-      1
-    ],
-    "rawTarget": [
-      2324,
-      2772,
-      0
-    ],
-    "target": [
-      2324,
-      2772,
-      0
-    ],
-    "startName": "Rum Deal quest step",
-    "targetName": "Cryptic Clue clue at 2324, 2772",
-    "startSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/rumdeal/RumDeal.java:407",
-    "targetSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:2040",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "1-to-0",
-    "startRegion": "4,9",
-    "targetRegion": "4,5",
-    "startResolution": {
-      "raw": [
-        2145,
-        5108,
-        1
-      ],
-      "resolved": [
-        2145,
-        5108,
-        1
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        22524
-      ],
-      "candidates": [
-        [
-          2145,
-          5108,
-          1
-        ]
-      ]
     },
-    "targetResolution": {
-      "raw": [
-        2324,
-        2772,
-        0
-      ],
-      "resolved": [
-        2324,
-        2772,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        293
-      ],
-      "candidates": [
-        [
-          2324,
-          2772,
-          0
-        ]
-      ]
-    }
+    "negativeProfiles": [
+      "early",
+      "mid"
+    ]
   },
   {
     "id": "geographic-0031",
@@ -61283,7 +59652,10 @@
           1
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "geographic-0040",
@@ -61571,116 +59943,6 @@
           1559,
           3049,
           2
-        ]
-      ]
-    }
-  },
-  {
-    "id": "geographic-0043",
-    "name": "Hellhounds → Rum Deal quest step",
-    "category": "geographic-stratified",
-    "rawStart": [
-      2424,
-      9793,
-      0
-    ],
-    "start": [
-      2419,
-      9794,
-      0
-    ],
-    "rawTarget": [
-      2145,
-      5108,
-      1
-    ],
-    "target": [
-      2145,
-      5108,
-      1
-    ],
-    "startName": "Hellhounds",
-    "targetName": "Rum Deal quest step",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2850",
-    "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/rumdeal/RumDeal.java:407",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "0-to-1",
-    "startRegion": "4,19",
-    "targetRegion": "4,9",
-    "startResolution": {
-      "raw": [
-        2424,
-        9793,
-        0
-      ],
-      "resolved": [
-        2419,
-        9794,
-        0
-      ],
-      "distance": 5,
-      "method": "nearest_reachable",
-      "componentIds": [
-        14543
-      ],
-      "candidates": [
-        [
-          2419,
-          9794,
-          0
-        ],
-        [
-          2419,
-          9797,
-          0
-        ],
-        [
-          2428,
-          9788,
-          0
-        ],
-        [
-          2429,
-          9789,
-          0
-        ],
-        [
-          2419,
-          9798,
-          0
-        ],
-        [
-          2429,
-          9788,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2145,
-        5108,
-        1
-      ],
-      "resolved": [
-        2145,
-        5108,
-        1
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        22524
-      ],
-      "candidates": [
-        [
-          2145,
-          5108,
-          1
         ]
       ]
     }
@@ -62172,91 +60434,6 @@
     }
   },
   {
-    "id": "geographic-0049",
-    "name": "West Ardougne Altar → Baby dragons",
-    "category": "geographic-stratified",
-    "rawStart": [
-      2529,
-      3287,
-      0
-    ],
-    "start": [
-      2529,
-      3287,
-      0
-    ],
-    "rawTarget": [
-      1894,
-      9003,
-      1
-    ],
-    "target": [
-      1894,
-      9003,
-      1
-    ],
-    "startName": "West Ardougne Altar",
-    "targetName": "Baby dragons",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:401",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2608",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "0-to-1",
-    "startRegion": "4,6",
-    "targetRegion": "3,17",
-    "startResolution": {
-      "raw": [
-        2529,
-        3287,
-        0
-      ],
-      "resolved": [
-        2529,
-        3287,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        2282
-      ],
-      "candidates": [
-        [
-          2529,
-          3287,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        1894,
-        9003,
-        1
-      ],
-      "resolved": [
-        1894,
-        9003,
-        1
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        24598
-      ],
-      "candidates": [
-        [
-          1894,
-          9003,
-          1
-        ]
-      ]
-    }
-  },
-  {
     "id": "geographic-0050",
     "name": "Spinning wheel (2486, 3401) → Waterfall Quest quest step",
     "category": "geographic-stratified",
@@ -62457,91 +60634,6 @@
           2773,
           9144,
           0
-        ]
-      ]
-    }
-  },
-  {
-    "id": "geographic-0052",
-    "name": "Miscellania Anvil → Highlord's Chamber",
-    "category": "geographic-stratified",
-    "rawStart": [
-      2552,
-      3898,
-      0
-    ],
-    "start": [
-      2552,
-      3898,
-      0
-    ],
-    "rawTarget": [
-      1414,
-      9590,
-      1
-    ],
-    "target": [
-      1414,
-      9589,
-      1
-    ],
-    "startName": "Miscellania Anvil",
-    "targetName": "Highlord's Chamber",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:759",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2861",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "0-to-1",
-    "startRegion": "4,7",
-    "targetRegion": "2,18",
-    "startResolution": {
-      "raw": [
-        2552,
-        3898,
-        0
-      ],
-      "resolved": [
-        2552,
-        3898,
-        0
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        4534
-      ],
-      "candidates": [
-        [
-          2552,
-          3898,
-          0
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        1414,
-        9590,
-        1
-      ],
-      "resolved": [
-        1414,
-        9589,
-        1
-      ],
-      "distance": 1,
-      "method": "point_access",
-      "componentIds": [
-        27271
-      ],
-      "candidates": [
-        [
-          1414,
-          9589,
-          1
         ]
       ]
     }
@@ -62807,101 +60899,6 @@
         [
           1681,
           3108,
-          0
-        ]
-      ]
-    }
-  },
-  {
-    "id": "geographic-0056",
-    "name": "Cryptic Clue clue at 2512, 3641 → Vatrachos Island",
-    "category": "geographic-stratified",
-    "rawStart": [
-      2512,
-      3641,
-      1
-    ],
-    "start": [
-      2511,
-      3641,
-      1
-    ],
-    "rawTarget": [
-      1886,
-      2984,
-      0
-    ],
-    "target": [
-      1886,
-      2983,
-      0
-    ],
-    "startName": "Cryptic Clue clue at 2512, 3641",
-    "targetName": "Vatrachos Island",
-    "startSource": "runelite@ac79ed8bd892:runelite-client/src/main/java/net/runelite/client/plugins/cluescrolls/clues/CrypticClue.java:1110",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:3274",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "1-to-0",
-    "startRegion": "4,7",
-    "targetRegion": "3,5",
-    "startResolution": {
-      "raw": [
-        2512,
-        3641,
-        1
-      ],
-      "resolved": [
-        2511,
-        3641,
-        1
-      ],
-      "distance": 1,
-      "method": "nearest_reachable",
-      "componentIds": [
-        20885
-      ],
-      "candidates": [
-        [
-          2511,
-          3641,
-          1
-        ],
-        [
-          2512,
-          3642,
-          1
-        ],
-        [
-          2511,
-          3642,
-          1
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        1886,
-        2984,
-        0
-      ],
-      "resolved": [
-        1886,
-        2983,
-        0
-      ],
-      "distance": 1,
-      "method": "point_access",
-      "componentIds": [
-        963
-      ],
-      "candidates": [
-        [
-          1886,
-          2983,
           0
         ]
       ]
@@ -63263,92 +61260,6 @@
           3168,
           9571,
           0
-        ]
-      ]
-    }
-  },
-  {
-    "id": "geographic-0061",
-    "name": "Council chamber → Rum Deal quest step",
-    "category": "geographic-stratified",
-    "rawStart": [
-      2718,
-      5367,
-      1
-    ],
-    "start": [
-      2718,
-      5367,
-      1
-    ],
-    "rawTarget": [
-      2145,
-      5108,
-      1
-    ],
-    "target": [
-      2145,
-      5108,
-      1
-    ],
-    "startName": "Council chamber",
-    "targetName": "Rum Deal quest step",
-    "startSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2704",
-    "targetSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/rumdeal/RumDeal.java:407",
-    "allowTransports": true,
-    "tiers": [
-      "standard",
-      "full"
-    ],
-    "distanceTag": "long",
-    "planeTag": "1-to-1",
-    "startRegion": "5,10",
-    "targetRegion": "4,9",
-    "startResolution": {
-      "raw": [
-        2718,
-        5367,
-        1
-      ],
-      "resolved": [
-        2718,
-        5367,
-        1
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        22646
-      ],
-      "candidates": [
-        [
-          2718,
-          5367,
-          1
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        2145,
-        5108,
-        1
-      ],
-      "resolved": [
-        2145,
-        5108,
-        1
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        22524
-      ],
-      "candidates": [
-        [
-          2145,
-          5108,
-          1
         ]
       ]
     }
@@ -63806,7 +61717,11 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid"
+    ]
   },
   {
     "id": "geographic-0067",
@@ -63980,91 +61895,6 @@
     }
   },
   {
-    "id": "geographic-0069",
-    "name": "Contact quest step → Baby dragons",
-    "category": "geographic-stratified",
-    "rawStart": [
-      2154,
-      4374,
-      2
-    ],
-    "start": [
-      2154,
-      4374,
-      2
-    ],
-    "rawTarget": [
-      1894,
-      9003,
-      1
-    ],
-    "target": [
-      1894,
-      9003,
-      1
-    ],
-    "startName": "Contact quest step",
-    "targetName": "Baby dragons",
-    "startSource": "quest-helper@a2d37d0352b2:src/main/java/com/questhelper/helpers/quests/contact/Contact.java:222",
-    "targetSource": "runelite-gps-plugin@c07b9cfe10fa:src/main/resources/destinations.tsv:2608",
-    "allowTransports": true,
-    "tiers": [
-      "full"
-    ],
-    "distanceTag": "cross-world",
-    "planeTag": "2-to-1",
-    "startRegion": "4,8",
-    "targetRegion": "3,17",
-    "startResolution": {
-      "raw": [
-        2154,
-        4374,
-        2
-      ],
-      "resolved": [
-        2154,
-        4374,
-        2
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        32160
-      ],
-      "candidates": [
-        [
-          2154,
-          4374,
-          2
-        ]
-      ]
-    },
-    "targetResolution": {
-      "raw": [
-        1894,
-        9003,
-        1
-      ],
-      "resolved": [
-        1894,
-        9003,
-        1
-      ],
-      "distance": 0,
-      "method": "exact",
-      "componentIds": [
-        24598
-      ],
-      "candidates": [
-        [
-          1894,
-          9003,
-          1
-        ]
-      ]
-    }
-  },
-  {
     "id": "geographic-0070",
     "name": "Troll Stronghold quest step → Ritual Site",
     "category": "geographic-stratified",
@@ -64147,7 +61977,11 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early",
+      "mid"
+    ]
   },
   {
     "id": "geographic-0071",
@@ -64422,7 +62256,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "geographic-0074",
@@ -64507,7 +62344,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "geographic-0075",
@@ -67067,7 +64907,10 @@
           0
         ]
       ]
-    }
+    },
+    "negativeProfiles": [
+      "early"
+    ]
   },
   {
     "id": "regression-0030",
