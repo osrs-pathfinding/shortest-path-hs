@@ -66,6 +66,7 @@ forceTileAStar astar@(TileAStar topology static) = do
         + maxComponentId components
         + Vector.length (staticSearchTiles static)
         + Vector.length (staticSearchComponents static)
+        + Vector.length (staticWalkingMasks static)
         + Vector.length (staticTiles static)
         + sparseVertexCount (staticWalkingNetwork static)
         + sparseWalkingEdgeCount (staticWalkingNetwork static)

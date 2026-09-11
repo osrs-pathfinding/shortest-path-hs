@@ -4,16 +4,17 @@
 
 module ShortestPath.Exact.TileAStar.Search
   ( search
-  , walkingNeighborsRawDirect
   ) where
 
 import Control.Monad (forM_, when)
 import Control.Monad.ST (ST, runST)
+import Data.Bits (testBit)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.STRef (STRef, newSTRef, readSTRef, writeSTRef)
+import Data.Word (Word8)
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Mutable as BoxedMutable
 import qualified Data.Vector.Unboxed as Vector
@@ -34,6 +35,7 @@ import ShortestPath.World
 data SearchSpace = SearchSpace
   { searchBaseTiles :: Vector.Vector Int
   , searchBaseComponents :: Vector.Vector Int
+  , searchBaseWalkingMasks :: Vector.Vector Word8
   , searchExtraTiles :: Vector.Vector Int
   , searchExtraComponents :: Boxed.Vector (Vector.Vector Int)
   , searchExtraSites :: Vector.Vector Int
@@ -149,7 +151,13 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
     Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int ->
     BoxedMutable.MVector s String -> MutableHeap s -> STRef s Int -> Int -> Int -> Int -> ST s ()
   relaxNeighbors counters best prevState prevKind prevLabel queue bestBankRef bestBank cost state = do
-    walkingNeighborsRawDirect world tile relaxWalk
+    if node < baseLength
+      then do
+        walkMask tile (searchBaseWalkingMasks space Vector.! node) relaxWalk
+        forM_ cardinalNeighbors $ \nextTile ->
+          when (usableOrigin banked nextTile && not (isWalkable (worldCollision world) nextTile)) (relaxWalk nextTile)
+      else forM_ (walkingNeighborsRaw world tile) $ \nextTile ->
+        when (isWalkable (worldCollision world) nextTile || usableOrigin banked nextTile) (relaxWalk nextTile)
     when (bankTransitionAvailable q reachableBanks banked tile) $
       relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state (state + 1) 0 "" transportEdge
     when (allowTransports q) $
@@ -159,13 +167,20 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
       forM_ (preparedGlobalTransports availability True) (relaxTransport True)
    where
     tile = stateTile state
+    node = state `div` 2
+    baseLength = Vector.length (searchBaseTiles space)
     banked = stateBanked state
+    cardinalNeighbors =
+      [ packTile (x - 1) y p
+      , packTile (x + 1) y p
+      , packTile x (y - 1) p
+      , packTile x (y + 1) p
+      ]
+    (x, y, p) = unpackTile tile
     dominatedBankGlobal = not banked && Set.member tile reachableBanks && cost > bestBank
-    relaxWalk nextTile
-      | isWalkable (worldCollision world) nextTile || usableOrigin banked nextTile =
-          let next = stateForPacked (unTile nextTile) banked
-           in when (next >= 0) (relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state next 1 "" walkingEdge)
-      | otherwise = pure ()
+    relaxWalk nextTile =
+      let next = stateForPacked (unTile nextTile) banked
+       in when (next >= 0) (relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state next 1 "" walkingEdge)
     relaxTransport nextBanked transport =
       case destination transport of
         Just dst ->
@@ -319,7 +334,7 @@ readCounters counters bestBankRef bankTraceRef =
 
 searchSpace :: TileAStar -> Query -> Heuristic -> SearchSpace
 searchSpace (TileAStar topology static) q heuristic =
-  SearchSpace base (staticSearchComponents static) extras extraComponents extraSites (Vector.length base + Vector.length extras)
+  SearchSpace base (staticSearchComponents static) (staticWalkingMasks static) extras extraComponents extraSites (Vector.length base + Vector.length extras)
  where
   base = staticSearchTiles static
   endpoints =
@@ -372,59 +387,17 @@ searchTileAt space node
  where
   baseLength = Vector.length (searchBaseTiles space)
 
-walkingNeighborsRawDirect :: Monad m => World -> Tile -> (Tile -> m ()) -> m ()
-{-# INLINE walkingNeighborsRawDirect #-}
-walkingNeighborsRawDirect world tile yield =
-  if isWalkable cm tile
-    then do
-      emit westOpen west
-      emit eastOpen east
-      emit southOpen south
-      emit northOpen north
-      emit southWestOpen southWest
-      emit southEastOpen southEast
-      emit northWestOpen northWest
-      emit northEastOpen northEast
-      blockedOrigin west
-      blockedOrigin east
-      blockedOrigin south
-      blockedOrigin north
-    else do
-      blockedExit True west
-      blockedExit True east
-      blockedExit True south
-      blockedExit True north
-      blockedExit southWestCardinals southWest
-      blockedExit southEastCardinals southEast
-      blockedExit northWestCardinals northWest
-      blockedExit northEastCardinals northEast
+walkMask :: Monad m => Tile -> Word8 -> (Tile -> m ()) -> m ()
+{-# INLINE walkMask #-}
+walkMask tile mask yield = do
+  emit 6 (-1) 0
+  emit 2 1 0
+  emit 4 0 (-1)
+  emit 0 0 1
+  emit 5 (-1) (-1)
+  emit 3 1 (-1)
+  emit 7 (-1) 1
+  emit 1 1 1
  where
-  cm = worldCollision world
   (x, y, p) = unpackTile tile
-  west = packTile (x - 1) y p
-  east = packTile (x + 1) y p
-  south = packTile x (y - 1) p
-  north = packTile x (y + 1) p
-  southWest = packTile (x - 1) (y - 1) p
-  southEast = packTile (x + 1) (y - 1) p
-  northWest = packTile (x - 1) (y + 1) p
-  northEast = packTile (x + 1) (y + 1) p
-  northAt a b = collisionFlag cm a b p 0
-  southAt a b = northAt a (b - 1)
-  eastAt a b = collisionFlag cm a b p 1
-  westAt a b = eastAt (a - 1) b
-  westOpen = westAt x y
-  eastOpen = eastAt x y
-  southOpen = southAt x y
-  northOpen = northAt x y
-  southWestOpen = southOpen && westAt x (y - 1) && westOpen && southAt (x - 1) y
-  southEastOpen = southOpen && eastAt x (y - 1) && eastOpen && southAt (x + 1) y
-  northWestOpen = northOpen && westAt x (y + 1) && westOpen && northAt (x - 1) y
-  northEastOpen = northOpen && eastAt x (y + 1) && eastOpen && northAt (x + 1) y
-  southWestCardinals = isWalkable cm west && isWalkable cm south
-  southEastCardinals = isWalkable cm east && isWalkable cm south
-  northWestCardinals = isWalkable cm west && isWalkable cm north
-  northEastCardinals = isWalkable cm east && isWalkable cm north
-  emit allowed next = when allowed (yield next)
-  blockedOrigin next = when (not (isWalkable cm next) && Map.member next (worldTransports world)) (yield next)
-  blockedExit cardinals next = when (isWalkable cm next && cardinals) (yield next)
+  emit bit dx dy = when (testBit mask bit) (yield (packTile (x + dx) (y + dy) p))

@@ -18,6 +18,7 @@ module ShortestPath.Exact.TileAStar.Types
 
 import Data.Binary (Binary(..))
 import Data.Int (Int64)
+import Data.Word (Word8)
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
 
@@ -37,6 +38,7 @@ tileTopology (TileAStar topology _) = topology
 data TileStatic = TileStatic
   { staticSearchTiles :: Vector.Vector Int
   , staticSearchComponents :: Vector.Vector Int
+  , staticWalkingMasks :: Vector.Vector Word8
   , staticTiles :: Vector.Vector Int
   , staticComponents :: Boxed.Vector (Vector.Vector Int)
   , staticWalkingNetwork :: SparseWalkingNetwork
@@ -46,12 +48,14 @@ instance Binary TileStatic where
   put value = do
     put (Vector.toList (staticSearchTiles value))
     put (Vector.toList (staticSearchComponents value))
+    put (Vector.toList (staticWalkingMasks value))
     put (Vector.toList (staticTiles value))
     put (map Vector.toList (Boxed.toList (staticComponents value)))
     put (staticWalkingNetwork value)
   get =
     TileStatic
       <$> (Vector.fromList <$> get)
+      <*> (Vector.fromList <$> get)
       <*> (Vector.fromList <$> get)
       <*> (Vector.fromList <$> get)
       <*> (Boxed.fromList . map Vector.fromList <$> get)

@@ -7,16 +7,19 @@ module ShortestPath.World
   , isWalkable
   , isVirtualWallTile
   , loadWorld
+  , ordinaryWalkingMask
+  , ordinaryWalkingNeighborsFromMask
   , virtualWalls
   , walkingNeighbors
   , walkingNeighborsRaw
   ) where
 
 import Codec.Archive.Zip
-import Data.Bits ((.&.), Bits(testBit))
+import Data.Bits ((.&.), Bits(setBit, testBit))
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Data.Word (Word8)
 
 import ShortestPath.Tile
 import ShortestPath.Transport
@@ -77,18 +80,8 @@ walkingNeighborsMode :: Bool -> World -> Tile -> [Tile]
 {-# INLINE walkingNeighborsMode #-}
 walkingNeighborsMode useWalls world tile =
   let (x, y, p) = unpackTile tile
-      ordinary =
-        [ (-1, 0, w x y p)
-        , (1, 0, e x y p)
-        , (0, -1, s x y p)
-        , (0, 1, n x y p)
-        , (-1, -1, sw x y p)
-        , (1, -1, se x y p)
-        , (-1, 1, nw x y p)
-        , (1, 1, ne x y p)
-        ]
       adjacent = [(dx, dy, packTile (x + dx) (y + dy) p) | (dx, dy) <- directions]
-      regular = [next | (dx, dy, ok) <- ordinary, ok, let next = packTile (x + dx) (y + dy) p, allowed next]
+      regular = filter allowed (ordinaryWalkingNeighborsFromMask tile (ordinaryWalkingMask cm tile))
       blockedOrigins =
         [ next
         | (dx, dy, next) <- adjacent
@@ -111,16 +104,41 @@ walkingNeighborsMode useWalls world tile =
   cardinalOpen x y p dx dy =
     isWalkable cm (packTile (x + dx) y p) && isWalkable cm (packTile x (y + dy) p)
   allowed next = not useWalls || (not (isVirtualWallTile next) && not (blocked tile next))
-  n x y p = collisionFlag cm x y p 0
-  s x y p = n x (y - 1) p
-  e x y p = collisionFlag cm x y p 1
-  w x y p = e (x - 1) y p
-  ne x y p = n x y p && e x (y + 1) p && e x y p && n (x + 1) y p
-  nw x y p = n x y p && w x (y + 1) p && w x y p && n (x - 1) y p
-  se x y p = s x y p && e x (y - 1) p && e x y p && s (x + 1) y p
-  sw x y p = s x y p && w x (y - 1) p && w x y p && s (x - 1) y p
   blocked a b = Set.member (min a b, max a b) blockedEdges
   blockedEdges = virtualWallEdgeSet
+
+-- Bits are clockwise: 0 N, 1 NE, 2 E, 3 SE, 4 S, 5 SW, 6 W, 7 NW.
+ordinaryWalkingMask :: CollisionMap -> Tile -> Word8
+ordinaryWalkingMask cm tile
+  | not (isWalkable cm tile) = 0
+  | otherwise = foldl set 0 moves
+ where
+  (x, y, p) = unpackTile tile
+  n a b = collisionFlag cm a b p 0
+  s a b = n a (b - 1)
+  e a b = collisionFlag cm a b p 1
+  w a b = e (a - 1) b
+  moves =
+    [ (0, n x y)
+    , (1, n x y && e x (y + 1) && e x y && n (x + 1) y)
+    , (2, e x y)
+    , (3, s x y && e x (y - 1) && e x y && s (x + 1) y)
+    , (4, s x y)
+    , (5, s x y && w x (y - 1) && w x y && s (x - 1) y)
+    , (6, w x y)
+    , (7, n x y && w x (y + 1) && w x y && n (x - 1) y)
+    ]
+  set mask (bit, True) = setBit mask bit
+  set mask _ = mask
+
+ordinaryWalkingNeighborsFromMask :: Tile -> Word8 -> [Tile]
+ordinaryWalkingNeighborsFromMask tile mask =
+  [ packTile (x + dx) (y + dy) p
+  | (bit, dx, dy) <- [(6, -1, 0), (2, 1, 0), (4, 0, -1), (0, 0, 1), (5, -1, -1), (3, 1, -1), (7, -1, 1), (1, 1, 1)]
+  , testBit mask bit
+  ]
+ where
+  (x, y, p) = unpackTile tile
 
 isWalkable :: CollisionMap -> Tile -> Bool
 {-# INLINE isWalkable #-}

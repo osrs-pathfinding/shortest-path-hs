@@ -38,11 +38,12 @@ componentTileGroups components = runST $ do
 
 buildTileStatic :: WorldTopology -> TileStatic
 buildTileStatic topology =
-  TileStatic searchTiles searchComponents tiles comps network
+  TileStatic searchTiles searchComponents walkingMasks tiles comps network
  where
   searchPairs = reachableComponentTiles topology
   searchTiles = Vector.fromList (map fst searchPairs)
   searchComponents = Vector.fromList (map snd searchPairs)
+  walkingMasks = Vector.map (ordinaryWalkingMask (worldCollision world) . Tile) searchTiles
   sites = Set.toAscList (Set.fromList (staticEndpoints <> Set.toList reachableBanks))
   reachableBanks = Set.filter (not . null . structurallyReachablePointAttachments topology) (worldBanks world)
   staticEndpoints =
