@@ -37,19 +37,15 @@ spec:
         multi: false
       - name: metric
         label: Metric
-        type: custom
-        options:
-          - text: total_ms
-            value: total_ms
-            selected: true
-          - text: search_ms
-            value: search_ms
-          - text: reverse_ms
-            value: reverse_ms
-          - text: states_popped
-            value: states_popped
-          - text: expanded_nodes
-            value: expanded_nodes
+        type: query
+        datasource:
+          type: grafana-clickhouse-datasource
+          uid: PDEE91DDB90597936
+        query: SELECT DISTINCT metric AS __text, metric AS __value FROM osrs_bench.case_metrics ORDER BY metric
+        refresh: 1
+        includeAll: false
+        multi: false
+        current: {text: total_ms, value: total_ms, selected: true}
   panels:
     - id: 1
       title: Matched Valid Cases
@@ -81,7 +77,7 @@ spec:
     - id: 4
       title: Worst Regressions
       type: table
-      gridPos: {x: 0, y: 4, w: 24, h: 10}
+      gridPos: {x: 0, y: 34, w: 24, h: 10}
       datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
       targets:
         - refId: A
@@ -90,7 +86,7 @@ spec:
     - id: 5
       title: Before vs After Cases
       type: table
-      gridPos: {x: 0, y: 14, w: 24, h: 10}
+      gridPos: {x: 0, y: 44, w: 24, h: 10}
       datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
       targets:
         - refId: A
@@ -99,19 +95,19 @@ spec:
     - id: 6
       title: Before vs After Points
       type: table
-      gridPos: {x: 0, y: 24, w: 24, h: 10}
+      gridPos: {x: 0, y: 54, w: 24, h: 10}
       datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
       targets:
         - refId: A
           format: table
           rawSql: SELECT c.profile, c.route_id, b.value AS baseline, c.value AS candidate, 100 * (c.value / b.value - 1) AS pct_change FROM osrs_bench.case_metrics c INNER JOIN osrs_bench.case_metrics b ON c.profile = b.profile AND c.route_id = b.route_id AND c.metric = b.metric INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${candidate}' GROUP BY profile, route_id HAVING min(correct) = 1) vc ON vc.profile = c.profile AND vc.route_id = c.route_id INNER JOIN (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id = '${baseline}' GROUP BY profile, route_id HAVING min(correct) = 1) vb ON vb.profile = b.profile AND vb.route_id = b.route_id WHERE c.run_id = '${candidate}' AND b.run_id = '${baseline}' AND c.metric = '${metric}' AND b.value > 0 AND c.value > 0 ORDER BY pct_change DESC
     - id: 7
-      title: ${metric} CDF
-      description: Corpus CDF for the selected metric, comparing the baseline and candidate runs.
+      title: Total Time CDF
+      description: Matched correct corpus cases; one median total_ms value per profile and route.
       type: xychart
-      gridPos: {x: 0, y: 34, w: 24, h: 11}
+      gridPos: {x: 0, y: 4, w: 12, h: 10}
       datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
-      fieldConfig:
+      fieldConfig: &timingCdfFields
         defaults:
           color: {mode: palette-classic}
           custom:
@@ -125,40 +121,132 @@ spec:
             scaleDistribution: {type: linear}
             hideFrom: {tooltip: false, viz: false, legend: false}
         overrides:
-          - matcher: {id: byName, options: baseline_time_ms}
+          - matcher: {id: byName, options: baseline_value}
             properties:
               - {id: unit, value: ms}
               - {id: custom.axisLabel, value: Time}
               - {id: custom.scaleDistribution, value: {type: log, log: 10}}
-          - matcher: {id: byName, options: candidate_time_ms}
+          - matcher: {id: byName, options: candidate_value}
             properties:
               - {id: unit, value: ms}
               - {id: custom.axisLabel, value: Time}
               - {id: custom.scaleDistribution, value: {type: log, log: 10}}
           - matcher: {id: byName, options: baseline_percentile}
             properties:
+              - {id: displayName, value: Baseline}
               - {id: unit, value: percent}
               - {id: min, value: 0}
               - {id: max, value: 100}
               - {id: custom.axisLabel, value: Corpus percentile}
           - matcher: {id: byName, options: candidate_percentile}
             properties:
+              - {id: displayName, value: Candidate}
               - {id: unit, value: percent}
               - {id: min, value: 0}
               - {id: max, value: 100}
               - {id: custom.axisLabel, value: Corpus percentile}
-      options:
+      options: &cdfOptions
         mapping: manual
         series:
           - name: Baseline
-            x: baseline_time_ms
+            x: baseline_value
             y: baseline_percentile
           - name: Candidate
-            x: candidate_time_ms
+            x: candidate_value
             y: candidate_percentile
         tooltip: {mode: all, sort: none}
         legend: {showLegend: true, displayMode: list, placement: bottom, calcs: []}
       targets:
         - refId: A
           format: table
-          rawSql: WITH ranked AS (SELECT run_id, value, row_number() OVER (PARTITION BY run_id ORDER BY value) AS rank, 100.0 * row_number() OVER (PARTITION BY run_id ORDER BY value) / count() OVER (PARTITION BY run_id) AS percentile FROM osrs_bench.case_metrics WHERE run_id IN ('${baseline}', '${candidate}') AND metric = '${metric}') SELECT maxIf(value, run_id = '${baseline}') AS baseline_time_ms, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_time_ms, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+          rawSql: &totalCdfSql WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'total_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+    - id: 8
+      title: Search Time CDF
+      description: Matched correct corpus cases; one median search_ms value per profile and route.
+      type: xychart
+      gridPos: {x: 12, y: 4, w: 12, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      fieldConfig: *timingCdfFields
+      options: *cdfOptions
+      targets:
+        - refId: A
+          format: table
+          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'search_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+    - id: 9
+      title: Heuristic Setup CDF
+      description: Matched correct corpus cases; one median heuristic_setup_ms value per profile and route.
+      type: xychart
+      gridPos: {x: 0, y: 14, w: 12, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      fieldConfig: *timingCdfFields
+      options: *cdfOptions
+      targets:
+        - refId: A
+          format: table
+          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'heuristic_setup_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+    - id: 10
+      title: Reverse Search CDF
+      description: Matched correct corpus cases; one median reverse_ms value per profile and route.
+      type: xychart
+      gridPos: {x: 12, y: 14, w: 12, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      fieldConfig: *timingCdfFields
+      options: *cdfOptions
+      targets:
+        - refId: A
+          format: table
+          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'reverse_ms') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+    - id: 11
+      title: States Popped CDF
+      description: Matched correct corpus cases; one median states_popped value per profile and route.
+      type: xychart
+      gridPos: {x: 0, y: 24, w: 12, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      fieldConfig: &countCdfFields
+        defaults:
+          color: {mode: palette-classic}
+          unit: short
+          custom:
+            show: lines
+            lineWidth: 2
+            fillOpacity: 0
+            pointSize: {fixed: 2}
+            axisPlacement: left
+            axisLabel: Work
+            axisColorMode: text
+            scaleDistribution: {type: log, log: 10}
+            hideFrom: {tooltip: false, viz: false, legend: false}
+        overrides:
+          - matcher: {id: byName, options: baseline_percentile}
+            properties:
+              - {id: displayName, value: Baseline}
+              - {id: unit, value: percent}
+              - {id: min, value: 0}
+              - {id: max, value: 100}
+              - {id: custom.axisLabel, value: Corpus percentile}
+              - {id: custom.scaleDistribution, value: {type: linear}}
+          - matcher: {id: byName, options: candidate_percentile}
+            properties:
+              - {id: displayName, value: Candidate}
+              - {id: unit, value: percent}
+              - {id: min, value: 0}
+              - {id: max, value: 100}
+              - {id: custom.axisLabel, value: Corpus percentile}
+              - {id: custom.scaleDistribution, value: {type: linear}}
+      options: *cdfOptions
+      targets:
+        - refId: A
+          format: table
+          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'states_popped') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
+    - id: 12
+      title: Expanded Nodes CDF
+      description: Matched correct corpus cases; one median expanded_nodes value per profile and route.
+      type: xychart
+      gridPos: {x: 12, y: 24, w: 12, h: 10}
+      datasource: {type: grafana-clickhouse-datasource, uid: PDEE91DDB90597936}
+      fieldConfig: *countCdfFields
+      options: *cdfOptions
+      targets:
+        - refId: A
+          format: table
+          rawSql: WITH valid AS (SELECT profile, route_id FROM osrs_bench.samples WHERE run_id IN ('${baseline}', '${candidate}') GROUP BY profile, route_id HAVING uniqExact(run_id) = 2 AND min(correct) = 1), ranked AS (SELECT m.run_id, m.value, row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) AS rank, 100.0 * row_number() OVER (PARTITION BY m.run_id ORDER BY m.value) / count() OVER (PARTITION BY m.run_id) AS percentile FROM osrs_bench.case_metrics m INNER JOIN valid v ON m.profile = v.profile AND m.route_id = v.route_id WHERE m.run_id IN ('${baseline}', '${candidate}') AND m.metric = 'expanded_nodes') SELECT maxIf(value, run_id = '${baseline}') AS baseline_value, maxIf(percentile, run_id = '${baseline}') AS baseline_percentile, maxIf(value, run_id = '${candidate}') AS candidate_value, maxIf(percentile, run_id = '${candidate}') AS candidate_percentile FROM ranked GROUP BY rank ORDER BY rank
