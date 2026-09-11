@@ -304,7 +304,7 @@ searchSpace (TileAStar topology static) q heuristic =
     Vector.fromList
       [ packed
       | packed <- IntSet.toAscList (IntSet.fromList (map unTile endpoints))
-      , binarySearch packed base == Nothing
+      , binarySearchRaw packed base < 0
       ]
   extraComponents = Boxed.fromList
     [ Vector.fromList (structurallyReachablePointAttachments topology (Tile packed))
@@ -313,13 +313,34 @@ searchSpace (TileAStar topology static) q heuristic =
   extraSites = Vector.map (\packed -> IntMap.findWithDefault (-1) packed (heuristicSiteIndex heuristic)) extras
   world = topologyWorld topology
 
+searchNodeForRaw :: SearchSpace -> Int -> Int
+{-# INLINE searchNodeForRaw #-}
+searchNodeForRaw space packed =
+  let base = searchBaseTiles space
+      baseNode = binarySearchRaw packed base
+   in if baseNode >= 0
+        then baseNode
+        else
+          let extraNode = binarySearchRaw packed (searchExtraTiles space)
+           in if extraNode < 0 then -1 else Vector.length base + extraNode
+
 searchNodeFor :: SearchSpace -> Tile -> Maybe Int
 searchNodeFor space tile =
-  case binarySearch packed (searchBaseTiles space) of
-    Just ix -> Just ix
-    Nothing -> (+ Vector.length (searchBaseTiles space)) <$> binarySearch packed (searchExtraTiles space)
+  let node = searchNodeForRaw space (unTile tile)
+   in if node < 0 then Nothing else Just node
+
+binarySearchRaw :: Int -> Vector.Vector Int -> Int
+{-# INLINE binarySearchRaw #-}
+binarySearchRaw needle values = go 0 (Vector.length values - 1)
  where
-  packed = unTile tile
+  go lo hi
+    | lo > hi = -1
+    | current == needle = mid
+    | current < needle = go (mid + 1) hi
+    | otherwise = go lo (mid - 1)
+   where
+    mid = (lo + hi) `div` 2
+    current = values Vector.! mid
 
 searchTileAt :: SearchSpace -> Int -> Int
 searchTileAt space node
