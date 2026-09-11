@@ -15,9 +15,22 @@ library
     ShortestPath.GameVars
     ShortestPath.GameVars.Varbits
     ShortestPath.GameVars.VarPlayers
+    ShortestPath.Internal.DistanceTransform
     ShortestPath.Internal.MutableHeap
+    ShortestPath.Internal.RgbaTile
+    ShortestPath.Internal.Timing
     ShortestPath.Exact.ReferenceDijkstra
     ShortestPath.Exact.TileAStar
+    ShortestPath.Exact.TileAStar.Configuration
+    ShortestPath.Exact.TileAStar.Debug
+    ShortestPath.Exact.TileAStar.Heuristic
+    ShortestPath.Exact.TileAStar.Preprocessing
+    ShortestPath.Exact.TileAStar.Reconstruct
+    ShortestPath.Exact.TileAStar.RelaxedGraph
+    ShortestPath.Exact.TileAStar.ReverseSearch
+    ShortestPath.Exact.TileAStar.Search
+    ShortestPath.Exact.TileAStar.SparseWalking
+    ShortestPath.Exact.TileAStar.Types
     ShortestPath.Pathfinder
     ShortestPath.Requirements
     ShortestPath.Tile

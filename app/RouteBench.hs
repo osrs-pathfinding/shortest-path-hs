@@ -25,6 +25,7 @@ import ShortestPath.Account (AccountState, RequirementMode(..))
 import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkProfileVariableGaps, benchmarkNowMinutes)
 import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..))
 import ShortestPath.Exact.TileAStar
+import ShortestPath.Exact.TileAStar.Configuration
 import ShortestPath.Pathfinder hiding (routeName)
 import ShortestPath.Tile
 import ShortestPath.Topology
@@ -86,12 +87,13 @@ main = do
   when (null cases) (die "no benchmark routes; select routes for benchmarks/corpus/routes-v1.json first")
   world <- loadWorld defaultSourcePaths
   topology <- buildWorldTopology world
+  tileConfig <- tileAStarConfigFromEnvironment
   when (strictProfileVars options) $ do
     let gaps = benchmarkProfileVariableGaps (allTransports world)
     when (not (null gaps)) $ die (unlines ("unmodelled benchmark profile variables:" : [name <> ": " <> show (length requirements) | (name, requirements) <- gaps]))
   if writeOracle options
     then writeOracles options topology cases
-    else buildTileAStarFromTopology topology >>= forceTileAStar >>= \astar -> runBench options world astar cases
+    else buildTileAStarFromTopology topology >>= forceTileAStar >>= \astar -> runBench tileConfig options world astar cases
 
 parseOptions :: [String] -> IO Options
 parseOptions = go defaultOptions
@@ -178,8 +180,8 @@ writeOracles options topology cases = do
     pure (oracle, milliseconds started finished)
   world = topologyWorld topology
 
-runBench :: Options -> World -> TileAStar -> [RouteCase] -> IO ()
-runBench options world astar cases = do
+runBench :: TileAStarConfig -> Options -> World -> TileAStar -> [RouteCase] -> IO ()
+runBench tileConfig options world astar cases = do
   oracles <- loadOracle options
   failedKeys <- maybe (pure Nothing) (fmap Just . loadFailedKeys) (rerunFailures options)
   commit <- gitCommit
@@ -201,13 +203,13 @@ runBench options world astar cases = do
   let firstRoute = case queries of (route, _, _) : _ -> route; [] -> error "checked above"
   forM_ (Set.toList (Set.fromList [profileName | (_, profileName, _) <- queries])) $ \profileName -> do
     let profile = benchmarkAccount profileName (allTransports world)
-    (route, _) <- findRouteProfiledTileAStar astar (query firstRoute profile)
+    (route, _) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query firstRoute profile)
     voidRoute route
   forM_ (zip [1 :: Int ..] queries) $ \(queryNumber, (route, profileName, profile)) -> do
     putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName)
     expected <- maybe (die ("missing oracle for " <> key route profileName <> "; run route-bench --write-oracle")) pure (Map.lookup (key route profileName) oracles)
     forM_ [1 .. repetitions options] $ \repetition -> do
-      (result, timings) <- findRouteProfiledTileAStar astar (query route profile)
+      (result, timings) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query route profile)
       let reachable = routeCost result /= maxBound
       putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName <> " repetition=" <> show repetition <> " tileAStarMs=" <> show (tileTotalMilliseconds timings) <> " reachable=" <> show reachable)
       when (reachable /= oracleReachable expected || (reachable && Just (routeCost result) /= oracleCost expected)) $

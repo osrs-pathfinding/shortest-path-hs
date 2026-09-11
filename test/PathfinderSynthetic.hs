@@ -6,6 +6,8 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import ShortestPath.Exact.TileAStar
+import ShortestPath.Exact.TileAStar.Debug
+import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Exact.ReferenceDijkstra
 import ShortestPath.Account
 import ShortestPath.Pathfinder
@@ -185,16 +187,21 @@ checkRoute :: ReferenceDijkstra -> TileAStar -> World -> Case -> IO ()
 checkRoute raw tileAStar world (Case name q expectation) = do
   let flat = findRoute raw q
       tile = findRoute tileAStar q
+  (sparse, _) <- findRouteProfiledTileAStarWithConfig sparseConfig tileAStar q
   case expectation of
     Reachable -> do
       assert (routeCost flat < maxBound)
       assert (routeCost tile == routeCost flat)
+      assert (routeCost sparse == routeCost flat)
       assert (concreteCost world q (routeSteps tile) == routeCost tile)
     Unreachable -> do
       assert (routeCost flat == maxBound)
       assert (routeCost tile == maxBound)
+      assert (routeCost sparse == maxBound)
       assert (null (routeSteps tile))
   putStrLn (name <> ": " <> show (routeCost flat) <> " / " <> show (routeCost tile))
+ where
+  sparseConfig = TileAStarConfig SparseWalkingReverse True False
 
 checkReversePathDebug :: TileAStar -> Tiles -> IO ()
 checkReversePathDebug tileAStar tiles = do

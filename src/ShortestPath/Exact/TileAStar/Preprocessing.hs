@@ -1,0 +1,56 @@
+module ShortestPath.Exact.TileAStar.Preprocessing
+  ( buildTileStatic
+  , componentTileGroups
+  ) where
+
+import Control.Monad.ST (runST)
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import qualified Data.Vector as Boxed
+import qualified Data.Vector.Unboxed as Vector
+import qualified Data.Vector.Unboxed.Mutable as Mutable
+
+import ShortestPath.Exact.TileAStar.SparseWalking
+import ShortestPath.Exact.TileAStar.Types
+import ShortestPath.Tile
+import ShortestPath.Topology
+import ShortestPath.Transport
+import ShortestPath.World
+
+componentTileGroups :: NaturalComponents -> Boxed.Vector (Vector.Vector Int)
+componentTileGroups components = runST $ do
+  counts <- Mutable.replicate groupCount 0
+  Vector.forM_ (componentOwnerIds components) $ \cid ->
+    Mutable.modify counts (+ 1) cid
+  frozenCounts <- Vector.freeze counts
+  let starts = Vector.scanl' (+) 0 frozenCounts
+  cursors <- Vector.thaw starts
+  grouped <- Mutable.new (Vector.length (componentOwnerTiles components))
+  Vector.iforM_ (componentOwnerTiles components) $ \ix packed -> do
+    let cid = componentOwnerIds components Vector.! ix
+    writeIx <- Mutable.read cursors cid
+    Mutable.write grouped writeIx packed
+    Mutable.write cursors cid (writeIx + 1)
+  frozenGrouped <- Vector.freeze grouped
+  pure (Boxed.generate groupCount (\cid -> Vector.slice (starts Vector.! cid) (frozenCounts Vector.! cid) frozenGrouped))
+ where
+  groupCount = maxComponentId components + 1
+
+buildTileStatic :: WorldTopology -> TileStatic
+buildTileStatic topology =
+  TileStatic tiles comps network
+ where
+  sites = Set.toAscList (Set.fromList (staticEndpoints <> Set.toList reachableBanks))
+  reachableBanks = Set.filter (not . null . structurallyReachablePointAttachments topology) (worldBanks world)
+  staticEndpoints =
+    [ tile
+    | t <- concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
+    , Just tile <- [origin t] <> [destination t]
+    ]
+  tiles = Vector.fromList (map unTile sites)
+  comps = Boxed.fromList [Vector.fromList (structurallyReachablePointAttachments topology (Tile packed)) | packed <- Vector.toList tiles]
+  network = buildSparseWalkingNetworkComponents (Vector.length tiles)
+    [(cid, ix, Tile packed) | (ix, packed) <- Vector.toList (Vector.indexed tiles), cid <- Vector.toList (comps Boxed.! ix)]
+  world = topologyWorld topology
+
+

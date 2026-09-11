@@ -8,6 +8,8 @@ import qualified Data.Set as Set
 import qualified Data.IntSet as IntSet
 
 import ShortestPath.Exact.TileAStar
+import ShortestPath.Exact.TileAStar.SparseWalking
+import ShortestPath.Internal.DistanceTransform
 import ShortestPath.Internal.MutableHeap
 import ShortestPath.Tile
 import ShortestPath.Topology

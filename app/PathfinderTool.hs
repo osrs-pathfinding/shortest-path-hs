@@ -26,6 +26,11 @@ import Data.List (sortOn)
 import Text.Printf (printf)
 
 import ShortestPath.Exact.TileAStar
+import ShortestPath.Exact.TileAStar.Configuration
+import ShortestPath.Exact.TileAStar.Debug
+import ShortestPath.Exact.TileAStar.Preprocessing (componentTileGroups)
+import ShortestPath.Exact.TileAStar.Types
+import ShortestPath.Internal.DistanceTransform
 import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..))
 import ShortestPath.Account
   ( AccountState(..), CooldownState(..), PohBuild(..), PohPortalAccess(..), RequirementMode(..), RuntimeState(..) )
@@ -78,8 +83,10 @@ main = do
   command <- parseCommand =<< getArgs
   world <- timedPhase "load world" (loadWorld defaultSourcePaths)
   tileAStar <- loadOrBuildTileAStar world
+  tileConfig <- tileAStarConfigFromEnvironment
+  useCTransform <- tileUseCTransformFromEnvironment
   case command of
-    Serve -> serveLoop world tileAStar
+    Serve -> serveLoop tileConfig useCTransform world tileAStar
     ComponentTransformReport -> writeComponentTransformReport tileAStar
     TileStaticReport -> writeTileStaticReport tileAStar
 
@@ -246,8 +253,8 @@ routeStepsJson = map stepJson
   stepJson (Walk tile) = object ["kind" .= ("walk" :: String), "coordinate" .= coordinateText tile]
   stepJson (UseTransport label tile) = object ["kind" .= ("transport" :: String), "label" .= label, "coordinate" .= coordinateText tile]
 
-serveLoop :: World -> TileAStar -> IO ()
-serveLoop world tileAStar = do
+serveLoop :: TileAStarConfig -> Bool -> World -> TileAStar -> IO ()
+serveLoop tileConfig useCTransform world tileAStar = do
   LBS.putStrLn (encode (object ["ready" .= True]))
   hFlush stdout
   loop
@@ -256,13 +263,13 @@ serveLoop world tileAStar = do
     done <- isEOF
     when (not done) $ do
       line <- BS.getLine
-      response <- serveRequest world tileAStar (LBS.fromStrict line)
+      response <- serveRequest tileConfig useCTransform world tileAStar (LBS.fromStrict line)
       LBS.putStrLn (encode response)
       hFlush stdout
       loop
 
-serveRequest :: World -> TileAStar -> LBS.ByteString -> IO Value
-serveRequest world tileAStar line =
+serveRequest :: TileAStarConfig -> Bool -> World -> TileAStar -> LBS.ByteString -> IO Value
+serveRequest tileConfig useCTransform world tileAStar line =
   case eitherDecode line of
     Left message -> pure (object ["ok" .= False, "error" .= ("invalid JSON request: " <> message)])
     Right request
@@ -285,13 +292,13 @@ serveRequest world tileAStar line =
               finished <- getMonotonicTimeNSec
               pure (routeResponse request route [] [] (rawTimingsJson route started finished))
             "tile-full" -> do
-              (route, timings, expandedStates) <- findRouteProfiledTileAStarWithTrace (requestIncludeExpandedTiles request) tileAStar query
+              (route, timings, expandedStates) <- findRouteProfiledTileAStarWithTraceConfig tileConfig (requestIncludeExpandedTiles request) tileAStar query
               pure (routeResponse request route (map fst expandedStates) expandedStates (tileTimingsJson timings))
             "heuristic" -> do
               let stem = "start-" <> coordinateFileText (queryStart query) <> "-target-" <> coordinateFileText (queryTarget query) <> "-transports-" <> (if allowTransports query then "1" else "0")
                   outputRoot = heuristicTileRoot </> stem
                   urlRoot = "/out/heuristic-tiles/" <> stem
-              render <- renderHeuristicTiles tileAStar query outputRoot urlRoot
+              render <- renderHeuristicTilesWithTransform useCTransform tileAStar query outputRoot urlRoot
               pure (heuristicRenderResponse request render)
             "components" -> do
               render <- renderComponentTiles tileAStar componentTileRoot "/out/component-tiles"
@@ -597,6 +604,7 @@ tileComponentCacheInputRoots :: [FilePath]
 tileComponentCacheInputRoots =
   [ resourcesDir defaultSourcePaths
   , "src/ShortestPath/Exact/TileAStar.hs"
+  , "src/ShortestPath/Exact/TileAStar"
   , "src/ShortestPath/Topology.hs"
   , "src/ShortestPath/Tile.hs"
   , "src/ShortestPath/World.hs"
