@@ -9,6 +9,7 @@ module ShortestPath.Exact.TileAStar.Search
 import Control.Monad (forM_, when)
 import Control.Monad.ST (ST, runST)
 import Data.Bits (testBit)
+import Data.Int (Int32)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
@@ -36,6 +37,8 @@ data SearchSpace = SearchSpace
   { searchBaseTiles :: Vector.Vector Int
   , searchBaseComponents :: Vector.Vector Int
   , searchBaseWalkingMasks :: Vector.Vector Word8
+  , searchBaseNorthNodes :: Vector.Vector Int32
+  , searchBaseSouthNodes :: Vector.Vector Int32
   , searchExtraTiles :: Vector.Vector Int
   , searchExtraComponents :: Boxed.Vector (Vector.Vector Int)
   , searchExtraSites :: Vector.Vector Int
@@ -153,7 +156,11 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
   relaxNeighbors counters best prevState prevKind prevLabel queue bestBankRef bestBank cost state = do
     if node < baseLength
       then do
-        walkMask tile (searchBaseWalkingMasks space Vector.! node) relaxWalk
+        walkNodes node
+          (searchBaseWalkingMasks space Vector.! node)
+          (searchBaseNorthNodes space Vector.! node)
+          (searchBaseSouthNodes space Vector.! node)
+          relaxNode
         forM_ cardinalNeighbors $ \nextTile ->
           when (usableOrigin banked nextTile && not (isWalkable (worldCollision world) nextTile)) (relaxWalk nextTile)
       else forM_ (walkingNeighborsRaw world tile) $ \nextTile ->
@@ -181,6 +188,8 @@ search trace astar@(TileAStar topology _) q availability heuristic = runST $ do
     relaxWalk nextTile =
       let next = stateForPacked (unTile nextTile) banked
        in when (next >= 0) (relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state next 1 "" walkingEdge)
+    relaxNode nextNode =
+      relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state (stateId nextNode banked) 1 "" walkingEdge
     relaxTransport nextBanked transport =
       case destination transport of
         Just dst ->
@@ -334,7 +343,9 @@ readCounters counters bestBankRef bankTraceRef =
 
 searchSpace :: TileAStar -> Query -> Heuristic -> SearchSpace
 searchSpace (TileAStar topology static) q heuristic =
-  SearchSpace base (staticSearchComponents static) (staticWalkingMasks static) extras extraComponents extraSites (Vector.length base + Vector.length extras)
+  SearchSpace base (staticSearchComponents static) (staticWalkingMasks static)
+    (staticNorthNodes static) (staticSouthNodes static)
+    extras extraComponents extraSites (Vector.length base + Vector.length extras)
  where
   base = staticSearchTiles static
   endpoints =
@@ -387,17 +398,18 @@ searchTileAt space node
  where
   baseLength = Vector.length (searchBaseTiles space)
 
-walkMask :: Monad m => Tile -> Word8 -> (Tile -> m ()) -> m ()
-{-# INLINE walkMask #-}
-walkMask tile mask yield = do
-  emit 6 (-1) 0
-  emit 2 1 0
-  emit 4 0 (-1)
-  emit 0 0 1
-  emit 5 (-1) (-1)
-  emit 3 1 (-1)
-  emit 7 (-1) 1
-  emit 1 1 1
+walkNodes :: Monad m => Int -> Word8 -> Int32 -> Int32 -> (Int -> m ()) -> m ()
+{-# INLINE walkNodes #-}
+walkNodes node mask northRaw southRaw yield = do
+  emit 6 (node - 1)
+  emit 2 (node + 1)
+  emit 4 south
+  emit 0 north
+  emit 5 (south - 1)
+  emit 3 (south + 1)
+  emit 7 (north - 1)
+  emit 1 (north + 1)
  where
-  (x, y, p) = unpackTile tile
-  emit bit dx dy = when (testBit mask bit) (yield (packTile (x + dx) (y + dy) p))
+  north = fromIntegral northRaw
+  south = fromIntegral southRaw
+  emit bit next = when (testBit mask bit) (yield next)

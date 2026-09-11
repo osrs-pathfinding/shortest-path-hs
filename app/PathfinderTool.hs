@@ -593,7 +593,7 @@ filesBelow path = do
       pure (files <> nested)
 
 tileComponentCacheVersion :: Word64
-tileComponentCacheVersion = 10
+tileComponentCacheVersion = 11
 
 tileComponentCachePath, heuristicTileRoot, componentTileRoot :: FilePath
 tileComponentCachePath = "out/tile-astar-components.bin"

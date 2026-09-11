@@ -4,13 +4,16 @@ module ShortestPath.Exact.TileAStar.Preprocessing
   ) where
 
 import Control.Monad.ST (runST)
+import Data.Int (Int32)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
 import qualified Data.Vector.Unboxed.Mutable as Mutable
 
 import ShortestPath.Exact.TileAStar.SparseWalking
+import ShortestPath.Exact.TileAStar.RelaxedGraph (binarySearch)
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Tile
 import ShortestPath.Topology
@@ -38,12 +41,15 @@ componentTileGroups components = runST $ do
 
 buildTileStatic :: WorldTopology -> TileStatic
 buildTileStatic topology =
-  TileStatic searchTiles searchComponents walkingMasks tiles comps network
+  TileStatic searchTiles searchComponents walkingMasks northNodes southNodes tiles comps network
  where
   searchPairs = reachableComponentTiles topology
   searchTiles = Vector.fromList (map fst searchPairs)
   searchComponents = Vector.fromList (map snd searchPairs)
   walkingMasks = Vector.map (ordinaryWalkingMask (worldCollision world) . Tile) searchTiles
+  northNodes = Vector.map (nodeAt . (+ 32768)) searchTiles
+  southNodes = Vector.map (nodeAt . subtract 32768) searchTiles
+  nodeAt packed = fromIntegral (fromMaybe (-1) (binarySearch packed searchTiles)) :: Int32
   sites = Set.toAscList (Set.fromList (staticEndpoints <> Set.toList reachableBanks))
   reachableBanks = Set.filter (not . null . structurallyReachablePointAttachments topology) (worldBanks world)
   staticEndpoints =
