@@ -4,11 +4,11 @@ version: 0.1.0.0
 build-type: Simple
 
 common warnings
-  ghc-options: -O2 -fspecialise-aggressively -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns
+  ghc-options: -O2 -fspecialise-aggressively -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -rtsopts
 
 library
   import: warnings
-  ghc-options: -fexpose-all-unfoldings -funfolding-use-threshold=1000
+  ghc-options: -fexpose-all-unfoldings
   exposed-modules:
     ShortestPath.Account
     ShortestPath.AccountSemantics

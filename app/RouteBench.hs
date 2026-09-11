@@ -214,20 +214,31 @@ runBench tileConfig options world astar cases = do
     expected <- maybe (die ("missing oracle for " <> key route profileName <> "; run route-bench --write-oracle")) pure (Map.lookup (key route profileName) oracles)
     forM_ [1 .. repetitions options] $ \repetition -> do
       (result, timings) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query route profile (heuristicWeightOption options))
-      let reachable = routeCost result /= maxBound
+      let cost = routeCost result
+          reachable = cost /= maxBound
+          weight = heuristicWeightOption options
+          correct = reachable == oracleReachable expected && (weight > 1 || not reachable || Just cost == oracleCost expected)
+          quality = case (reachable, oracleCost expected) of
+            (True, Just optimalCost) ->
+              [ "optimalCost" .= optimalCost
+              , "costGapTicks" .= (cost - optimalCost)
+              , "costRatio" .= (if optimalCost == 0 then 1 else fromIntegral cost / fromIntegral optimalCost :: Double)
+              , "optimal" .= (cost == optimalCost)
+              ]
+            _ -> []
       putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName <> " repetition=" <> show repetition <> " tileAStarMs=" <> show (tileTotalMilliseconds timings) <> " reachable=" <> show reachable)
-      when (reachable /= oracleReachable expected || (reachable && Just (routeCost result) /= oracleCost expected)) $
+      when (not correct) $
         putStrLn ("oracle mismatch for " <> key route profileName)
-      append (outputPath options) options $ object
+      append (outputPath options) options $ object $
         [ "benchmarkVersion" .= ("v1" :: String), "generatedAt" .= show now, "gitCommit" .= commit, "gitBranch" .= branch, "gitDirty" .= dirty, "testbed" .= (os <> "-" <> arch)
-        , "benchmarkTier" .= benchmarkTier options, "heuristicWeight" .= heuristicWeightOption options
+        , "benchmarkTier" .= benchmarkTier options, "heuristicWeight" .= weight
         , "routeId" .= stableId route, "routeName" .= routeName route, "category" .= routeCategory route
         , "distanceTag" .= routeDistanceTag route, "planeTag" .= routePlaneTag route, "allowTransports" .= routeAllowTransports route
         , "accountProfile" .= profileName, "repetition" .= repetition, "start" .= routeStart route, "target" .= routeTarget route
-        , "reachable" .= reachable, "cost" .= if reachable then Just (routeCost result) else Nothing
-        , "expectedCost" .= oracleCost expected, "correct" .= (reachable == oracleReachable expected && (not reachable || Just (routeCost result) == oracleCost expected))
+        , "reachable" .= reachable, "cost" .= if reachable then Just cost else Nothing
+        , "expectedCost" .= oracleCost expected, "correct" .= correct
         , "timings" .= timingsJson timings, "expandedNodes" .= routeExpandedNodes result
-        ]
+        ] <> quality
       when (diagnostic options) $ do
         started <- getMonotonicTimeNSec
         let raw = findRouteReferenceDijkstra (ReferenceDijkstra (tileTopology astar)) (query route profile 1)

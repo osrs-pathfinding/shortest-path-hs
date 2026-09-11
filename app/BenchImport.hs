@@ -96,11 +96,23 @@ sampleRow rid (raw, rawJson) = object
   ]
 
 metrics :: Value -> Map.Map String Double
-metrics raw = Map.fromList (timingMetrics raw <> scalar "expanded_nodes" "expandedNodes" <> scalar "path_cost" "cost" <> scalar "expected_path_cost" "expectedCost")
+metrics raw = Map.fromList
+  ( timingMetrics raw
+  <> scalar "expanded_nodes" "expandedNodes"
+  <> scalar "path_cost" "cost"
+  <> firstScalar "expected_path_cost" ["optimalCost", "expectedCost"]
+  <> scalar "cost_gap_ticks" "costGapTicks"
+  <> scalarDouble "cost_ratio" "costRatio"
+  <> booleanMetric "optimal" "optimal"
+  )
  where
   timingMetrics (Object o) = case KeyMap.lookup "timings" o of Just (Object t) -> [(metricName (Key.toString k), toRealFloat n) | (k, Number n) <- KeyMap.toList t]; _ -> []
   timingMetrics _ = []
   scalar name key = case numberMaybe raw key of Just n -> [(name, fromIntegral n)]; Nothing -> []
+  firstScalar _ [] = []
+  firstScalar name (key:keys) = case scalar name key of [] -> firstScalar name keys; value -> value
+  scalarDouble name key = case numberDoubleMaybe raw key of Just n -> [(name, n)]; Nothing -> []
+  booleanMetric name key = case boolMaybe raw key of Just value -> [(name, if value then 1 else 0)]; Nothing -> []
 
 metricName "setupMs" = "heuristic_setup_ms"
 metricName "reverseDijkstraMs" = "reverse_ms"
@@ -113,7 +125,10 @@ camelToSnake = concatMap (\c -> if c >= 'A' && c <= 'Z' then ['_', toLowerAscii 
 toLowerAscii c = toEnum (fromEnum c + fromEnum 'a' - fromEnum 'A')
 
 dimensions :: Value -> Map.Map String String
-dimensions raw = Map.fromList [("allow_transports", if bool raw "allowTransports" False then "true" else "false")]
+dimensions raw = Map.fromList
+  [ ("allow_transports", if bool raw "allowTransports" False then "true" else "false")
+  , ("heuristic_weight", show (numberDouble raw "heuristicWeight" 1))
+  ]
 
 status :: Value -> String
 status raw = if bool raw "correct" True then if bool raw "reachable" False then "ok" else "unreachable" else "incorrect"
@@ -123,14 +138,19 @@ text _ _ fallback = fallback
 
 bool (Object o) key fallback = case KeyMap.lookup (Key.fromString key) o of Just (Bool v) -> v; _ -> fallback
 bool _ _ fallback = fallback
+boolMaybe :: Value -> String -> Maybe Bool
+boolMaybe (Object o) key = case KeyMap.lookup (Key.fromString key) o of Just (Bool v) -> Just v; _ -> Nothing
+boolMaybe _ _ = Nothing
 number :: Value -> String -> Int -> Int
 number raw key fallback = fromMaybe fallback (numberMaybe raw key)
 numberMaybe :: Value -> String -> Maybe Int
 numberMaybe (Object o) key = case KeyMap.lookup (Key.fromString key) o of Just (Number n) -> Just (round n); _ -> Nothing
 numberMaybe _ _ = Nothing
 numberDouble :: Value -> String -> Double -> Double
-numberDouble (Object o) key fallback = case KeyMap.lookup (Key.fromString key) o of Just (Number n) -> toRealFloat n; _ -> fallback
-numberDouble _ _ fallback = fallback
+numberDouble raw key fallback = fromMaybe fallback (numberDoubleMaybe raw key)
+numberDoubleMaybe :: Value -> String -> Maybe Double
+numberDoubleMaybe (Object o) key = case KeyMap.lookup (Key.fromString key) o of Just (Number n) -> Just (toRealFloat n); _ -> Nothing
+numberDoubleMaybe _ _ = Nothing
 
 routeCount rows = length (Map.keys (Map.fromList [((text (fst r) "routeId" "", text (fst r) "category" ""), ()) | r <- rows]))
 caseCount rows = length (Map.keys (Map.fromList [((text (fst r) "routeId" "", text (fst r) "accountProfile" ""), ()) | r <- rows]))
