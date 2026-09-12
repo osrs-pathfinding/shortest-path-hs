@@ -133,6 +133,18 @@ searchPreparedProfiledWithTrace trace astar account target start options = do
         , tileHeuristicSeedsPerComponentP90 = 0
         , tileHeuristicSeedsPerComponentP95 = 0
         , tileHeuristicSeedsPerComponentP99 = 0
+        , tileHeuristicGeneratorCount = 0
+        , tileHeuristicMaxGeneratorsPerComponent = 0
+        , tileHeuristicGeneratorsPerComponentP50 = 0
+        , tileHeuristicGeneratorsPerComponentP90 = 0
+        , tileHeuristicGeneratorsPerComponentP95 = 0
+        , tileHeuristicGeneratorsPerComponentP99 = 0
+        , tileHeuristicGeneratorSeedRatioP50 = 0
+        , tileHeuristicGeneratorSeedRatioP90 = 0
+        , tileHeuristicGeneratorSeedRatioP95 = 0
+        , tileHeuristicGeneratorSeedRatioP99 = 0
+        , tileHeuristicGeneratorSeedRatioMax = 0
+        , tileHeuristicGeneratorSeedRatio = 0
         , tileSearchMilliseconds = searchMs
         , tileForwardAllocatedBytes = beforeAlloc - afterAlloc
         , tileTotalMilliseconds = searchMs
@@ -210,6 +222,19 @@ recordPreparationTimings accountMs targetMs target timings = timings
   , tileHeuristicSeedsPerComponentP90 = heuristicSeedsPerComponentP90 heuristic
   , tileHeuristicSeedsPerComponentP95 = heuristicSeedsPerComponentP95 heuristic
   , tileHeuristicSeedsPerComponentP99 = heuristicSeedsPerComponentP99 heuristic
+  , tileHeuristicGeneratorCount = heuristicGeneratorCount heuristic
+  , tileHeuristicMaxGeneratorsPerComponent = heuristicMaxGeneratorsPerComponent heuristic
+  , tileHeuristicGeneratorsPerComponentP50 = heuristicGeneratorsPerComponentP50 heuristic
+  , tileHeuristicGeneratorsPerComponentP90 = heuristicGeneratorsPerComponentP90 heuristic
+  , tileHeuristicGeneratorsPerComponentP95 = heuristicGeneratorsPerComponentP95 heuristic
+  , tileHeuristicGeneratorsPerComponentP99 = heuristicGeneratorsPerComponentP99 heuristic
+  , tileHeuristicGeneratorSeedRatioP50 = heuristicGeneratorSeedRatioP50 heuristic
+  , tileHeuristicGeneratorSeedRatioP90 = heuristicGeneratorSeedRatioP90 heuristic
+  , tileHeuristicGeneratorSeedRatioP95 = heuristicGeneratorSeedRatioP95 heuristic
+  , tileHeuristicGeneratorSeedRatioP99 = heuristicGeneratorSeedRatioP99 heuristic
+  , tileHeuristicGeneratorSeedRatioMax = heuristicGeneratorSeedRatioMax heuristic
+  , tileHeuristicGeneratorSeedRatio = if heuristicSeedCount heuristic == 0 then 0 else
+      fromIntegral (heuristicGeneratorCount heuristic) / fromIntegral (heuristicSeedCount heuristic)
   , tileTotalMilliseconds = accountMs + targetMs + tileSearchMilliseconds timings
   , tileReverseCounters = if targetMs == 0 then emptyReverseCounters else heuristicReverseCounters heuristic
   }
@@ -247,6 +272,17 @@ forceHeuristic heuristic =
         + heuristicSeedsPerComponentP90 heuristic
         + heuristicSeedsPerComponentP95 heuristic
         + heuristicSeedsPerComponentP99 heuristic
+        + heuristicGeneratorCount heuristic
+        + heuristicMaxGeneratorsPerComponent heuristic
+        + heuristicGeneratorsPerComponentP50 heuristic
+        + heuristicGeneratorsPerComponentP90 heuristic
+        + heuristicGeneratorsPerComponentP95 heuristic
+        + heuristicGeneratorsPerComponentP99 heuristic
+        + truncate (heuristicGeneratorSeedRatioP50 heuristic)
+        + truncate (heuristicGeneratorSeedRatioP90 heuristic)
+        + truncate (heuristicGeneratorSeedRatioP95 heuristic)
+        + truncate (heuristicGeneratorSeedRatioP99 heuristic)
+        + truncate (heuristicGeneratorSeedRatioMax heuristic)
     )
 
 forcePreparedTarget :: PreparedTarget -> IO Int

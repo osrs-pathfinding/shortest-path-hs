@@ -5,11 +5,16 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
 
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Exact.TileAStar.Debug
-import ShortestPath.Exact.TileAStar.Heuristic (Heuristic(..), heuristicAt, heuristicAtComponent, heuristicAtResolved, prepareHeuristic)
+import ShortestPath.Exact.TileAStar.Heuristic
+  ( Heuristic(..), heuristicAt, heuristicAtComponent, heuristicAtGeneratorsComponent
+  , heuristicAtResolved, prepareHeuristic, prepareHeuristicProfiled, seedKey
+  )
+import ShortestPath.Exact.TileAStar.RelaxedGraph (chebyshevPacked)
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Exact.ReferenceDijkstra
 import ShortestPath.Account
@@ -42,6 +47,76 @@ main = do
   checkHeuristicPruning tileAStar tiles
   checkInstrumentation tileAStar tiles
   checkMultiplePointAttachments
+  checkManhattanGeneratorProvenance
+
+checkManhattanGeneratorProvenance :: IO ()
+checkManhattanGeneratorProvenance = do
+  checkOneEntry
+  checkTwoEntries
+ where
+  componentTiles = [packTile 100 y 0 | y <- [100 .. 106]]
+  a = packTile 100 100 0
+  b = packTile 100 102 0
+  midpoint = packTile 100 103 0
+  c = packTile 100 104 0
+  d = packTile 100 106 0
+  target = packTile 200 200 0
+  policy = syntheticPolicy a
+
+  checkOneEntry = do
+    astar <- mustRight =<< buildTileAStarWithPolicy policy
+      (World (collisionMap componentTiles) Map.empty [] (Set.fromList [a, b, c, d]))
+    heuristic <- prepareManhattan astar (walkingQuery d a)
+    let cid = componentId astar a
+    assert (steinerCount astar > 0)
+    assert (Vector.length (heuristicSeeds heuristic Boxed.! seedKey cid False) == 4)
+    assert (Vector.length (heuristicGenerators heuristic Boxed.! seedKey cid False) == 1)
+    assert (Vector.length (heuristicGenerators heuristic Boxed.! seedKey cid True) == 1)
+    assert (heuristicGeneratorCount heuristic == 2)
+    assert (heuristicMaxGeneratorsPerComponent heuristic == 2)
+    assert ((heuristicGeneratorsPerComponentP50 heuristic, heuristicGeneratorsPerComponentP90 heuristic,
+      heuristicGeneratorsPerComponentP95 heuristic, heuristicGeneratorsPerComponentP99 heuristic) == (2, 2, 2, 2))
+    assert ((heuristicGeneratorSeedRatioP50 heuristic, heuristicGeneratorSeedRatioP90 heuristic,
+      heuristicGeneratorSeedRatioP95 heuristic, heuristicGeneratorSeedRatioP99 heuristic,
+      heuristicGeneratorSeedRatioMax heuristic) == (0.25, 0.25, 0.25, 0.25, 0.25))
+    assertExact heuristic cid componentTiles
+
+  checkTwoEntries = do
+    let transports = Map.fromList
+          [ (a, [local "GENERATOR_LEFT" a target 1])
+          , (d, [local "GENERATOR_RIGHT" d target 1])
+          ]
+        world = World (collisionMap (target : componentTiles)) transports [] (Set.fromList [b, midpoint, c])
+        routeQuery = query a target (Set.fromList ["GENERATOR_LEFT", "GENERATOR_RIGHT"]) False
+    astar <- mustRight =<< buildTileAStarWithPolicy policy world
+    heuristic <- prepareManhattan astar routeQuery
+    let cid = componentId astar a
+        unbanked = heuristicGenerators heuristic Boxed.! seedKey cid False
+        banked = heuristicGenerators heuristic Boxed.! seedKey cid True
+        cone x (generatorTile, weight) = weight + chebyshevPacked x generatorTile
+    assert (steinerCount astar > 0)
+    assert (Vector.length (heuristicSeeds heuristic Boxed.! seedKey cid False) > 2)
+    assert (Vector.length unbanked == 2)
+    let left = unbanked Vector.! 0
+        right = unbanked Vector.! 1
+    assert (Set.fromList (map fst (Vector.toList unbanked)) == Set.fromList (map unTile [a, d]))
+    assert (Set.fromList (map fst (Vector.toList banked)) == Set.fromList (map unTile [a, d]))
+    assert (heuristicGeneratorCount heuristic == 6)
+    assert (heuristicMaxGeneratorsPerComponent heuristic == 4)
+    assert (cone (unTile a) left < cone (unTile a) right)
+    assert (cone (unTile d) right < cone (unTile d) left)
+    assert (cone (unTile midpoint) left == cone (unTile midpoint) right)
+    assertExact heuristic cid componentTiles
+
+  prepareManhattan astar routeQuery =
+    prepareHeuristicProfiled (TileAStarConfig SparseWalkingReverse True True) astar
+      (compileRoutingAccount astar (routingOptionsFromQuery routeQuery)) (queryTarget routeQuery)
+  componentId astar tile = maybe (error "missing generator-test component") id
+    (componentOfTile (topologyNaturalComponents (tileTopology astar)) tile)
+  steinerCount astar = let (_, count, _, _) = tileStaticStats astar in count
+  assertExact heuristic cid = mapM_ (\tile -> mapM_ (\banked ->
+    assert (heuristicAtComponent heuristic (unTile tile) cid banked
+      == heuristicAtGeneratorsComponent heuristic (unTile tile) cid banked)) [False, True])
 
 checkInstrumentation :: TileAStar -> Tiles -> IO ()
 checkInstrumentation tileAStar tiles = do

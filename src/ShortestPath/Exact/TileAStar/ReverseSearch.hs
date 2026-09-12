@@ -2,6 +2,7 @@ module ShortestPath.Exact.TileAStar.ReverseSearch
   ( assertReverseLabelsEqual
   , emptyReverseCounters
   , halveDistances
+  , ManhattanReverseResult(..)
   , reverseDijkstra
   , reverseDijkstraManhattan
   , reverseDijkstraManhattanUncounted
@@ -18,6 +19,12 @@ import ShortestPath.Exact.TileAStar.RelaxedGraph
 import ShortestPath.Exact.TileAStar.SparseWalking
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Internal.MutableHeap
+
+data ManhattanReverseResult = ManhattanReverseResult
+  { manhattanDistances :: Vector.Vector Int
+  , manhattanGeneratorOrigins :: Vector.Vector Int
+  , manhattanGeneratorWeights :: Vector.Vector Int
+  }
 
 emptyReverseCounters :: TileReverseCounters
 emptyReverseCounters = TileReverseCounters 0 0 0 0 0 0 0 0 0 0 0
@@ -151,19 +158,23 @@ reverseDijkstraUncounted graph seeds = runST $ do
       other = sameComponentSites Vector.! ix
       otherTile = siteTiles graph Vector.! other
 
-reverseDijkstraManhattan :: SiteGraph -> [(Int, Int)] -> (Vector.Vector Int, TileReverseCounters)
+reverseDijkstraManhattan :: SiteGraph -> [(Int, Int)] -> (ManhattanReverseResult, TileReverseCounters)
 reverseDijkstraManhattan graph seeds = runST $ do
   result <- Mutable.replicate stateCount maxBound
+  generatorOrigins <- Mutable.replicate stateCount (-1)
+  generatorWeights <- Mutable.replicate stateCount maxBound
   queue <- heapNew (max 262144 (stateCount * 16))
   counters <- Mutable.replicate reverseCounterCount 0
-  forM_ seeds (seed result queue counters)
+  forM_ seeds (seed result generatorOrigins generatorWeights queue counters)
   let searchReverse = do
         popped <- heapPop queue
         case popped of
           Nothing -> do
             distances <- Vector.freeze result
+            origins <- Vector.freeze generatorOrigins
+            weights <- Vector.freeze generatorWeights
             finalCounters <- readReverseCounters counters
-            pure (distances, finalCounters)
+            pure (ManhattanReverseResult distances origins weights, finalCounters)
           Just (_, node, cost) -> do
             reversePop counters
             known <- Mutable.read result node
@@ -171,9 +182,12 @@ reverseDijkstraManhattan graph seeds = runST $ do
               then bumpReverse counters reverseCounterStalePops 1 >> searchReverse
               else do
                 bumpReverse counters reverseCounterStatesSettled 1
-                relaxWalking result queue counters cost node
+                relaxWalking result generatorOrigins generatorWeights queue counters cost node
                 when (node `div` 2 < siteCount) $
-                  Vector.forM_ (siteReverseEdges graph Boxed.! node) (relax result queue counters cost True . doubleEdge)
+                  -- Local transports and bank/lifecycle transitions are the
+                  -- non-walking entries that establish fresh provenance.
+                  Vector.forM_ (siteReverseEdges graph Boxed.! node)
+                    (relax result generatorOrigins generatorWeights queue counters cost node True . doubleEdge)
                 searchReverse
   searchReverse
  where
@@ -181,33 +195,44 @@ reverseDijkstraManhattan graph seeds = runST $ do
   staticCount = siteStaticCount graph
   network = siteSparseNetwork graph
   stateCount = (siteCount + sparseSteinerCount network) * 2
-  seed :: Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> (Int, Int) -> ST s ()
-  seed result queue counters (node, cost) = do
+  seed :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> (Int, Int) -> ST s ()
+  seed result generatorOrigins generatorWeights queue counters (node, cost) = do
     Mutable.write result node (cost * 2)
+    Mutable.write generatorOrigins node node
+    Mutable.write generatorWeights node (cost * 2)
     heapPush queue (cost * 2) node (cost * 2)
     reversePush counters
   doubleEdge (next, edgeCost) = (next, edgeCost * 2)
-  relax :: Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Bool -> (Int, Int) -> ST s ()
-  relax result queue counters cost transportEdge (next, edgeCost) = do
+  relax :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Int -> Bool -> (Int, Int) -> ST s ()
+  relax result generatorOrigins generatorWeights queue counters cost from externalEdge (next, edgeCost) = do
     bumpReverse counters reverseCounterEdgesRelaxed 1
-    when transportEdge (bumpReverse counters reverseCounterTransportRelaxations 1)
+    when externalEdge (bumpReverse counters reverseCounterTransportRelaxations 1)
     case addCost cost edgeCost of
       Nothing -> pure ()
       Just newCost -> do
         known <- Mutable.read result next
         when (newCost < known) $ do
             Mutable.write result next newCost
+            if externalEdge
+              then Mutable.write generatorOrigins next next >> Mutable.write generatorWeights next newCost
+              else do
+                -- Sparse/Steiner and query-attachment edges are exact relaxed
+                -- walking edges, so they preserve the entering generator.
+                origin <- Mutable.read generatorOrigins from
+                weight <- Mutable.read generatorWeights from
+                Mutable.write generatorOrigins next origin
+                Mutable.write generatorWeights next weight
             heapPush queue newCost next newCost
             reversePush counters
-  relaxWalking :: Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Int -> ST s ()
-  relaxWalking result queue counters cost state = do
-    relaxSparseWalkingEdges result queue counters cost banked vertex
-    when (vertex < siteCount) (relaxQueryAttachments result queue counters cost vertex banked)
+  relaxWalking :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Int -> ST s ()
+  relaxWalking result generatorOrigins generatorWeights queue counters cost state = do
+    relaxSparseWalkingEdges result generatorOrigins generatorWeights queue counters cost state banked vertex
+    when (vertex < siteCount) (relaxQueryAttachments result generatorOrigins generatorWeights queue counters cost state vertex banked)
    where
     vertex = state `div` 2
     banked = odd state
-  relaxSparseWalkingEdges :: Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Bool -> Int -> ST s ()
-  relaxSparseWalkingEdges result queue counters cost banked vertex
+  relaxSparseWalkingEdges :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Int -> Bool -> Int -> ST s ()
+  relaxSparseWalkingEdges result generatorOrigins generatorWeights queue counters cost state banked vertex
     | vertex < staticCount = go (sparseOffsets network Vector.! vertex)
     | vertex < siteCount = pure ()
     | otherwise = go (sparseOffsets network Vector.! sparseVertex)
@@ -224,10 +249,10 @@ reverseDijkstraManhattan graph seeds = runST $ do
               next
                 | sparseNext < staticCount = sparseNext
                 | otherwise = siteCount + sparseNext - staticCount
-          relax result queue counters cost False (stateId next banked, edgeCost)
+          relax result generatorOrigins generatorWeights queue counters cost state False (stateId next banked, edgeCost)
           go (ix + 1)
-  relaxQueryAttachments :: Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Int -> Bool -> ST s ()
-  relaxQueryAttachments result queue counters cost vertex banked = do
+  relaxQueryAttachments :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Int -> Int -> Bool -> ST s ()
+  relaxQueryAttachments result generatorOrigins generatorWeights queue counters cost state vertex banked = do
     bumpReverse counters reverseCounterComponentScans 1
     bumpReverse counters reverseCounterSitesScanned count
     maxReverse counters reverseCounterMaxSitesPerPop count
@@ -242,14 +267,15 @@ reverseDijkstraManhattan graph seeds = runST $ do
       | vertex < staticCount && other < staticCount = go (ix + 1)
       | otherwise = do
           bumpReverse counters reverseCounterChebyshevComparisons 1
-          relax result queue counters cost False (stateId other banked, chebyshevPacked vertexTile otherTile * 2)
+          relax result generatorOrigins generatorWeights queue counters cost state False
+            (stateId other banked, chebyshevPacked vertexTile otherTile * 2)
           go (ix + 1)
      where
       other = componentSites Vector.! ix
       otherTile = siteTiles graph Vector.! other
 
 reverseDijkstraManhattanUncounted :: SiteGraph -> [(Int, Int)] -> Vector.Vector Int
-reverseDijkstraManhattanUncounted graph seeds = fst (reverseDijkstraManhattan graph seeds)
+reverseDijkstraManhattanUncounted graph seeds = manhattanDistances (fst (reverseDijkstraManhattan graph seeds))
 
 reverseCounterStatesSettled, reverseCounterStalePops, reverseCounterPushes, reverseCounterPops,
   reverseCounterMaxSize, reverseCounterEdgesRelaxed, reverseCounterComponentScans,

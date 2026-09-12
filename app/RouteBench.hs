@@ -341,6 +341,18 @@ timingsJson timings = object
   , "heuristicSeedsPerComponentP90" .= tileHeuristicSeedsPerComponentP90 timings
   , "heuristicSeedsPerComponentP95" .= tileHeuristicSeedsPerComponentP95 timings
   , "heuristicSeedsPerComponentP99" .= tileHeuristicSeedsPerComponentP99 timings
+  , "heuristicGeneratorCount" .= tileHeuristicGeneratorCount timings
+  , "heuristicMaxGeneratorsPerComponent" .= tileHeuristicMaxGeneratorsPerComponent timings
+  , "heuristicGeneratorsPerComponentP50" .= tileHeuristicGeneratorsPerComponentP50 timings
+  , "heuristicGeneratorsPerComponentP90" .= tileHeuristicGeneratorsPerComponentP90 timings
+  , "heuristicGeneratorsPerComponentP95" .= tileHeuristicGeneratorsPerComponentP95 timings
+  , "heuristicGeneratorsPerComponentP99" .= tileHeuristicGeneratorsPerComponentP99 timings
+  , "heuristicGeneratorSeedRatioP50" .= tileHeuristicGeneratorSeedRatioP50 timings
+  , "heuristicGeneratorSeedRatioP90" .= tileHeuristicGeneratorSeedRatioP90 timings
+  , "heuristicGeneratorSeedRatioP95" .= tileHeuristicGeneratorSeedRatioP95 timings
+  , "heuristicGeneratorSeedRatioP99" .= tileHeuristicGeneratorSeedRatioP99 timings
+  , "heuristicGeneratorSeedRatioMax" .= tileHeuristicGeneratorSeedRatioMax timings
+  , "heuristicGeneratorSeedRatio" .= tileHeuristicGeneratorSeedRatio timings
   , "forwardAllocatedBytes" .= tileForwardAllocatedBytes timings, "forwardNsPerState" .= perState (tileSearchMilliseconds timings * 1000000)
   , "forwardAllocatedBytesPerState" .= perState (fromIntegral (tileForwardAllocatedBytes timings)), "totalMs" .= tileTotalMilliseconds timings
   , "statesPopped" .= tileStatesPopped (tileSearchCounters timings), "uniqueStatesReached" .= tileUniqueStatesReached (tileSearchCounters timings)

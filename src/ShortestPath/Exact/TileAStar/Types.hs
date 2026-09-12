@@ -160,6 +160,18 @@ data TileAStarTimings = TileAStarTimings
   , tileHeuristicSeedsPerComponentP90 :: !Int
   , tileHeuristicSeedsPerComponentP95 :: !Int
   , tileHeuristicSeedsPerComponentP99 :: !Int
+  , tileHeuristicGeneratorCount :: !Int
+  , tileHeuristicMaxGeneratorsPerComponent :: !Int
+  , tileHeuristicGeneratorsPerComponentP50 :: !Int
+  , tileHeuristicGeneratorsPerComponentP90 :: !Int
+  , tileHeuristicGeneratorsPerComponentP95 :: !Int
+  , tileHeuristicGeneratorsPerComponentP99 :: !Int
+  , tileHeuristicGeneratorSeedRatioP50 :: !Double
+  , tileHeuristicGeneratorSeedRatioP90 :: !Double
+  , tileHeuristicGeneratorSeedRatioP95 :: !Double
+  , tileHeuristicGeneratorSeedRatioP99 :: !Double
+  , tileHeuristicGeneratorSeedRatioMax :: !Double
+  , tileHeuristicGeneratorSeedRatio :: !Double
   , tileSearchMilliseconds :: !Double
   , tileForwardAllocatedBytes :: !Int64
   , tileTotalMilliseconds :: !Double
