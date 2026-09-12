@@ -1,0 +1,6 @@
+interface:
+  display_name: Benchmark Mismatch Diagnosis
+  short_description: Diagnose one OSRS benchmark mismatch
+  default_prompt: Use $benchmark-mismatch-diagnosis to diagnose the named benchmark mismatch, and only fix it if I explicitly ask.
+policy:
+  allow_implicit_invocation: false

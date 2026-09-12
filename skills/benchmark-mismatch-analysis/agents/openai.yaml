@@ -1,0 +1,4 @@
+interface:
+  display_name: Benchmark Mismatch Analysis
+  short_description: Summarize OSRS benchmark mismatches
+  default_prompt: Use $benchmark-mismatch-analysis to summarize the latest benchmark results and identify the first mismatch.
