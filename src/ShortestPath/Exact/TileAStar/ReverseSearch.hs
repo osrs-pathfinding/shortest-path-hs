@@ -19,7 +19,7 @@ import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Internal.MutableHeap
 
 emptyReverseCounters :: TileReverseCounters
-emptyReverseCounters = TileReverseCounters 0 0 0 0 0 0 0 0 0
+emptyReverseCounters = TileReverseCounters 0 0 0 0 0 0 0 0 0 0 0
 
 reverseDijkstra :: SiteGraph -> [(Int, Int)] -> (Vector.Vector Int, TileReverseCounters)
 reverseDijkstra graph seeds = runST $ do
@@ -51,7 +51,7 @@ reverseDijkstra graph seeds = runST $ do
   seed result queue counters (node, cost) = do
     Mutable.write result node cost
     heapPush queue cost node cost
-    pure counters {reversePqPushes = reversePqPushes counters + 1}
+    pure (pushed counters)
   relax :: Mutable.MVector s Int -> MutableHeap s -> Int -> Bool -> TileReverseCounters -> (Int, Int) -> ST s TileReverseCounters
   relax result queue cost transportEdge counters (next, edgeCost) =
     case addCost cost edgeCost of
@@ -63,11 +63,15 @@ reverseDijkstra graph seeds = runST $ do
           else do
             Mutable.write result next newCost
             heapPush queue newCost next newCost
-            pure counters' {reversePqPushes = reversePqPushes counters' + 1}
+            pure (pushed counters')
    where
-    counters'
-      | transportEdge = counters {reverseTransportRelaxations = reverseTransportRelaxations counters + 1}
-      | otherwise = counters
+    counters' = (if transportEdge
+      then counters {reverseTransportRelaxations = reverseTransportRelaxations counters + 1}
+      else counters) {reverseEdgesRelaxed = reverseEdgesRelaxed counters + 1}
+  pushed counters = counters
+    { reversePqPushes = reversePqPushes counters + 1
+    , reversePqMaxSize = max (reversePqMaxSize counters) (reversePqPushes counters + 1 - reversePqPops counters)
+    }
   relaxSameComponent :: Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> TileReverseCounters -> ST s TileReverseCounters
   relaxSameComponent result queue cost node counters =
     go 0 counters'
@@ -247,5 +251,4 @@ assertReverseLabelsEqual graph clique manhattan =
     [] -> pure ()
     ((state, expected, actual):_) ->
       fail ("sparse Manhattan reverse label mismatch at state " <> show state <> ": clique=" <> show expected <> " manhattan=" <> show actual)
-
 

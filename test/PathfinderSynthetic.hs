@@ -40,7 +40,20 @@ main = do
   checkTransportOnlyEndpoint reference tileAStar tiles
   checkIntermediateTransportEndpoint reference tileAStar tiles
   checkHeuristicPruning tileAStar tiles
+  checkInstrumentation tileAStar tiles
   checkMultiplePointAttachments
+
+checkInstrumentation :: TileAStar -> Tiles -> IO ()
+checkInstrumentation tileAStar tiles = do
+  (_, timings) <- findRouteProfiledTileAStar tileAStar (walkingQuery (tA0 tiles) (tA1 tiles))
+  let forward = tileSearchCounters timings
+      reverseCounters = tileReverseCounters timings
+  assert ((tileHeuristicCalls forward, tileHeuristicCandidatesScanned forward, tileHeuristicMaxCandidatesPerCall forward) == (5, 20, 4))
+  assert ((reverseStatesPopped reverseCounters, reverseEdgesRelaxed reverseCounters, reversePqPushes reverseCounters,
+    reverseStalePqEntries reverseCounters, reversePqMaxSize reverseCounters) == (8, 24, 8, 0, 6))
+  assert ((tileHeuristicSeedCount timings, tileHeuristicComponentCount timings, tileHeuristicMaxSeedsPerComponent timings) == (8, 1, 8))
+  assert ((tileHeuristicSeedsPerComponentP50 timings, tileHeuristicSeedsPerComponentP90 timings,
+    tileHeuristicSeedsPerComponentP95 timings, tileHeuristicSeedsPerComponentP99 timings) == (8, 8, 8, 8))
 
 checkMultiplePointAttachments :: IO ()
 checkMultiplePointAttachments = do

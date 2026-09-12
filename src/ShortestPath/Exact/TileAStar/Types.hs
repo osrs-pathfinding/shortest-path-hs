@@ -107,6 +107,9 @@ data TileAStarCounters = TileAStarCounters
   , tileWalkingRelaxations :: !Int
   , tileTransportRelaxations :: !Int
   , tileHeuristicEvaluations :: !Int
+  , tileHeuristicCalls :: !Int
+  , tileHeuristicCandidatesScanned :: !Int
+  , tileHeuristicMaxCandidatesPerCall :: !Int
   , tileHeuristicUnreachable :: !Int
   , tileUnknownComponentPrunes :: !Int
   , tileNoReverseSeedPrunes :: !Int
@@ -134,6 +137,8 @@ data TileReverseCounters = TileReverseCounters
   , reverseStalePqEntries :: !Int
   , reversePqPushes :: !Int
   , reversePqPops :: !Int
+  , reversePqMaxSize :: !Int
+  , reverseEdgesRelaxed :: !Int
   , reverseSameComponentSiteScans :: !Int
   , reverseTotalSitesScanned :: !Int
   , reverseChebyshevComparisons :: !Int
@@ -148,6 +153,13 @@ data TileAStarTimings = TileAStarTimings
   , tileHeuristicSetupMilliseconds :: !Double
   , tileReverseDijkstraMilliseconds :: !Double
   , tileSeedTableMilliseconds :: !Double
+  , tileHeuristicSeedCount :: !Int
+  , tileHeuristicComponentCount :: !Int
+  , tileHeuristicMaxSeedsPerComponent :: !Int
+  , tileHeuristicSeedsPerComponentP50 :: !Int
+  , tileHeuristicSeedsPerComponentP90 :: !Int
+  , tileHeuristicSeedsPerComponentP95 :: !Int
+  , tileHeuristicSeedsPerComponentP99 :: !Int
   , tileSearchMilliseconds :: !Double
   , tileForwardAllocatedBytes :: !Int64
   , tileTotalMilliseconds :: !Double

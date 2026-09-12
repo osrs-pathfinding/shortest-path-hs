@@ -10,8 +10,8 @@ import ShortestPath.Exact.TileAStar.Heuristic
 tileAStarConfigFromEnvironment :: IO TileAStarConfig
 tileAStarConfigFromEnvironment = do
   implementation <- lookupEnv "SPM_TILE_REVERSE_IMPL" >>= parseImplementation
-  compareReverse <- enabled "SPM_TILE_COMPARE_REVERSE"
-  counters <- enabled "SPM_TILE_REVERSE_COUNTERS"
+  compareReverse <- enabled False "SPM_TILE_COMPARE_REVERSE"
+  counters <- enabled True "SPM_TILE_REVERSE_COUNTERS"
   pure TileAStarConfig
     { tileReverseImplementation = implementation
     , tileCompareReverseImplementations = compareReverse
@@ -31,9 +31,9 @@ parseImplementation (Just "clique") = pure CliqueReverse
 parseImplementation (Just "manhattan") = pure SparseWalkingReverse
 parseImplementation (Just value) = fail ("SPM_TILE_REVERSE_IMPL must be clique or manhattan, got " <> show value)
 
-enabled :: String -> IO Bool
-enabled name = lookupEnv name >>= \case
-  Nothing -> pure False
+enabled :: Bool -> String -> IO Bool
+enabled defaultValue name = lookupEnv name >>= \case
+  Nothing -> pure defaultValue
   Just "0" -> pure False
   Just "1" -> pure True
   Just value -> fail (name <> " must be 0 or 1, got " <> show value)

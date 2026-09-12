@@ -335,12 +335,26 @@ timingsJson timings = object
   , "forwardSearchMs" .= tileSearchMilliseconds timings, "setupMs" .= tileHeuristicSetupMilliseconds timings
   , "reverseDijkstraMs" .= tileReverseDijkstraMilliseconds timings
   , "seedTableMs" .= tileSeedTableMilliseconds timings, "searchMs" .= tileSearchMilliseconds timings
+  , "heuristicSeedCount" .= tileHeuristicSeedCount timings, "heuristicComponentCount" .= tileHeuristicComponentCount timings
+  , "heuristicMaxSeedsPerComponent" .= tileHeuristicMaxSeedsPerComponent timings
+  , "heuristicSeedsPerComponentP50" .= tileHeuristicSeedsPerComponentP50 timings
+  , "heuristicSeedsPerComponentP90" .= tileHeuristicSeedsPerComponentP90 timings
+  , "heuristicSeedsPerComponentP95" .= tileHeuristicSeedsPerComponentP95 timings
+  , "heuristicSeedsPerComponentP99" .= tileHeuristicSeedsPerComponentP99 timings
   , "forwardAllocatedBytes" .= tileForwardAllocatedBytes timings, "forwardNsPerState" .= perState (tileSearchMilliseconds timings * 1000000)
   , "forwardAllocatedBytesPerState" .= perState (fromIntegral (tileForwardAllocatedBytes timings)), "totalMs" .= tileTotalMilliseconds timings
   , "statesPopped" .= tileStatesPopped (tileSearchCounters timings), "uniqueStatesReached" .= tileUniqueStatesReached (tileSearchCounters timings)
   , "pqPushes" .= tilePqPushes (tileSearchCounters timings), "staleEntries" .= tileStalePqEntries (tileSearchCounters timings)
   , "walkingRelaxations" .= tileWalkingRelaxations (tileSearchCounters timings), "transportRelaxations" .= tileTransportRelaxations (tileSearchCounters timings)
   , "heuristicEvaluations" .= tileHeuristicEvaluations (tileSearchCounters timings), "unreachablePrunes" .= tileHeuristicUnreachable (tileSearchCounters timings)
+  , "heuristicCalls" .= tileHeuristicCalls (tileSearchCounters timings)
+  , "heuristicCandidatesScanned" .= tileHeuristicCandidatesScanned (tileSearchCounters timings)
+  , "heuristicMaxCandidatesPerCall" .= tileHeuristicMaxCandidatesPerCall (tileSearchCounters timings)
+  , "reverseStatesSettled" .= reverseStatesPopped (tileReverseCounters timings)
+  , "reverseEdgesRelaxed" .= reverseEdgesRelaxed (tileReverseCounters timings)
+  , "reversePqPushes" .= reversePqPushes (tileReverseCounters timings)
+  , "reversePqStalePops" .= reverseStalePqEntries (tileReverseCounters timings)
+  , "reversePqMaxSize" .= reversePqMaxSize (tileReverseCounters timings)
   , "unknownComponentPrunes" .= tileUnknownComponentPrunes (tileSearchCounters timings), "noReverseSeedPrunes" .= tileNoReverseSeedPrunes (tileSearchCounters timings)
   , "bestBankUpdates" .= tileBestBankCostUpdates (tileSearchCounters timings), "finalBestBankCost" .= tileFinalBestBankCost (tileSearchCounters timings)
   ]

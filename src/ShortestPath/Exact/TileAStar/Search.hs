@@ -61,9 +61,11 @@ search trace astar@(TileAStar topology static) account prepared start options = 
       updateBestBank counters bestBankRef state cost
       bestBank <- readSTRef bestBankRef
       case effectiveHeuristicRaw bestBank cost state of
-        (# h#, dominated# #)
-          | I# h# == maxBound -> countHeuristicPrune counters state
-          | otherwise -> do
+        (# h#, dominated#, scanned# #) -> do
+          recordHeuristicScan counters (I# scanned#)
+          if I# h# == maxBound
+            then countHeuristicPrune counters state
+            else do
               Mutable.write best state cost
               when (kind >= 0) $ do
                 Mutable.write prevState state startState
@@ -120,14 +122,16 @@ search trace astar@(TileAStar topology static) account prepared start options = 
           else do
             bestBank <- readSTRef bestBankRef
             case effectiveHeuristicRaw bestBank cost state of
-              (# h#, dominated# #)
-                | I# h# == maxBound -> countHeuristicPrune counters state >> go exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
-                | addCostDefault maxBound cost (weightedHeuristic (I# h#)) > priority -> do
+              (# h#, dominated#, scanned# #) -> do
+                recordHeuristicScan counters (I# scanned#)
+                if I# h# == maxBound
+                  then countHeuristicPrune counters state >> go exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
+                  else if addCostDefault maxBound cost (weightedHeuristic (I# h#)) > priority then do
                     heapPush queue (addCostDefault maxBound cost (weightedHeuristic (I# h#))) state cost
                     bump counters counterBankBoundPQRekeys 1
                     bump counters counterBankDominated (I# dominated#)
                     go exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
-                | otherwise -> do
+                  else do
                     let tile = stateTile state
                     when trace $ do
                       explored <- readSTRef exploredRef
@@ -211,9 +215,11 @@ search trace astar@(TileAStar topology static) account prepared start options = 
             updateBestBank counters bestBankRef next newCost
             currentBestBank <- readSTRef bestBankRef
             case effectiveHeuristicRaw currentBestBank newCost next of
-              (# h#, dominated# #)
-                | I# h# == maxBound -> countHeuristicPrune counters next
-                | otherwise -> do
+              (# h#, dominated#, scanned# #) -> do
+                recordHeuristicScan counters (I# scanned#)
+                if I# h# == maxBound
+                  then countHeuristicPrune counters next
+                  else do
                     Mutable.write best next newCost
                     Mutable.write prevState next state
                     Mutable.write prevKind next (if kind == walkingEdge then 0 else 1)
@@ -225,22 +231,23 @@ search trace astar@(TileAStar topology static) account prepared start options = 
                     bump counters counterBankDominated (I# dominated#)
 
   weightedHeuristic value = min maxBound (round (searchHeuristicWeight options * fromIntegral value))
-  effectiveHeuristicRaw :: Int -> Int -> Int -> (# Int#, Int# #)
+  effectiveHeuristicRaw :: Int -> Int -> Int -> (# Int#, Int#, Int# #)
   effectiveHeuristicRaw bestBank cost state
     | stateBanked state =
         case heuristicAtSearchNodeRaw state True of
-          I# resolved# -> (# resolved#, 0# #)
+          (# resolved#, scanned# #) -> (# resolved#, 0#, scanned# #)
     | bankGlobalRelevant && cost > bestBank =
         case heuristicAtSearchNodeRaw state False of
-          I# unbanked# -> case heuristicAtSearchNodeRaw state True of
-            I# resolved# -> case max (I# unbanked#) (if I# resolved# == maxBound then I# unbanked# else I# resolved#) of
-              I# effective# -> (# effective#, 1# #)
+          (# unbanked#, unbankedScanned# #) -> case heuristicAtSearchNodeRaw state True of
+            (# resolved#, bankedScanned# #) -> case max (I# unbanked#) (if I# resolved# == maxBound then I# unbanked# else I# resolved#) of
+              I# effective# -> case I# unbankedScanned# + I# bankedScanned# of
+                I# scanned# -> (# effective#, 1#, scanned# #)
     | otherwise =
         case heuristicAtSearchNodeRaw state False of
-          I# unbanked# -> (# unbanked#, 0# #)
+          (# unbanked#, scanned# #) -> (# unbanked#, 0#, scanned# #)
   heuristicAtSearchNodeRaw state banked
-    | node < baseLength = heuristicAtComponentRaw heuristic packed (searchBaseComponents space Vector.! node) banked
-    | otherwise = heuristicAtResolvedRaw heuristic packed
+    | node < baseLength = heuristicAtComponentCountedRaw heuristic packed (searchBaseComponents space Vector.! node) banked
+    | otherwise = heuristicAtResolvedCountedRaw heuristic packed
         (searchExtraComponents space Boxed.! extra) (searchExtraSites space Vector.! extra) banked
    where
     node = state `div` 2
@@ -296,6 +303,7 @@ search trace astar@(TileAStar topology static) account prepared start options = 
 
 counterStatesPopped, counterStalePqEntries, counterPqPushes, counterUniqueStates,
   counterWalkingRelaxations, counterTransportRelaxations, counterHeuristicEvaluations,
+  counterHeuristicCalls, counterHeuristicCandidatesScanned, counterHeuristicMaxCandidatesPerCall,
   counterHeuristicUnreachable, counterUnknownComponentPrunes, counterNoReverseSeedPrunes,
   counterBestBankUpdates, counterBankDominated, counterBankGlobalSuppressed,
   counterBankBoundPQRekeys, counterCount :: Int
@@ -306,14 +314,17 @@ counterUniqueStates = 3
 counterWalkingRelaxations = 4
 counterTransportRelaxations = 5
 counterHeuristicEvaluations = 6
-counterHeuristicUnreachable = 7
-counterUnknownComponentPrunes = 8
-counterNoReverseSeedPrunes = 9
-counterBestBankUpdates = 10
-counterBankDominated = 11
-counterBankGlobalSuppressed = 12
-counterBankBoundPQRekeys = 13
-counterCount = 14
+counterHeuristicCalls = 7
+counterHeuristicCandidatesScanned = 8
+counterHeuristicMaxCandidatesPerCall = 9
+counterHeuristicUnreachable = 10
+counterUnknownComponentPrunes = 11
+counterNoReverseSeedPrunes = 12
+counterBestBankUpdates = 13
+counterBankDominated = 14
+counterBankGlobalSuppressed = 15
+counterBankBoundPQRekeys = 16
+counterCount = 17
 
 walkingEdge, transportEdge :: Int
 walkingEdge = counterWalkingRelaxations
@@ -325,6 +336,14 @@ bump counters index amount = when (amount /= 0) $ do
   current <- Mutable.read counters index
   Mutable.write counters index (current + amount)
 
+recordHeuristicScan :: Mutable.MVector s Int -> Int -> ST s ()
+{-# INLINE recordHeuristicScan #-}
+recordHeuristicScan counters scanned = do
+  bump counters counterHeuristicCalls 1
+  bump counters counterHeuristicCandidatesScanned scanned
+  maximumScanned <- Mutable.read counters counterHeuristicMaxCandidatesPerCall
+  when (scanned > maximumScanned) (Mutable.write counters counterHeuristicMaxCandidatesPerCall scanned)
+
 readCounters :: Mutable.MVector s Int -> STRef s Int -> STRef s [TileBankGlobalObservation] -> ST s TileAStarCounters
 readCounters counters bestBankRef bankTraceRef =
   TileAStarCounters
@@ -335,6 +354,9 @@ readCounters counters bestBankRef bankTraceRef =
     <*> Mutable.read counters counterWalkingRelaxations
     <*> Mutable.read counters counterTransportRelaxations
     <*> Mutable.read counters counterHeuristicEvaluations
+    <*> Mutable.read counters counterHeuristicCalls
+    <*> Mutable.read counters counterHeuristicCandidatesScanned
+    <*> Mutable.read counters counterHeuristicMaxCandidatesPerCall
     <*> Mutable.read counters counterHeuristicUnreachable
     <*> Mutable.read counters counterUnknownComponentPrunes
     <*> Mutable.read counters counterNoReverseSeedPrunes

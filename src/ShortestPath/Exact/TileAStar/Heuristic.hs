@@ -1,3 +1,6 @@
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+
 module ShortestPath.Exact.TileAStar.Heuristic
   ( Heuristic(..)
   , PreparedTarget(..)
@@ -7,8 +10,10 @@ module ShortestPath.Exact.TileAStar.Heuristic
   , heuristicAt
   , heuristicAtComponent
   , heuristicAtComponentRaw
+  , heuristicAtComponentCountedRaw
   , heuristicAtResolved
   , heuristicAtResolvedRaw
+  , heuristicAtResolvedCountedRaw
   , heuristicFromDistances
   , prepareHeuristic
   , prepareHeuristicProfiled
@@ -22,6 +27,8 @@ import qualified Data.Vector as Boxed
 import qualified Data.Vector.Mutable as BoxedMutable
 import qualified Data.Vector.Unboxed as Vector
 import Control.Monad.ST (runST)
+import Data.List (sort)
+import GHC.Exts (Int(I#), Int#)
 
 import ShortestPath.Exact.TileAStar.RelaxedGraph
 import ShortestPath.Exact.TileAStar.ReverseSearch
@@ -42,7 +49,7 @@ data TileAStarConfig = TileAStarConfig
   deriving stock (Eq, Show)
 
 defaultTileAStarConfig :: TileAStarConfig
-defaultTileAStarConfig = TileAStarConfig CliqueReverse False False
+defaultTileAStarConfig = TileAStarConfig CliqueReverse False True
 
 data Heuristic = Heuristic
   { heuristicSeeds :: Boxed.Vector (Vector.Vector (Int, Int))
@@ -51,6 +58,13 @@ data Heuristic = Heuristic
   , heuristicReverseMilliseconds :: !Double
   , heuristicSeedTableMilliseconds :: !Double
   , heuristicReverseCounters :: !TileReverseCounters
+  , heuristicSeedCount :: !Int
+  , heuristicComponentCount :: !Int
+  , heuristicMaxSeedsPerComponent :: !Int
+  , heuristicSeedsPerComponentP50 :: !Int
+  , heuristicSeedsPerComponentP90 :: !Int
+  , heuristicSeedsPerComponentP95 :: !Int
+  , heuristicSeedsPerComponentP99 :: !Int
   }
 
 data PreparedTarget = PreparedTarget
@@ -109,6 +123,10 @@ heuristicAtComponentRaw :: Heuristic -> Int -> Int -> Bool -> Int
 {-# INLINE heuristicAtComponentRaw #-}
 heuristicAtComponentRaw = componentDistance
 
+heuristicAtComponentCountedRaw :: Heuristic -> Int -> Int -> Bool -> (# Int#, Int# #)
+{-# INLINE heuristicAtComponentCountedRaw #-}
+heuristicAtComponentCountedRaw = componentDistanceCounted
+
 heuristicAtResolved :: Heuristic -> Int -> Vector.Vector Int -> Int -> Bool -> Maybe Int
 {-# INLINE heuristicAtResolved #-}
 heuristicAtResolved heuristic packed components site banked =
@@ -123,11 +141,32 @@ heuristicAtResolvedRaw heuristic packed components site banked =
     | site < 0 = maxBound
     | otherwise = heuristicSiteDistances heuristic Vector.! stateId site banked
 
+heuristicAtResolvedCountedRaw :: Heuristic -> Int -> Vector.Vector Int -> Int -> Bool -> (# Int#, Int# #)
+{-# INLINE heuristicAtResolvedCountedRaw #-}
+heuristicAtResolvedCountedRaw heuristic packed components site banked = go 0 exact 0
+ where
+  exact
+    | site < 0 = maxBound
+    | otherwise = heuristicSiteDistances heuristic Vector.! stateId site banked
+  go ix best scanned
+    | ix >= Vector.length components = case (best, scanned) of
+        (I# best#, I# scanned#) -> (# best#, scanned# #)
+    | otherwise = case componentDistanceCounted heuristic packed (components Vector.! ix) banked of
+        (# distance#, count# #) -> go (ix + 1) (min best (I# distance#)) (scanned + I# count#)
+
 componentDistance :: Heuristic -> Int -> Int -> Bool -> Int
 {-# INLINE componentDistance #-}
 componentDistance heuristic packed cid banked =
   Vector.foldl' (\best (seed, cost) -> min best (addCostDefault maxBound cost (chebyshevPacked packed seed))) maxBound
     (heuristicSeeds heuristic Boxed.! seedKey cid banked)
+
+componentDistanceCounted :: Heuristic -> Int -> Int -> Bool -> (# Int#, Int# #)
+{-# INLINE componentDistanceCounted #-}
+componentDistanceCounted heuristic packed cid banked =
+  case (componentDistance heuristic packed cid banked, Vector.length seeds) of
+    (I# distance#, I# count#) -> (# distance#, count# #)
+ where
+  seeds = heuristicSeeds heuristic Boxed.! seedKey cid banked
 
 finite :: Int -> Maybe Int
 {-# INLINE finite #-}
@@ -143,7 +182,22 @@ heuristicFromSeedTable :: Boxed.Vector (Vector.Vector (Int, Int)) -> SiteGraph -
 heuristicFromSeedTable seeds graph distances reverseMs seedMs counters =
   Heuristic seeds (siteTileIndex graph)
     (Vector.generate (Vector.length (siteTiles graph) * 2) (distances Vector.!))
-    reverseMs seedMs counters
+    reverseMs seedMs counters total componentCount maximumCount p50 p90 p95 p99
+ where
+  counts = sort
+    [ Vector.length (seeds Boxed.! (cid * 2)) + Vector.length (seeds Boxed.! (cid * 2 + 1))
+    | cid <- [0 .. Boxed.length seeds `div` 2 - 1]
+    , not (Vector.null (seeds Boxed.! (cid * 2)) && Vector.null (seeds Boxed.! (cid * 2 + 1)))
+    ]
+  total = sum counts
+  componentCount = length counts
+  maximumCount = percentile 100 counts
+  p50 = percentile 50 counts
+  p90 = percentile 90 counts
+  p95 = percentile 95 counts
+  p99 = percentile 99 counts
+  percentile _ [] = 0
+  percentile p xs = xs !! ((p * length xs + 99) `div` 100 - 1)
 
 seedTableFromDistances :: NaturalComponents -> SiteGraph -> Vector.Vector Int -> Boxed.Vector (Vector.Vector (Int, Int))
 seedTableFromDistances components graph distances = runST $ do
@@ -170,6 +224,8 @@ forceReverseResult (distances, counters) =
         + reverseStalePqEntries counters
         + reversePqPushes counters
         + reversePqPops counters
+        + reversePqMaxSize counters
+        + reverseEdgesRelaxed counters
         + reverseSameComponentSiteScans counters
         + reverseTotalSitesScanned counters
         + reverseChebyshevComparisons counters

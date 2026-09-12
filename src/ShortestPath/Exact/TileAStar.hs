@@ -120,7 +120,25 @@ searchPreparedProfiledWithTrace trace astar account target start options = do
   let searchMs = milliseconds started finished
   pure
     ( route
-    , TileAStarTimings 0 0 0 0 0 searchMs (beforeAlloc - afterAlloc) searchMs counters emptyReverseCounters
+    , TileAStarTimings
+        { tileAccountPrepareMilliseconds = 0
+        , tileTargetPrepareMilliseconds = 0
+        , tileHeuristicSetupMilliseconds = 0
+        , tileReverseDijkstraMilliseconds = 0
+        , tileSeedTableMilliseconds = 0
+        , tileHeuristicSeedCount = 0
+        , tileHeuristicComponentCount = 0
+        , tileHeuristicMaxSeedsPerComponent = 0
+        , tileHeuristicSeedsPerComponentP50 = 0
+        , tileHeuristicSeedsPerComponentP90 = 0
+        , tileHeuristicSeedsPerComponentP95 = 0
+        , tileHeuristicSeedsPerComponentP99 = 0
+        , tileSearchMilliseconds = searchMs
+        , tileForwardAllocatedBytes = beforeAlloc - afterAlloc
+        , tileTotalMilliseconds = searchMs
+        , tileSearchCounters = counters
+        , tileReverseCounters = emptyReverseCounters
+        }
     , explored
     )
 
@@ -185,6 +203,13 @@ recordPreparationTimings accountMs targetMs target timings = timings
   , tileHeuristicSetupMilliseconds = accountMs + targetMs
   , tileReverseDijkstraMilliseconds = if targetMs == 0 then 0 else heuristicReverseMilliseconds heuristic
   , tileSeedTableMilliseconds = if targetMs == 0 then 0 else heuristicSeedTableMilliseconds heuristic
+  , tileHeuristicSeedCount = heuristicSeedCount heuristic
+  , tileHeuristicComponentCount = heuristicComponentCount heuristic
+  , tileHeuristicMaxSeedsPerComponent = heuristicMaxSeedsPerComponent heuristic
+  , tileHeuristicSeedsPerComponentP50 = heuristicSeedsPerComponentP50 heuristic
+  , tileHeuristicSeedsPerComponentP90 = heuristicSeedsPerComponentP90 heuristic
+  , tileHeuristicSeedsPerComponentP95 = heuristicSeedsPerComponentP95 heuristic
+  , tileHeuristicSeedsPerComponentP99 = heuristicSeedsPerComponentP99 heuristic
   , tileTotalMilliseconds = accountMs + targetMs + tileSearchMilliseconds timings
   , tileReverseCounters = if targetMs == 0 then emptyReverseCounters else heuristicReverseCounters heuristic
   }
@@ -215,6 +240,13 @@ forceHeuristic heuristic =
         + round (heuristicReverseMilliseconds heuristic)
         + round (heuristicSeedTableMilliseconds heuristic)
         + reverseStatesPopped (heuristicReverseCounters heuristic)
+        + heuristicSeedCount heuristic
+        + heuristicComponentCount heuristic
+        + heuristicMaxSeedsPerComponent heuristic
+        + heuristicSeedsPerComponentP50 heuristic
+        + heuristicSeedsPerComponentP90 heuristic
+        + heuristicSeedsPerComponentP95 heuristic
+        + heuristicSeedsPerComponentP99 heuristic
     )
 
 forcePreparedTarget :: PreparedTarget -> IO Int
@@ -242,6 +274,9 @@ forceSearch (route, counters, explored) =
         + tileWalkingRelaxations counters
         + tileTransportRelaxations counters
         + tileHeuristicEvaluations counters
+        + tileHeuristicCalls counters
+        + tileHeuristicCandidatesScanned counters
+        + tileHeuristicMaxCandidatesPerCall counters
         + tileHeuristicUnreachable counters
         + tileUnknownComponentPrunes counters
         + tileNoReverseSeedPrunes counters

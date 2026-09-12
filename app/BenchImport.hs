@@ -128,9 +128,9 @@ metrics raw = Map.fromList
 
 metricName "setupMs" = "heuristic_setup_ms"
 metricName "accountPrepareMs" = "account_prepare_ms"
-metricName "targetPrepareMs" = "target_prepare_ms"
+metricName "targetPrepareMs" = "heuristic_prepare_ms"
 metricName "forwardSearchMs" = "forward_search_ms"
-metricName "reverseDijkstraMs" = "reverse_ms"
+metricName "reverseDijkstraMs" = "reverse_search_ms"
 metricName "seedTableMs" = "seed_table_ms"
 metricName "searchMs" = "search_ms"
 metricName "totalMs" = "total_ms"
