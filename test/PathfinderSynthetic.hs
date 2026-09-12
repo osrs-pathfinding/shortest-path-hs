@@ -45,7 +45,10 @@ main = do
 
 checkInstrumentation :: TileAStar -> Tiles -> IO ()
 checkInstrumentation tileAStar tiles = do
-  (_, timings) <- findRouteProfiledTileAStar tileAStar (walkingQuery (tA0 tiles) (tA1 tiles))
+  let routeQuery = walkingQuery (tA0 tiles) (tA1 tiles)
+  (_, timings) <- findRouteProfiledTileAStar tileAStar routeQuery
+  (_, sparseTimings) <- findRouteProfiledTileAStarWithConfig
+    (TileAStarConfig SparseWalkingReverse True True) tileAStar routeQuery
   let forward = tileSearchCounters timings
       reverseCounters = tileReverseCounters timings
   assert ((tileHeuristicCalls forward, tileHeuristicCandidatesScanned forward, tileHeuristicMaxCandidatesPerCall forward) == (5, 20, 4))
@@ -54,6 +57,9 @@ checkInstrumentation tileAStar tiles = do
   assert ((tileHeuristicSeedCount timings, tileHeuristicComponentCount timings, tileHeuristicMaxSeedsPerComponent timings) == (8, 1, 8))
   assert ((tileHeuristicSeedsPerComponentP50 timings, tileHeuristicSeedsPerComponentP90 timings,
     tileHeuristicSeedsPerComponentP95 timings, tileHeuristicSeedsPerComponentP99 timings) == (8, 8, 8, 8))
+  let sparseReverse = tileReverseCounters sparseTimings
+  assert ((reverseStatesPopped sparseReverse, reverseEdgesRelaxed sparseReverse, reversePqPushes sparseReverse,
+    reverseStalePqEntries sparseReverse, reversePqMaxSize sparseReverse) == (24, 52, 26, 2, 6))
 
 checkMultiplePointAttachments :: IO ()
 checkMultiplePointAttachments = do

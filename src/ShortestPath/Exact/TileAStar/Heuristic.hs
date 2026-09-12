@@ -100,10 +100,13 @@ prepareHeuristicProfiled config astar account target = do
       | tileCollectReverseCounters config -> pure (reverseDijkstra graph seeds)
       | otherwise -> pure (reverseDijkstraUncounted graph seeds, emptyReverseCounters)
     SparseWalkingReverse -> do
-      let distances = halveDistances (reverseDijkstraManhattanUncounted graph seeds)
+      let (rawDistances, counters)
+            | tileCollectReverseCounters config = reverseDijkstraManhattan graph seeds
+            | otherwise = (reverseDijkstraManhattanUncounted graph seeds, emptyReverseCounters)
+          distances = halveDistances rawDistances
       when (tileCompareReverseImplementations config)
         (assertReverseLabelsEqual graph (reverseDijkstraUncounted graph seeds) distances)
-      pure (distances, emptyReverseCounters)
+      pure (distances, counters)
 
 heuristicAt :: WorldTopology -> Heuristic -> Tile -> Bool -> Maybe Int
 {-# INLINE heuristicAt #-}
