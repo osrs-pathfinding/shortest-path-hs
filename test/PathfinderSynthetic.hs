@@ -87,7 +87,7 @@ checkManhattanGeneratorProvenance = do
 
   checkOneEntry = do
     astar <- mustRight =<< buildTileAStarWithPolicy policy
-      (World (collisionMap componentTiles) Map.empty [] (Set.fromList [a, b, c, d]))
+      (withEmptySeparatorArtifact (World (collisionMap componentTiles) Map.empty [] (Set.fromList [a, b, c, d]) Nothing))
     heuristic <- prepareManhattan astar (walkingQuery d a)
     let cid = componentId astar a
     assert (steinerCount astar > 0)
@@ -108,7 +108,7 @@ checkManhattanGeneratorProvenance = do
           [ (a, [local "GENERATOR_LEFT" a target 1])
           , (d, [local "GENERATOR_RIGHT" d target 1])
           ]
-        world = World (collisionMap (target : componentTiles)) transports [] (Set.fromList [b, midpoint, c])
+        world = withEmptySeparatorArtifact (World (collisionMap (target : componentTiles)) transports [] (Set.fromList [b, midpoint, c]) Nothing)
         routeQuery = query a target (Set.fromList ["GENERATOR_LEFT", "GENERATOR_RIGHT"]) False
     astar <- mustRight =<< buildTileAStarWithPolicy policy world
     heuristic <- prepareManhattan astar routeQuery
@@ -171,7 +171,7 @@ checkMultiplePointAttachments = do
       dead = packTile 20 20 0
       bridge = local "SYNTHETIC_SHARED_POINT" point dead 1
       shared = local "SYNTHETIC_SHARED_POINT_2" point left 1
-      world = World (collisionMap [left, right]) (Map.singleton point [bridge, shared]) [] Set.empty
+      world = withEmptySeparatorArtifact (World (collisionMap [left, right]) (Map.singleton point [bridge, shared]) [] Set.empty Nothing)
       routeQuery = query left right (Set.singleton "SYNTHETIC_SHARED_POINT") False
   tileAStar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy left) world
   let reference = ReferenceDijkstra (tileTopology tileAStar)
@@ -260,7 +260,7 @@ mustRight = either (fail . show) pure
 
 synthetic :: (World, Tiles)
 synthetic =
-  ( World (CollisionMap (Map.singleton (1, 1) collisionBytes)) transports globals banks
+  ( withEmptySeparatorArtifact (World (CollisionMap (Map.singleton (1, 1) collisionBytes)) transports globals banks Nothing)
   , Tiles a0 a1 a3 a8 a25 b1 c0 d0 d1 e0 s0 s2 unknown xSite ySite
   )
  where

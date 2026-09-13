@@ -385,7 +385,7 @@ searchSpace (TileAStar topology static) start prepared =
       else preparedExtras
   extraComponents = Boxed.fromList
     [ if packed == startPacked && addStart
-        then Vector.fromList (structurallyReachablePointAttachments topology start)
+        then Vector.fromList (routingPointAttachments topology start)
         else preparedSearchExtraComponents prepared Boxed.! preparedIndex packed
     | packed <- Vector.toList extras
     ]

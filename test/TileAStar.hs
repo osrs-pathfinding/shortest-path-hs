@@ -45,7 +45,7 @@ checkTopologySemantics = do
         [ (point, [transport "SHARED_1" point zero, transport "SHARED_2" point a])
         , (a, [transport "A_TO_B" a b])
         ]
-      world = World (collisionMap [a, b, c]) transports [] Set.empty
+      world = withEmptySeparatorArtifact (World (collisionMap [a, b, c]) transports [] Set.empty Nothing)
       policy = StructuralReachabilityPolicy [a] Set.empty
   topology <- either (fail . show) pure =<< buildWorldTopologyWithPolicy policy world
   let components = topologyNaturalComponents topology
@@ -78,7 +78,7 @@ checkSeasonalReachability = do
   ordinaryTarget = packTile 100 100 0
   seasonalLocalTarget = packTile 200 200 0
   seasonalGlobalTarget = packTile 300 300 0
-  seasonalWorld = World
+  seasonalWorld = withEmptySeparatorArtifact (World
     (collisionMap [root, ordinaryTarget, seasonalLocalTarget, seasonalGlobalTarget])
     (Map.fromList
       [ (root, [transport "ORDINARY" root ordinaryTarget])
@@ -86,6 +86,7 @@ checkSeasonalReachability = do
       ])
     [globalTransport "SEASONAL_TRANSPORTS" seasonalGlobalTarget]
     Set.empty
+    Nothing)
   transport kind from to = Transport kind (Just from) (Just to) 1 kind "" False Nothing [] Nothing [] [] [] "synthetic"
   globalTransport kind to = Transport kind Nothing (Just to) 1 kind "" False Nothing [] Nothing [] [] [] "synthetic"
 

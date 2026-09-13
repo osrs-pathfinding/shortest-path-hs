@@ -36,6 +36,7 @@ library
     ShortestPath.Exact.TileAStar.Types
     ShortestPath.Pathfinder
     ShortestPath.Requirements
+    ShortestPath.Separator
     ShortestPath.Tile
     ShortestPath.Topology
     ShortestPath.Transport
@@ -242,4 +243,18 @@ test-suite tile-astar
     bytestring,
     containers,
     shortest-path-model
+  default-language: GHC2024
+
+test-suite separator-topology
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: SeparatorTopology.hs
+  hs-source-dirs: test
+  build-depends:
+    aeson,
+    base,
+    bytestring,
+    containers,
+    shortest-path-model,
+    vector
   default-language: GHC2024

@@ -10,14 +10,21 @@ import qualified Data.IntSet as IntSet
 import Data.List (intercalate, sort, sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Vector.Unboxed as Vector
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (getArgs, lookupEnv)
-import System.IO (IOMode(WriteMode), hPutStrLn, withFile)
+import System.IO (IOMode(WriteMode), hFlush, hPutStrLn, stdout, withFile)
 import System.Process (callProcess)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
 
 import ShortestPath.Tile
+import ShortestPath.Separator
+import ShortestPath.Topology
+  ( NaturalComponents(..), StructuralReachability(..), WorldTopology(..)
+  , naturalComponents, productionStructuralReachabilityPolicy
+  , walkingTopologyIdentity, withEmptySeparatorArtifact, worldTopologyFromComponents
+  )
 import ShortestPath.Transport
 import ShortestPath.Tsv
 import ShortestPath.World
@@ -45,6 +52,16 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
+    ["generate-artifact", output, maximumText, minimumText, maximumSeparatorText, imbalanceText, seedText]
+      | Just maximumSize <- readMaybe maximumText
+      , Just minimumSize <- readMaybe minimumText
+      , Just maximumSeparator <- readMaybe maximumSeparatorText
+      , Just imbalance <- readMaybe imbalanceText
+      , Just seed <- readMaybe seedText
+      , maximumSize >= 2 * minimumSize
+      , minimumSize > 0
+      , maximumSeparator >= 0
+      , imbalance >= 0 -> generateArtifact output (SeparatorConfig maximumSize minimumSize maximumSeparator imbalance "strong" seed)
     ["integrate"] -> integrate
     ["refine-kahip"] -> refineKahip refinedTargetSize refinedMinimumSize refinedMaximumCheapSeparator
     ["refine-kahip", targetText, minimumText]
@@ -60,7 +77,83 @@ main = do
       , minimumSize > 0
       , cheapSeparator >= 0 -> refineKahip target minimumSize cheapSeparator
     [] -> partition
-    _ -> putStrLn "usage: metis-partition [integrate | refine-kahip [maximum-size minimum-child [maximum-cheap-separator]]]"
+    _ -> putStrLn "usage: metis-partition generate-artifact OUTPUT MAXIMUM-SIZE MINIMUM-CHILD MAXIMUM-SEPARATOR IMBALANCE SEED | [integrate | refine-kahip [maximum-size minimum-child [maximum-cheap-separator]]]"
+
+generateArtifact :: FilePath -> SeparatorConfig -> IO ()
+generateArtifact output config = do
+  createDirectoryIfMissing True "out/kahip-separators"
+  world <- timed "load world without separators" loadConfiguredWorld
+  natural <- timed "authoritative natural walking components" (naturalComponents world)
+  let grouped = Map.toAscList (Map.fromListWith (<>)
+        [(cid, [packed]) | (packed, cid) <- zip (Vector.toList (componentOwnerTiles natural)) (Vector.toList (componentOwnerIds natural))])
+      baselineWorld = withEmptySeparatorArtifact world
+  baseline <- either (fail . show) pure (worldTopologyFromComponents productionStructuralReachabilityPolicy baselineWorld natural)
+  let reachable = structurallyReachableIds (topologyStructuralReachability baseline)
+      aboveThreshold = filter ((> separatorMaximumComponentSize config) . length . snd) grouped
+      selected = separatorCandidates (separatorMaximumComponentSize config) reachable grouped
+      totalTiles = sum (map (length . snd) selected)
+  putFlush ("natural_components_total=" <> show (length grouped))
+  putFlush ("structurally_reachable_components=" <> show (IntSet.size reachable))
+  putFlush ("components_above_size_threshold=" <> show (length aboveThreshold))
+  putFlush ("reachable_components_above_size_threshold=" <> show (length selected))
+  putFlush ("kahip_top_level_components_attempted=" <> show (length selected))
+  putFlush ("kahip_tiles_considered=" <> show totalTiles)
+  putFlush ("KaHIP top-level components: " <> intercalate ", " [show cid <> " (" <> show (length tiles) <> ")" | (cid, tiles) <- selected])
+  assignments <- fmap IntMap.unions (forM selected $ \(cid, tiles) -> do
+    putFlush ("partitioning natural component " <> show cid <> " (" <> show (length tiles) <> " tiles)")
+    partitionArtifactComponent world config cid "1" 0 tiles)
+  let cuts = Set.toAscList (Set.fromList
+        [ canonicalCut (Tile from) to
+        | (from, fromRegion) <- IntMap.toAscList assignments
+        , to <- walkingNeighborsRaw world (Tile from)
+        , from < unTile to
+        , Just toRegion <- [IntMap.lookup (unTile to) assignments]
+        , fromRegion /= toRegion
+        ])
+      artifact = SeparatorArtifact separatorArtifactVersion (walkingTopologyIdentity world) config cuts
+  BL.writeFile output (encode artifact)
+  BL.writeFile (output <> ".diagnostics.json") (encode (object
+    [ "natural_components_total" .= length grouped
+    , "structurally_reachable_components" .= IntSet.size reachable
+    , "components_above_size_threshold" .= length aboveThreshold
+    , "reachable_components_above_size_threshold" .= length selected
+    , "kahip_top_level_components_attempted" .= length selected
+    , "kahip_tiles_considered" .= totalTiles
+    , "top_level_components" .= [object ["component_id" .= cid, "tile_count" .= length tiles] | (cid, tiles) <- selected]
+    ]))
+  putStrLn ("wrote " <> output <> " with " <> show (length cuts) <> " cut walking edges and generation diagnostics")
+
+partitionArtifactComponent :: World -> SeparatorConfig -> Int -> String -> Int -> [Int] -> IO (IntMap.IntMap String)
+partitionArtifactComponent world config cid label level tiles
+  | length tiles <= separatorMaximumComponentSize config = pure (owned ("leaf-" <> show cid <> "-" <> label) tiles)
+  | length tiles < 2 * separatorMinimumChildSize config = reject "cannot meet minimum child size"
+  | otherwise = do
+      let stem = "out/kahip-separators/component-" <> show cid <> "-" <> label
+          graph = stem <> ".graph"
+          result = stem <> ".separator"
+      writeGraph world tiles graph
+      callProcess "node_separator"
+        [ graph
+        , "--output_filename=" <> result
+        , "--seed=" <> show (separatorRandomSeed config)
+        , "--imbalance=" <> show (separatorImbalance config)
+        , "--preconfiguration=" <> separatorPreconfiguration config
+        ]
+      parts <- readParts result (length tiles) [0, 1, 2]
+      let a = [tile | (tile, 0) <- zip tiles parts]
+          b = [tile | (tile, 1) <- zip tiles parts]
+          separator = [tile | (tile, 2) <- zip tiles parts]
+      case separatorRejection config (length a) (length b) (length separator) of
+        Just reason -> reject reason
+        Nothing -> do
+          left <- partitionArtifactComponent world config cid (label <> "a") (level + 1) a
+          right <- partitionArtifactComponent world config cid (label <> "b") (level + 1) b
+          pure (IntMap.unions [owned ("separator-" <> show cid <> "-" <> label <> "-" <> show level) separator, left, right])
+ where
+  owned region = IntMap.fromList . map (, region)
+  reject reason = do
+    putFlush ("reject component " <> show cid <> " region " <> label <> " (" <> show (length tiles) <> " tiles): " <> reason)
+    pure (owned ("leaf-" <> show cid <> "-" <> label) tiles)
 
 partition :: IO ()
 partition = do
@@ -147,7 +240,7 @@ loadPartitionInputs = do
 loadConfiguredWorld :: IO World
 loadConfiguredWorld = do
   paths <- configuredSourcePaths
-  world <- loadWorld paths
+  world <- loadWorldWithoutSeparators paths
   doorFile <- lookupEnv "DOOR_TRANSPORTS_TSV"
   doors <- maybe (pure []) (\path -> map (doorTransport path) <$> readRows path) doorFile
   dropDitch <- envFlag "DROP_WILDERNESS_DITCH"
@@ -676,4 +769,4 @@ timed :: String -> IO a -> IO a
 timed label action = putFlush ("start: " <> label) >> action >>= \result -> putFlush ("done: " <> label) >> pure result
 
 putFlush :: String -> IO ()
-putFlush = putStrLn
+putFlush message = putStrLn message >> hFlush stdout

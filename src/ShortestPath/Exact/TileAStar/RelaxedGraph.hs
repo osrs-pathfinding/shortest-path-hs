@@ -43,8 +43,8 @@ siteGraph (TileAStar topology _) account target
   base = compiledSiteGraph account
   targetNode = Vector.length (siteTiles base)
   tiles = Vector.snoc (siteTiles base) (unTile target)
-  comps = Boxed.snoc (siteComponents base) (Vector.fromList (structurallyReachablePointAttachments topology target))
-  components = topologyNaturalComponents topology
+  comps = Boxed.snoc (siteComponents base) (Vector.fromList (routingPointAttachments topology target))
+  components = topologyRoutingComponents topology
 
 compileRoutingAccount :: TileAStar -> RoutingOptions -> CompiledRoutingAccount
 compileRoutingAccount astar@(TileAStar topology _) options = account
@@ -53,7 +53,7 @@ compileRoutingAccount astar@(TileAStar topology _) options = account
 
 -- | Account-specific relaxed graph. Target sites are appended by 'siteGraph'.
 accountSiteGraph :: TileAStar -> CompiledRoutingAccount -> SiteGraph
-accountSiteGraph (TileAStar _ static) account =
+accountSiteGraph (TileAStar topology static) account =
   SiteGraph tiles tileIndex comps staticCount (staticWalkingNetwork static) componentSites reverseEdges
  where
   staticCount = Vector.length (staticTiles static)
@@ -62,7 +62,7 @@ accountSiteGraph (TileAStar _ static) account =
   comps = staticComponents static
   componentSites = staticSiteComponentIds static
   nodeCount = Vector.length tiles
-  reverseEdges = reverseAdjacency (nodeCount * 2) (localEdges <> bankEdges <> bankGlobalEdges)
+  reverseEdges = reverseAdjacency (nodeCount * 2) (localEdges <> bankEdges <> bankGlobalEdges <> crossingEdges)
   reachableBanks = staticReachableBanks static
 
   localEdges =
@@ -95,6 +95,15 @@ accountSiteGraph (TileAStar _ static) account =
     , Just destinationTile <- [destination t]
     , let stepCost = duration t + Map.findWithDefault 0 (transportType t) (compiledTransportPenalties account)
     , Just to <- [nodeFor destinationTile]
+    ]
+
+  crossingEdges =
+    [ (stateId from banked, stateId to banked, crossingCost edge)
+    | edge <- topologySeparatorCrossings topology
+    , (fromTile, toTile) <- [(crossingFromTile edge, crossingToTile edge), (crossingToTile edge, crossingFromTile edge)]
+    , banked <- [False, True]
+    , Just from <- [nodeFor fromTile]
+    , Just to <- [nodeFor toTile]
     ]
 
   nodeFor tile = IntMap.lookup (unTile tile) tileIndex

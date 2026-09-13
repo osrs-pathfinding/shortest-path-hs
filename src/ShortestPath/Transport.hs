@@ -48,6 +48,7 @@ data SourcePaths = SourcePaths
   { resourcesDir :: FilePath
   , collisionZip :: FilePath
   , bankFile :: FilePath
+  , separatorFile :: FilePath
   }
   deriving stock (Eq, Ord, Show)
 
@@ -57,6 +58,7 @@ defaultSourcePaths =
     { resourcesDir = "/home/matt/shortest-path/src/main/resources"
     , collisionZip = "/home/matt/shortest-path/src/main/resources/collision-map.zip"
     , bankFile = "/home/matt/shortest-path/src/main/resources/destinations/game_features/bank.tsv"
+    , separatorFile = "/home/matt/shortest-path/src/main/resources/routing-separators-v1.json"
     }
 
 transportTypes :: [TransportType]

@@ -86,7 +86,7 @@ preparedTarget :: TileAStar -> Tile -> Heuristic -> PreparedTarget
 preparedTarget (TileAStar topology static) target heuristic =
   PreparedTarget target attachments site extras extraComponents extraSites heuristic
  where
-  attachments = Vector.fromList (structurallyReachablePointAttachments topology target)
+  attachments = Vector.fromList (routingPointAttachments topology target)
   site = IntMap.findWithDefault (-1) (unTile target) (heuristicSiteIndex heuristic)
   extras = Vector.fromList
     [ packed
@@ -188,7 +188,7 @@ forceTileAStar astar@(TileAStar topology static) = do
     )
   pure astar
  where
-  components = topologyNaturalComponents topology
+  components = topologyRoutingComponents topology
 
 findRouteProfiledTileAStar :: TileAStar -> Query -> IO (Route, TileAStarTimings)
 findRouteProfiledTileAStar = findRouteProfiledTileAStarWithConfig defaultTileAStarConfig

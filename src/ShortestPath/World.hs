@@ -7,6 +7,7 @@ module ShortestPath.World
   , isWalkable
   , isVirtualWallTile
   , loadWorld
+  , loadWorldWithoutSeparators
   , ordinaryWalkingMask
   , ordinaryWalkingNeighborsFromMask
   , virtualWalls
@@ -15,13 +16,16 @@ module ShortestPath.World
   ) where
 
 import Codec.Archive.Zip
+import Data.Aeson (eitherDecodeFileStrict')
 import Data.Bits ((.&.), Bits(setBit, testBit))
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Word (Word8)
+import System.Directory (doesFileExist)
 
 import ShortestPath.Tile
+import ShortestPath.Separator
 import ShortestPath.Transport
 
 data World = World
@@ -29,6 +33,7 @@ data World = World
   , worldTransports :: Map.Map Tile [Transport]
   , worldGlobalTeleports :: [Transport]
   , worldBanks :: Set.Set Tile
+  , worldSeparatorArtifact :: Maybe SeparatorArtifact
   }
   deriving stock (Show)
 
@@ -57,6 +62,14 @@ virtualWalls =
 
 loadWorld :: SourcePaths -> IO World
 loadWorld paths = do
+  world <- loadWorldWithoutSeparators paths
+  exists <- doesFileExist (separatorFile paths)
+  if exists then pure () else fail ("required routing separator artifact is missing: " <> separatorFile paths)
+  artifact <- either fail pure =<< eitherDecodeFileStrict' (separatorFile paths)
+  pure world {worldSeparatorArtifact = Just artifact}
+
+loadWorldWithoutSeparators :: SourcePaths -> IO World
+loadWorldWithoutSeparators paths = do
   collision <- loadCollision (collisionZip paths)
   transports <- loadTransports paths
   banks <- Set.fromList <$> loadBanks paths
@@ -68,6 +81,7 @@ loadWorld paths = do
       , worldTransports = Map.fromListWith (<>) [(o, [t]) | t <- locals <> walls, Just o <- [origin t]]
       , worldGlobalTeleports = globals
       , worldBanks = banks
+      , worldSeparatorArtifact = Nothing
       }
 
 walkingNeighbors :: World -> Tile -> [Tile]

@@ -63,7 +63,7 @@ reversePathDebug astar q =
     exact = [(node, distances Vector.! stateId node banked, 0) | Just node <- [IntMap.lookup (unTile source) (siteTileIndex graph)]]
     attached =
       [ (node, total, walking)
-      | cid <- structurallyReachablePointAttachments topology source
+      | cid <- routingPointAttachments topology source
       , node <- Vector.toList (siteComponentSiteIds graph Boxed.! cid)
       , let walking = chebyshevPacked (unTile source) (siteTiles graph Vector.! node)
             total = addCostDefault maxBound walking (distances Vector.! stateId node banked)
@@ -157,10 +157,10 @@ reversePathDebug astar q =
       , Just (dst, stepCost, _) <- [preparedTransport q t]
       , Just to <- [IntMap.lookup (unTile dst) (siteTileIndex graph)]
       ]
-  reachableBanks = Set.filter (not . null . structurallyReachablePointAttachments topology) (worldBanks world)
+  reachableBanks = Set.filter (not . null . routingPointAttachments topology) (worldBanks world)
   topology = tileTopology astar
   world = topologyWorld topology
-  components = topologyNaturalComponents topology
+  components = topologyRoutingComponents topology
 
 data DebugEdge = DebugEdge
   { debugEdgeToState :: !Int
@@ -186,7 +186,7 @@ renderHeuristicTilesWithTransform useCTransform astar q outputRoot urlRoot = do
   layers <- concat <$> mapM (renderPreparedLayers minimumValue maximumValue) prepared
   pure (HeuristicRender imageTileSize layers)
  where
-  components = topologyNaturalComponents (tileTopology astar)
+  components = topologyRoutingComponents (tileTopology astar)
   groups = componentTileGroups components
   transform useC box seeds =
     (if useC then chebyshevTransformC else chebyshevTransform) box seeds
@@ -275,7 +275,7 @@ renderComponentTiles astar outputRoot urlRoot = do
     pure (HeuristicLayer key title False (minimumDefault 0 values) (maximumDefault 0 values) 0 0 writeMs [] tiles)
   topology = tileTopology astar
   world = topologyWorld topology
-  components = topologyNaturalComponents topology
+  components = topologyRoutingComponents topology
 
 layerPoints :: (Box -> [(Tile, Int)] -> Vector.Vector Int) -> Boxed.Vector (Vector.Vector Int) -> Heuristic -> Bool -> [(Int, Int)]
 layerPoints transform groups heuristic banked =

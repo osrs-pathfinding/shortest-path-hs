@@ -51,18 +51,19 @@ buildTileStatic topology =
   northNodes = Vector.map (nodeAt . (+ 32768)) searchTiles
   southNodes = Vector.map (nodeAt . subtract 32768) searchTiles
   nodeAt packed = fromIntegral (fromMaybe (-1) (binarySearch packed searchTiles)) :: Int32
-  sites = Set.toAscList (Set.fromList (staticEndpoints <> Set.toList reachableBanks))
-  reachableBanks = Set.filter (not . null . structurallyReachablePointAttachments topology) (worldBanks world)
+  sites = Set.toAscList (Set.fromList (staticEndpoints <> crossingEndpoints <> Set.toList reachableBanks))
+  reachableBanks = Set.filter (not . null . routingPointAttachments topology) (worldBanks world)
   staticEndpoints =
     [ tile
     | t <- concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
     , Just tile <- [origin t] <> [destination t]
     ]
+  crossingEndpoints = [tile | edge <- topologySeparatorCrossings topology, tile <- [crossingFromTile edge, crossingToTile edge]]
   tiles = Vector.fromList (map unTile sites)
-  comps = Boxed.fromList [Vector.fromList (structurallyReachablePointAttachments topology (Tile packed)) | packed <- Vector.toList tiles]
+  comps = Boxed.fromList [Vector.fromList (routingPointAttachments topology (Tile packed)) | packed <- Vector.toList tiles]
   siteIndex = IntMap.fromList [(packed, ix) | (ix, packed) <- Vector.toList (Vector.indexed tiles)]
   componentSites = siteComponentGroups (maxComponentId components) comps
   network = buildSparseWalkingNetworkComponents (Vector.length tiles)
     [(cid, ix, Tile packed) | (ix, packed) <- Vector.toList (Vector.indexed tiles), cid <- Vector.toList (comps Boxed.! ix)]
   world = topologyWorld topology
-  components = topologyNaturalComponents topology
+  components = topologyRoutingComponents topology

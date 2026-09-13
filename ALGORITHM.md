@@ -45,10 +45,24 @@ solver into a generic graph framework.
 
 * `NaturalComponents` assigns every ordinary walkable tile a stable component
   ID derived only from walking connectivity.
+* `topologyRoutingComponents` applies the distributed offline separator cuts
+  while flood-filling the same walking graph. With no cuts it is identical to
+  the natural decomposition; a cut adjacency becomes a bidirectional cost-1
+  `RoutingCrossing`, so no walking edge is removed.
 * `pointAttachments` maps any routing-relevant point to zero, one, or multiple
   natural components using the real endpoint-access semantics.
 * `StructuralReachability` is a separate set over those stable IDs. Production
   reachability uses the explicit Lumbridge seed and rejects a missing seed.
+
+Sparse Manhattan networks, reverse candidate grouping, and forward heuristic
+lookup use routing-component IDs. Structural reachability and endpoint access
+remain defined in terms of natural components.
+
+Offline KaHIP generation considers only structurally reachable natural
+components above its configured size threshold. That threshold only triggers
+a separator attempt. A proposed split is discarded, leaving the branch whole,
+when a child is too small or the separator exceeds the configured interface
+limit.
 
 Account-specific transport availability and benchmark eligibility are higher
 layers; neither changes natural-component identity. `world-facts` reads this

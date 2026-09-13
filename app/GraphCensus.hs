@@ -146,7 +146,7 @@ syntheticSmoke = do
         , transport (packTile 71 1 0) (packTile 0 70 0) "ladder"
         , transport (packTile 70 71 0) (packTile 0 0 0) "teleport"
         ]
-      world = World (CollisionMap Map.empty) (Map.fromListWith (<>) [(o, [t]) | t <- ts, Just o <- [origin t]]) [] (Set.singleton (packTile 0 0 0))
+      world = World (CollisionMap Map.empty) (Map.fromListWith (<>) [(o, [t]) | t <- ts, Just o <- [origin t]]) [] (Set.singleton (packTile 0 0 0)) Nothing
   (components, tileComp) <- componentsOf (\n -> Map.findWithDefault [] n neighborMap) tiles
   let graphEdges = lines (componentGraphCsvRaw (IntSet.fromList (map compId components)) tileComp (allTransports world))
   if length components == 4 && sort (map compSize components) == [4,4,4,4] && length graphEdges == 4

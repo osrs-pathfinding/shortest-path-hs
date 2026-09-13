@@ -12,11 +12,33 @@ Generate the disposable DuckDB inspector database from the authoritative Haskell
 nix-shell --run 'cabal run world-facts'
 ```
 
-This writes `data/world-facts.duckdb`, containing `metadata`, `components`,
-`tiles`, `point_access`, `places`, and the derived `place_facts` view. One point
+This writes `data/world-facts.duckdb`, containing `metadata`, natural `components`,
+`routing_components`, `separator_crossings`, `tiles`, `point_access`, `places`,
+and the derived `place_facts` view. One point
 may have zero, one, or several `point_access` rows/components; these attachments
 and structural-reachability flags come directly from `ShortestPath.Topology`.
 Query it directly with `duckdb data/world-facts.duckdb`.
+
+## Offline routing separators
+
+The distributed `routing-separators-v1.json` is generated offline with KaHIP:
+
+```sh
+nix-shell --run 'cabal run metis-partition -- generate-artifact /home/matt/shortest-path/src/main/resources/routing-separators-v1.json 20000 500 10 40 42'
+```
+
+Each KaHIP vertex is one collision-walkable tile. Each undirected graph edge is
+one legal adjacency returned by `walkingNeighborsRaw` whose other endpoint is
+in the same natural component. Oversized natural components are partitioned
+independently with `node_separator --preconfiguration=strong`; the portable
+JSON stores only canonical cut tile pairs, the walking-topology identity, the
+settings, and the format version. Only structurally reachable natural
+components above the size threshold are candidates. The threshold triggers an
+attempt rather than requiring a split: branches remain intact when either
+child is below 500 tiles or the separator exceeds 10 tiles. Generation metrics
+and the attempted component IDs/sizes are written beside the artifact as
+`.diagnostics.json`. Runtime never invokes KaHIP and rejects a missing,
+mismatched, or invalid artifact.
 
 ## Route benchmarks
 

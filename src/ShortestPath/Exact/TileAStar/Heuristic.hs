@@ -100,7 +100,7 @@ prepareHeuristic astar account target =
  where
   graph = siteGraph astar account target
   distances = reverseDijkstraUncounted graph (targetSeeds graph target)
-  components = topologyNaturalComponents (tileTopology astar)
+  components = topologyRoutingComponents (tileTopology astar)
 
 prepareHeuristicProfiled :: TileAStarConfig -> TileAStar -> CompiledRoutingAccount -> Tile -> IO Heuristic
 prepareHeuristicProfiled config astar account target = do
@@ -112,7 +112,7 @@ prepareHeuristicProfiled config astar account target = do
  where
   graph = siteGraph astar account target
   seeds = targetSeeds graph target
-  components = topologyNaturalComponents (tileTopology astar)
+  components = topologyRoutingComponents (tileTopology astar)
   reverseAction = case tileReverseImplementation config of
     CliqueReverse
       | tileCollectReverseCounters config ->
@@ -140,7 +140,7 @@ heuristicAt topology heuristic tile banked =
   heuristicAtResolved heuristic packed attachments site banked
  where
   packed = unTile tile
-  attachments = Vector.fromList (structurallyReachablePointAttachments topology tile)
+  attachments = Vector.fromList (routingPointAttachments topology tile)
   site = IntMap.findWithDefault (-1) packed (heuristicSiteIndex heuristic)
 
 heuristicAtComponent :: Heuristic -> Int -> Int -> Bool -> Maybe Int

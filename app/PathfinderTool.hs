@@ -121,7 +121,7 @@ writeComponentTransformReport astar = do
     (sum (map componentTransformArea rows))
     (sum (map componentTransformTiles rows))
  where
-  components = topologyNaturalComponents (tileTopology astar)
+  components = topologyRoutingComponents (tileTopology astar)
 
 writeTileStaticReport :: TileAStar -> IO ()
 writeTileStaticReport astar = do
@@ -665,7 +665,7 @@ filesBelow path = do
       pure (files <> nested)
 
 tileComponentCacheVersion :: Word64
-tileComponentCacheVersion = 12
+tileComponentCacheVersion = 13
 
 tileComponentCachePath, heuristicTileRoot, componentTileRoot :: FilePath
 tileComponentCachePath = "out/tile-astar-components.bin"
