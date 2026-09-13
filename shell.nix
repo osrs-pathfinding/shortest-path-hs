@@ -7,7 +7,7 @@ pkgs.mkShell {
     pkgs.nodejs
     pkgs.kahip
     pkgs.cabal-install
-    (pkgs.haskellPackages.ghcWithPackages (p: with p; [
+    (pkgs.haskell.packages.ghc914.ghcWithPackages (p: with p; [
       aeson
       hashable
       vector

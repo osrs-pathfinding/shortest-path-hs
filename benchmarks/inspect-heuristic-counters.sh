@@ -34,10 +34,38 @@ node - "$output_dir/result.jsonl" <<'JS'
 const fs = require("fs");
 const rows = fs.readFileSync(process.argv[2], "utf8").trim().split("\n");
 if (rows.length !== 1) throw new Error(`expected one benchmark row, got ${rows.length}`);
-const t = JSON.parse(rows[0]).timings;
+const result = JSON.parse(rows[0]);
+const t = result.timings;
 console.log(JSON.stringify({
+  route_id: result.routeId,
+  route_name: result.routeName,
+  account_profile: result.accountProfile,
+  reachable: result.reachable,
+  correct: result.correct,
+  path_cost: result.cost,
+  expected_cost: result.expectedCost,
+  total_ms: t.totalMs,
+  forward_search_ms: t.forwardSearchMs,
+  account_prepare_ms: t.accountPrepareMs,
   heuristic_prepare_ms: t.targetPrepareMs,
+  heuristic_setup_ms: t.setupMs,
   reverse_search_ms: t.reverseDijkstraMs,
+  seed_table_ms: t.seedTableMs,
+  forward_allocated_bytes: t.forwardAllocatedBytes,
+  forward_ns_per_state: t.forwardNsPerState,
+  forward_allocated_bytes_per_state: t.forwardAllocatedBytesPerState,
+  states_popped: t.statesPopped,
+  unique_states_reached: t.uniqueStatesReached,
+  pq_pushes: t.pqPushes,
+  stale_entries: t.staleEntries,
+  walking_relaxations: t.walkingRelaxations,
+  transport_relaxations: t.transportRelaxations,
+  heuristic_evaluations: t.heuristicEvaluations,
+  unreachable_prunes: t.unreachablePrunes,
+  unknown_component_prunes: t.unknownComponentPrunes,
+  no_reverse_seed_prunes: t.noReverseSeedPrunes,
+  best_bank_updates: t.bestBankUpdates,
+  final_best_bank_cost: t.finalBestBankCost,
   reverse_states_settled: t.reverseStatesSettled,
   reverse_edges_relaxed: t.reverseEdgesRelaxed,
   reverse_pq_pushes: t.reversePqPushes,
