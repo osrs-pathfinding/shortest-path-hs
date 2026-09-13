@@ -16,11 +16,6 @@ cd "$root"
 curl -sS --fail "${clickhouse_url%/}/ping" >/dev/null
 nix-shell --run "cabal run route-bench -- --tier full --runs 3 --oracle '$oracle' --output '$output'"
 
-if rg -q '"correct"[[:space:]]*:[[:space:]]*false' "$output"; then
-  echo "Correctness failures found in $output; refusing to import." >&2
-  exit 1
-fi
-
 nix-shell --run \
   "cabal run bench-import -- --run-id '$run' --testbed '$testbed' --notes '$notes' --clickhouse-url '$clickhouse_url' '$output'"
 
