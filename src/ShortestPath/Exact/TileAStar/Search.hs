@@ -94,7 +94,7 @@ search trace astar@(TileAStar topology static) account prepared start options = 
     | compiledAllowTransports account
     , t <- preparedGlobalTransports availability False
     , Just dst <- [destination t]
-    , let next = stateForPacked (unTile dst) False
+    , let !next = stateForPacked (unTile dst) False
     , next >= 0
     ]
 
@@ -192,14 +192,15 @@ search trace astar@(TileAStar topology static) account prepared start options = 
     (x, y, p) = unpackTile tile
     dominatedBankGlobal = not banked && Set.member tile reachableBanks && cost > bestBank
     relaxWalk nextTile =
-      let next = stateForPacked (unTile nextTile) banked
+      let !next = stateForPacked (unTile nextTile) banked
        in when (next >= 0) (relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state next 1 "" walkingEdge)
     relaxNode nextNode =
-      relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state (stateId nextNode banked) 1 "" walkingEdge
+      let !sid = stateId nextNode banked
+      in relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state sid 1 "" walkingEdge
     relaxTransport nextBanked transport =
       case destination transport of
         Just dst ->
-          let next = stateForPacked (unTile dst) nextBanked
+          let !next = stateForPacked (unTile dst) nextBanked
               stepCost = transportCost transport
            in when (next >= 0) (relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state next stepCost (transportLabel transport) transportEdge)
         Nothing -> pure ()
