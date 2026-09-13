@@ -144,13 +144,14 @@ checkInstrumentation :: TileAStar -> Tiles -> IO ()
 checkInstrumentation tileAStar tiles = do
   let routeQuery = walkingQuery (tA0 tiles) (tA1 tiles)
   (_, timings) <- findRouteProfiledTileAStar tileAStar routeQuery
+  (_, cliqueTimings) <- findRouteProfiledTileAStarWithConfig
+    (TileAStarConfig CliqueReverse False True) tileAStar routeQuery
   (_, sparseTimings) <- findRouteProfiledTileAStarWithConfig
     (TileAStarConfig SparseWalkingReverse True True) tileAStar routeQuery
-  (_, sparseUncountedTimings) <- findRouteProfiledTileAStarWithConfig
-    (TileAStarConfig SparseWalkingReverse True False) tileAStar routeQuery
   let forward = tileSearchCounters timings
-      reverseCounters = tileReverseCounters timings
-  assert ((tileHeuristicCalls forward, tileHeuristicCandidatesScanned forward, tileHeuristicMaxCandidatesPerCall forward) == (5, 20, 4))
+      reverseCounters = tileReverseCounters cliqueTimings
+  let forwardScans = (tileHeuristicCalls forward, tileHeuristicCandidatesScanned forward, tileHeuristicMaxCandidatesPerCall forward)
+  assertMsg ("default heuristic scan counters: " <> show forwardScans) (forwardScans == (5, 5, 1))
   assert ((reverseStatesPopped reverseCounters, reverseEdgesRelaxed reverseCounters, reversePqPushes reverseCounters,
     reverseStalePqEntries reverseCounters, reversePqMaxSize reverseCounters) == (8, 24, 8, 0, 6))
   assert ((tileHeuristicSeedCount timings, tileHeuristicComponentCount timings, tileHeuristicMaxSeedsPerComponent timings) == (8, 1, 8))
@@ -159,8 +160,8 @@ checkInstrumentation tileAStar tiles = do
   let sparseReverse = tileReverseCounters sparseTimings
   assert ((reverseStatesPopped sparseReverse, reverseEdgesRelaxed sparseReverse, reversePqPushes sparseReverse,
     reverseStalePqEntries sparseReverse, reversePqMaxSize sparseReverse) == (24, 52, 26, 2, 6))
-  assert (tileReverseCounters sparseUncountedTimings == TileReverseCounters 0 0 0 0 0 0 0 0 0 0 0)
-  assert (tileHeuristicGeneratorCount sparseUncountedTimings == tileHeuristicGeneratorCount sparseTimings)
+  assert (tileReverseCounters timings == TileReverseCounters 0 0 0 0 0 0 0 0 0 0 0)
+  assert (tileHeuristicGeneratorCount timings == tileHeuristicGeneratorCount sparseTimings)
 
 checkMultiplePointAttachments :: IO ()
 checkMultiplePointAttachments = do

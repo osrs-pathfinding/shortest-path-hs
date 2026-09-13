@@ -11,7 +11,7 @@ tileAStarConfigFromEnvironment :: IO TileAStarConfig
 tileAStarConfigFromEnvironment = do
   implementation <- lookupEnv "SPM_TILE_REVERSE_IMPL" >>= parseImplementation
   compareReverse <- enabled False "SPM_TILE_COMPARE_REVERSE"
-  counters <- enabled True "SPM_TILE_REVERSE_COUNTERS"
+  counters <- enabled False "SPM_TILE_REVERSE_COUNTERS"
   pure TileAStarConfig
     { tileReverseImplementation = implementation
     , tileCompareReverseImplementations = compareReverse
@@ -26,7 +26,7 @@ tileUseCTransformFromEnvironment = lookupEnv "SPM_HEURISTIC_TRANSFORM" >>= \case
   Just value -> fail ("SPM_HEURISTIC_TRANSFORM must be haskell or c, got " <> show value)
 
 parseImplementation :: Maybe String -> IO ReverseImplementation
-parseImplementation Nothing = pure CliqueReverse
+parseImplementation Nothing = pure SparseWalkingReverse
 parseImplementation (Just "clique") = pure CliqueReverse
 parseImplementation (Just "manhattan") = pure SparseWalkingReverse
 parseImplementation (Just value) = fail ("SPM_TILE_REVERSE_IMPL must be clique or manhattan, got " <> show value)

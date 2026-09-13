@@ -52,7 +52,7 @@ data TileAStarConfig = TileAStarConfig
   deriving stock (Eq, Show)
 
 defaultTileAStarConfig :: TileAStarConfig
-defaultTileAStarConfig = TileAStarConfig CliqueReverse False True
+defaultTileAStarConfig = TileAStarConfig SparseWalkingReverse False False
 
 data Heuristic = Heuristic
   { heuristicSeeds :: Boxed.Vector (Vector.Vector (Int, Int))
