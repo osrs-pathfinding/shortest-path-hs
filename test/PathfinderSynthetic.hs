@@ -14,6 +14,7 @@ import ShortestPath.Exact.TileAStar.Heuristic
   ( Heuristic(..), heuristicAt, heuristicAtComponent, heuristicAtGeneratorsComponent
   , heuristicAtResolved, prepareHeuristic, prepareHeuristicProfiled, seedKey
   )
+import ShortestPath.Exact.TileAStar.HeuristicScan
 import ShortestPath.Exact.TileAStar.RelaxedGraph (chebyshevPacked)
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Exact.ReferenceDijkstra
@@ -48,6 +49,27 @@ main = do
   checkInstrumentation tileAStar tiles
   checkMultiplePointAttachments
   checkManhattanGeneratorProvenance
+  checkGeneratorScanKernel
+
+checkGeneratorScanKernel :: IO ()
+checkGeneratorScanKernel = do
+  mapM_ checkSize [0, 1, 2, 3, 4, 5, 7, 8, 15, 16, 31, 32, 612]
+  let overflow = generatorScanFromVector (Vector.singleton (unTile (packTile 0 0 0), maxBound - 1))
+  assertMsg "SIMD overflow fallback" (scanGeneratorsSimd overflow 2 2 == maxBound)
+ where
+  queries = [(0, 0), (100, 200), (32767, 32767), (12345, 23456)]
+  checkSize size = do
+    let generators = Vector.generate size $ \ix ->
+          ( unTile (packTile ((ix * 101) `mod` 32768) ((ix * 211) `mod` 32768) 0)
+          , (ix * 17) `mod` 100000
+          )
+        bucket = generatorScanFromVector generators
+    mapM_ (checkQuery bucket) queries
+  checkQuery bucket (x, y) = do
+    let expected = scanGeneratorsScalar bucket x y
+        context = "generator scan size=" <> show (generatorScanLength bucket) <> " query=" <> show (x, y)
+    assertMsg ("SIMD mismatch: " <> context) (scanGeneratorsSimd bucket x y == expected)
+    assertMsg ("selected mismatch: " <> context) (scanGenerators bucket x y == expected)
 
 checkManhattanGeneratorProvenance :: IO ()
 checkManhattanGeneratorProvenance = do
@@ -124,6 +146,8 @@ checkInstrumentation tileAStar tiles = do
   (_, timings) <- findRouteProfiledTileAStar tileAStar routeQuery
   (_, sparseTimings) <- findRouteProfiledTileAStarWithConfig
     (TileAStarConfig SparseWalkingReverse True True) tileAStar routeQuery
+  (_, sparseUncountedTimings) <- findRouteProfiledTileAStarWithConfig
+    (TileAStarConfig SparseWalkingReverse True False) tileAStar routeQuery
   let forward = tileSearchCounters timings
       reverseCounters = tileReverseCounters timings
   assert ((tileHeuristicCalls forward, tileHeuristicCandidatesScanned forward, tileHeuristicMaxCandidatesPerCall forward) == (5, 20, 4))
@@ -135,6 +159,8 @@ checkInstrumentation tileAStar tiles = do
   let sparseReverse = tileReverseCounters sparseTimings
   assert ((reverseStatesPopped sparseReverse, reverseEdgesRelaxed sparseReverse, reversePqPushes sparseReverse,
     reverseStalePqEntries sparseReverse, reversePqMaxSize sparseReverse) == (24, 52, 26, 2, 6))
+  assert (tileReverseCounters sparseUncountedTimings == TileReverseCounters 0 0 0 0 0 0 0 0 0 0 0)
+  assert (tileHeuristicGeneratorCount sparseUncountedTimings == tileHeuristicGeneratorCount sparseTimings)
 
 checkMultiplePointAttachments :: IO ()
 checkMultiplePointAttachments = do

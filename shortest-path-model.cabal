@@ -8,7 +8,7 @@ common warnings
 
 library
   import: warnings
-  ghc-options: -fexpose-all-unfoldings
+  ghc-options: -fexpose-all-unfoldings -msse4.2
   exposed-modules:
     ShortestPath.Account
     ShortestPath.AccountSemantics
@@ -26,6 +26,7 @@ library
     ShortestPath.Exact.TileAStar.Configuration
     ShortestPath.Exact.TileAStar.Debug
     ShortestPath.Exact.TileAStar.Heuristic
+    ShortestPath.Exact.TileAStar.HeuristicScan
     ShortestPath.Exact.TileAStar.Preprocessing
     ShortestPath.Exact.TileAStar.Reconstruct
     ShortestPath.Exact.TileAStar.RelaxedGraph
@@ -44,13 +45,14 @@ library
   c-sources:
     csrc/tile_astar_render.c
   build-depends:
-    base >=4.20 && <4.21,
+    base >=4.20 && <5,
     aeson,
     binary,
     bytestring,
     containers,
     directory,
     filepath,
+    ghc-internal,
     text,
     time,
     vector,
@@ -160,6 +162,16 @@ executable route-bench
     shortest-path-model,
     text,
     time
+
+executable heuristic-scan-bench
+  import: warnings
+  main-is: HeuristicScanBench.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    shortest-path-model,
+    vector
+  default-language: GHC2024
 
 executable bench-import
   import: warnings

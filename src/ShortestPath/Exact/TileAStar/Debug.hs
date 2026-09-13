@@ -27,6 +27,7 @@ import System.FilePath ((</>))
 import Text.Printf (printf)
 
 import ShortestPath.Exact.TileAStar.Heuristic
+import ShortestPath.Exact.TileAStar.HeuristicScan (forceGeneratorScan)
 import ShortestPath.Exact.TileAStar.Preprocessing
 import ShortestPath.Exact.TileAStar.RelaxedGraph
 import ShortestPath.Exact.TileAStar.ReverseSearch
@@ -412,6 +413,7 @@ forceHeuristic :: Heuristic -> IO Int
 forceHeuristic heuristic =
   evaluate
     ( Boxed.foldl' (\total seeds -> total + Vector.length seeds) 0 (heuristicSeeds heuristic)
+        + Boxed.foldl' (\total scan -> total + forceGeneratorScan scan) 0 (heuristicGeneratorScans heuristic)
         + round (heuristicReverseMilliseconds heuristic)
         + round (heuristicSeedTableMilliseconds heuristic)
         + reverseStatesPopped (heuristicReverseCounters heuristic)

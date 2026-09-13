@@ -274,8 +274,104 @@ reverseDijkstraManhattan graph seeds = runST $ do
       other = componentSites Vector.! ix
       otherTile = siteTiles graph Vector.! other
 
-reverseDijkstraManhattanUncounted :: SiteGraph -> [(Int, Int)] -> Vector.Vector Int
-reverseDijkstraManhattanUncounted graph seeds = manhattanDistances (fst (reverseDijkstraManhattan graph seeds))
+reverseDijkstraManhattanUncounted :: SiteGraph -> [(Int, Int)] -> ManhattanReverseResult
+reverseDijkstraManhattanUncounted graph seeds = runST $ do
+  result <- Mutable.replicate stateCount maxBound
+  generatorOrigins <- Mutable.replicate stateCount (-1)
+  generatorWeights <- Mutable.replicate stateCount maxBound
+  queue <- heapNew (max 262144 (stateCount * 16))
+  forM_ seeds (seed result generatorOrigins generatorWeights queue)
+  let searchReverse = do
+        popped <- heapPop queue
+        case popped of
+          Nothing -> do
+            distances <- Vector.freeze result
+            origins <- Vector.freeze generatorOrigins
+            weights <- Vector.freeze generatorWeights
+            pure (ManhattanReverseResult distances origins weights)
+          Just (_, node, cost) -> do
+            known <- Mutable.read result node
+            if cost /= known
+              then searchReverse
+              else do
+                relaxWalking result generatorOrigins generatorWeights queue cost node
+                when (node `div` 2 < siteCount) $
+                  Vector.forM_ (siteReverseEdges graph Boxed.! node)
+                    (relax result generatorOrigins generatorWeights queue cost node True . doubleEdge)
+                searchReverse
+  searchReverse
+ where
+  siteCount = Vector.length (siteTiles graph)
+  staticCount = siteStaticCount graph
+  network = siteSparseNetwork graph
+  stateCount = (siteCount + sparseSteinerCount network) * 2
+  seed :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> (Int, Int) -> ST s ()
+  seed result generatorOrigins generatorWeights queue (node, cost) = do
+    Mutable.write result node (cost * 2)
+    Mutable.write generatorOrigins node node
+    Mutable.write generatorWeights node (cost * 2)
+    heapPush queue (cost * 2) node (cost * 2)
+  doubleEdge (next, edgeCost) = (next, edgeCost * 2)
+  relax :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> Bool -> (Int, Int) -> ST s ()
+  relax result generatorOrigins generatorWeights queue cost from externalEdge (next, edgeCost) =
+    case addCost cost edgeCost of
+      Nothing -> pure ()
+      Just newCost -> do
+        known <- Mutable.read result next
+        when (newCost < known) $ do
+          Mutable.write result next newCost
+          if externalEdge
+            then Mutable.write generatorOrigins next next >> Mutable.write generatorWeights next newCost
+            else do
+              origin <- Mutable.read generatorOrigins from
+              weight <- Mutable.read generatorWeights from
+              Mutable.write generatorOrigins next origin
+              Mutable.write generatorWeights next weight
+          heapPush queue newCost next newCost
+  relaxWalking :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> ST s ()
+  relaxWalking result generatorOrigins generatorWeights queue cost state = do
+    relaxSparseWalkingEdges result generatorOrigins generatorWeights queue cost state banked vertex
+    when (vertex < siteCount) (relaxQueryAttachments result generatorOrigins generatorWeights queue cost state vertex banked)
+   where
+    vertex = state `div` 2
+    banked = odd state
+  relaxSparseWalkingEdges :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> Bool -> Int -> ST s ()
+  relaxSparseWalkingEdges result generatorOrigins generatorWeights queue cost state banked vertex
+    | vertex < staticCount = go (sparseOffsets network Vector.! vertex)
+    | vertex < siteCount = pure ()
+    | otherwise = go (sparseOffsets network Vector.! sparseVertex)
+   where
+    sparseVertex = staticCount + vertex - siteCount
+    end
+      | vertex < staticCount = sparseOffsets network Vector.! (vertex + 1)
+      | otherwise = sparseOffsets network Vector.! (sparseVertex + 1)
+    go ix
+      | ix >= end = pure ()
+      | otherwise = do
+          let sparseNext = sparseDestinations network Vector.! ix
+              edgeCost = sparseWeights network Vector.! ix
+              next
+                | sparseNext < staticCount = sparseNext
+                | otherwise = siteCount + sparseNext - staticCount
+          relax result generatorOrigins generatorWeights queue cost state False (stateId next banked, edgeCost)
+          go (ix + 1)
+  relaxQueryAttachments :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> Int -> Bool -> ST s ()
+  relaxQueryAttachments result generatorOrigins generatorWeights queue cost state vertex banked = go 0
+   where
+    vertexTile = siteTiles graph Vector.! vertex
+    componentSites = attachedSites graph vertex
+    count = Vector.length componentSites
+    go ix
+      | ix >= count = pure ()
+      | other == vertex = go (ix + 1)
+      | vertex < staticCount && other < staticCount = go (ix + 1)
+      | otherwise = do
+          relax result generatorOrigins generatorWeights queue cost state False
+            (stateId other banked, chebyshevPacked vertexTile otherTile * 2)
+          go (ix + 1)
+     where
+      other = componentSites Vector.! ix
+      otherTile = siteTiles graph Vector.! other
 
 reverseCounterStatesSettled, reverseCounterStalePops, reverseCounterPushes, reverseCounterPops,
   reverseCounterMaxSize, reverseCounterEdgesRelaxed, reverseCounterComponentScans,

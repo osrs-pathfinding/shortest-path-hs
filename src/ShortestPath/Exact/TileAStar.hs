@@ -51,6 +51,7 @@ import System.Mem (getAllocationCounter)
 
 import ShortestPath.Pathfinder
 import ShortestPath.Exact.TileAStar.Heuristic
+import ShortestPath.Exact.TileAStar.HeuristicScan (forceGeneratorScan)
 import ShortestPath.Exact.TileAStar.Preprocessing
 import ShortestPath.Exact.TileAStar.RelaxedGraph (binarySearch, compileRoutingAccount)
 import ShortestPath.Exact.TileAStar.ReverseSearch (emptyReverseCounters)
@@ -262,6 +263,7 @@ forceHeuristic :: Heuristic -> IO Int
 forceHeuristic heuristic =
   evaluate
     ( Boxed.foldl' (\total seeds -> total + Vector.length seeds) 0 (heuristicSeeds heuristic)
+        + Boxed.foldl' (\total scan -> total + forceGeneratorScan scan) 0 (heuristicGeneratorScans heuristic)
         + round (heuristicReverseMilliseconds heuristic)
         + round (heuristicSeedTableMilliseconds heuristic)
         + reverseStatesPopped (heuristicReverseCounters heuristic)

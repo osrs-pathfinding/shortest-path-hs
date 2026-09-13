@@ -23,8 +23,8 @@ module ShortestPath.Exact.TileAStar.Heuristic
 
 import Control.Exception (evaluate)
 import Control.Monad (when)
+import Data.Bits ((.&.), shiftR)
 import qualified Data.IntMap.Strict as IntMap
-import qualified Data.IntSet as IntSet
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Mutable as BoxedMutable
 import qualified Data.Vector.Unboxed as Vector
@@ -33,6 +33,7 @@ import Data.List (sort)
 import GHC.Exts (Int(I#), Int#)
 
 import ShortestPath.Exact.TileAStar.RelaxedGraph
+import ShortestPath.Exact.TileAStar.HeuristicScan
 import ShortestPath.Exact.TileAStar.ReverseSearch
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Internal.Timing
@@ -56,6 +57,7 @@ defaultTileAStarConfig = TileAStarConfig CliqueReverse False True
 data Heuristic = Heuristic
   { heuristicSeeds :: Boxed.Vector (Vector.Vector (Int, Int))
   , heuristicGenerators :: Boxed.Vector (Vector.Vector (Int, Int))
+  , heuristicGeneratorScans :: Boxed.Vector GeneratorScan
   , heuristicSiteIndex :: IntMap.IntMap Int
   , heuristicSiteDistances :: Vector.Vector Int
   , heuristicReverseMilliseconds :: !Double
@@ -117,13 +119,20 @@ prepareHeuristicProfiled config astar account target = do
           let (distances, counters) = reverseDijkstra graph seeds
            in pure (distances, counters, Nothing)
       | otherwise -> pure (reverseDijkstraUncounted graph seeds, emptyReverseCounters, Nothing)
-    SparseWalkingReverse -> do
-      let (result, collectedCounters) = reverseDijkstraManhattan graph seeds
-          counters = if tileCollectReverseCounters config then collectedCounters else emptyReverseCounters
-          distances = halveDistances (manhattanDistances result)
-      when (tileCompareReverseImplementations config)
-        (assertReverseLabelsEqual graph (reverseDijkstraUncounted graph seeds) distances)
-      pure (distances, counters, Just result)
+    SparseWalkingReverse
+      | tileCollectReverseCounters config -> do
+          let (result, counters) = reverseDijkstraManhattan graph seeds
+              distances = halveDistances (manhattanDistances result)
+          compareReverse distances
+          pure (distances, counters, Just result)
+      | otherwise -> do
+          let result = reverseDijkstraManhattanUncounted graph seeds
+              distances = halveDistances (manhattanDistances result)
+          compareReverse distances
+          pure (distances, emptyReverseCounters, Just result)
+  compareReverse distances =
+    when (tileCompareReverseImplementations config)
+      (assertReverseLabelsEqual graph (reverseDijkstraUncounted graph seeds) distances)
 
 heuristicAt :: WorldTopology -> Heuristic -> Tile -> Bool -> Maybe Int
 {-# INLINE heuristicAt #-}
@@ -191,10 +200,10 @@ candidateDistance candidates packed =
 componentDistanceCounted :: Heuristic -> Int -> Int -> Bool -> (# Int#, Int# #)
 {-# INLINE componentDistanceCounted #-}
 componentDistanceCounted heuristic packed cid banked =
-  case (componentDistance heuristic packed cid banked, Vector.length seeds) of
+  case (scanGenerators candidates (packed .&. 0x7fff) ((packed `shiftR` 15) .&. 0x7fff), generatorScanLength candidates) of
     (I# distance#, I# count#) -> (# distance#, count# #)
  where
-  seeds = heuristicSeeds heuristic Boxed.! seedKey cid banked
+  candidates = heuristicGeneratorScans heuristic Boxed.! seedKey cid banked
 
 finite :: Int -> Maybe Int
 {-# INLINE finite #-}
@@ -212,12 +221,15 @@ heuristicFromSeedTable seeds graph distances reverseMs seedMs counters =
 
 heuristicFromSeedTables :: Boxed.Vector (Vector.Vector (Int, Int)) -> Boxed.Vector (Vector.Vector (Int, Int)) -> SiteGraph -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
 heuristicFromSeedTables seeds generators graph distances reverseMs seedMs counters =
-  Heuristic seeds generators (siteTileIndex graph)
+  Heuristic seeds generators scans (siteTileIndex graph)
     (Vector.generate (Vector.length (siteTiles graph) * 2) (distances Vector.!))
     reverseMs seedMs counters seedTotal componentCount seedMax seedP50 seedP90 seedP95 seedP99
     generatorTotal generatorMax generatorP50 generatorP90 generatorP95 generatorP99
     ratioP50 ratioP90 ratioP95 ratioP99 ratioMax
  where
+  scans = Boxed.zipWith prepare seeds generators
+  prepare seedEntries generatorEntries = generatorScanFromVector
+    (if Vector.null generatorEntries then seedEntries else generatorEntries)
   (seedTotal, componentCount, seedMax, seedP50, seedP90, seedP95, seedP99) = tableStats seeds
   (generatorTotal, _, generatorMax, generatorP50, generatorP90, generatorP95, generatorP99) = tableStats generators
   (ratioP50, ratioP90, ratioP95, ratioP99, ratioMax) = generatorRatioStats seeds generators
@@ -258,14 +270,14 @@ seedTablesFromManhattanResult :: NaturalComponents -> SiteGraph -> Vector.Vector
   -> (Boxed.Vector (Vector.Vector (Int, Int)), Boxed.Vector (Vector.Vector (Int, Int)))
 seedTablesFromManhattanResult components graph distances result = runST $ do
   rawTable <- BoxedMutable.replicate tableSize []
-  generatorIds <- BoxedMutable.replicate tableSize IntSet.empty
+  generatorIds <- BoxedMutable.replicate tableSize []
   Vector.iforM_ (siteTiles graph) $ \node packed ->
-    Vector.forM_ (siteComponents graph Boxed.! node) $ \cid -> do
-      addCandidate rawTable generatorIds cid False node packed
-      addCandidate rawTable generatorIds cid True node packed
+    let cids = siteComponents graph Boxed.! node in do
+      addCandidate rawTable generatorIds cids False node packed
+      addCandidate rawTable generatorIds cids True node packed
   raw <- Boxed.map Vector.fromList <$> Boxed.freeze rawTable
   ids <- Boxed.freeze generatorIds
-  let generators = Boxed.map (Vector.fromList . map generator . IntSet.toList) ids
+  let generators = Boxed.map (Vector.fromList . map generator . uniqueSorted . sort) ids
   pure (raw, generators)
  where
   tableSize = (maxComponentId components + 1) * 2
@@ -273,31 +285,42 @@ seedTablesFromManhattanResult components graph distances result = runST $ do
     ( siteTiles graph Vector.! (candidateState `div` 2)
     , distances Vector.! candidateState
     )
-  addCandidate :: BoxedMutable.MVector s [(Int, Int)] -> BoxedMutable.MVector s IntSet.IntSet
-    -> Int -> Bool -> Int -> Int -> ST s ()
-  addCandidate rawTable generatorIds cid banked node packed = do
+  addCandidate :: BoxedMutable.MVector s [(Int, Int)] -> BoxedMutable.MVector s [Int]
+    -> Vector.Vector Int -> Bool -> Int -> Int -> ST s ()
+  addCandidate rawTable generatorIds cids banked node packed = do
     let state = stateId node banked
         distance = distances Vector.! state
     when (distance /= maxBound) $ do
-      seeds <- BoxedMutable.read rawTable (seedKey cid banked)
-      BoxedMutable.write rawTable (seedKey cid banked) ((packed, distance) : seeds)
-      ids <- BoxedMutable.read generatorIds (seedKey cid banked)
-      BoxedMutable.write generatorIds (seedKey cid banked) (IntSet.insert (validatedOrigin cid banked state packed) ids)
-  validatedOrigin cid banked state packed
-    | originState < 0 || originNode >= Vector.length (siteTiles graph) = state
-    | odd originState /= banked = state
-    | not (Vector.elem cid (siteComponents graph Boxed.! originNode)) = state
-    | directDistance == maxBound = state
-    | manhattanDistances result Vector.! state /= addCostDefault maxBound entryWeight (directDistance * 2) = state
-    | otherwise = originState
-   where
+      let originState = manhattanGeneratorOrigins result Vector.! state
+          originWeight = manhattanGeneratorWeights result Vector.! state
+          originNode = originState `div` 2
+          originValid
+            | originState < 0 || originNode >= Vector.length (siteTiles graph) = False
+            | odd originState /= banked = False
+            | otherwise =
+                let originTile = siteTiles graph Vector.! originNode
+                    directDistance = chebyshevPacked originTile packed
+                 in directDistance /= maxBound
+                    && manhattanDistances result Vector.! state == addCostDefault maxBound originWeight (directDistance * 2)
+      Vector.forM_ cids $ \cid -> do
+        let key = seedKey cid banked
+        seeds <- BoxedMutable.read rawTable key
+        BoxedMutable.write rawTable key ((packed, distance) : seeds)
+        ids <- BoxedMutable.read generatorIds key
+        BoxedMutable.write generatorIds key (validatedOrigin originValid originNode originState cid state : ids)
+  validatedOrigin originValid originNode originState cid fallback
     -- A sparse/query walking path is removable only when it is also a direct
     -- Chebyshev geodesic in this component. Shared multi-attachment sites and
     -- any other non-geodesic path conservatively remain their own raw seed.
-    originState = manhattanGeneratorOrigins result Vector.! state
-    originNode = originState `div` 2
-    entryWeight = manhattanGeneratorWeights result Vector.! state
-    directDistance = chebyshevPacked (siteTiles graph Vector.! originNode) packed
+    | originValid && Vector.elem cid (siteComponents graph Boxed.! originNode) = originState
+    | otherwise = fallback
+  uniqueSorted [] = []
+  uniqueSorted (x:xs) = x : go x xs
+   where
+    go _ [] = []
+    go previous (value:rest)
+      | value == previous = go previous rest
+      | otherwise = value : go value rest
 
 seedTableFromDistances :: NaturalComponents -> SiteGraph -> Vector.Vector Int -> Boxed.Vector (Vector.Vector (Int, Int))
 seedTableFromDistances components graph distances = runST $ do
