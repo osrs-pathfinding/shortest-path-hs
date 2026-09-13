@@ -7,7 +7,7 @@ import Data.Aeson (FromJSON(..), Value, eitherDecodeFileStrict', encode, object,
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
-import Data.List (intercalate, isInfixOf)
+import Data.List (intercalate, isInfixOf, sort)
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
@@ -93,7 +93,7 @@ main = do
   removeIfExists tempDb
   createDirectoryIfMissing True tempDir
   writeFacts tempDir topology places points
-  metadata <- provenance world gpsPath
+  metadata <- (<> topologyMetadata topology) <$> provenance world gpsPath
   buildDatabase output tempDb tempDir metadata
   removeDirectoryRecursive tempDir
   report topology places
@@ -154,8 +154,16 @@ writeFacts :: FilePath -> WorldTopology -> [Place] -> [Tile] -> IO ()
 writeFacts dir topology places points = do
   writeCsv (dir </> "components.csv") ["component_id", "tile_count", "structurally_reachable", "min_x", "max_x", "min_y", "max_y", "min_plane", "max_plane"]
     [[show cid, show count, bool reachable, show loX, show hiX, show loY, show hiY, show loP, show hiP] | (cid, count, reachable, loX, hiX, loY, hiY, loP, hiP) <- componentFacts topology]
-  writeCsv (dir </> "tiles.csv") ["x", "y", "plane", "component_id"]
-    [[show x, show y, show p, show cid] | (tile, cid) <- tileFacts topology, let (x, y, p) = unpackTile tile]
+  writeCsv (dir </> "tiles.csv") ["x", "y", "plane", "component_id", "routing_component_id"]
+    [[show x, show y, show p, show naturalId, show routingId] | (tile, naturalId, routingId) <- routingTileFacts topology, let (x, y, p) = unpackTile tile]
+  writeCsv (dir </> "routing_components.csv") ["routing_component_id", "natural_component_id", "tile_count", "separator_crossing_count", "neighbouring_component_count"]
+    [[show routingId, show naturalId, show count, show crossings, show neighbours] | (routingId, naturalId, count, crossings, neighbours) <- routingComponentFacts topology]
+  writeCsv (dir </> "separator_crossings.csv") ["from_routing_component", "to_routing_component", "from_x", "from_y", "from_plane", "to_x", "to_y", "to_plane", "cost"]
+    [ [show (crossingFromComponent edge), show (crossingToComponent edge), show fx, show fy, show fp, show tx, show ty, show tp, show (crossingCost edge)]
+    | edge <- separatorCrossingFacts topology
+    , let (fx, fy, fp) = unpackTile (crossingFromTile edge)
+    , let (tx, ty, tp) = unpackTile (crossingToTile edge)
+    ]
   writeCsv (dir </> "point_access.csv") ["x", "y", "plane", "resolved_x", "resolved_y", "resolved_plane", "component_id", "access_kind", "structurally_reachable"]
     [ [show x, show y, show p, show rx, show ry, show rp, maybe "" show cid, kind, maybe "" (\value -> bool (IntSet.member value (structurallyReachableIdsOf topology))) cid]
     | point <- points
@@ -177,6 +185,34 @@ writeFacts dir topology places points = do
  where
   bool value = if value then "true" else "false"
   structurallyReachableIdsOf = structurallyReachableIds . topologyStructuralReachability
+
+topologyMetadata :: WorldTopology -> [(String, String)]
+topologyMetadata topology =
+  [ ("natural_component_count", show (length natural))
+  , ("routing_component_count", show (length routing))
+  , ("natural_components_split", show splitNatural)
+  , ("routing_component_size_p50", show (percentile 50 sizes))
+  , ("routing_component_size_p90", show (percentile 90 sizes))
+  , ("routing_component_size_p95", show (percentile 95 sizes))
+  , ("routing_component_size_p99", show (percentile 99 sizes))
+  , ("routing_component_size_max", show (percentile 100 sizes))
+  , ("separator_crossing_count", show (length crossings))
+  , ("separator_boundary_tile_count", show boundaryTiles)
+  , ("separator_crossings_per_component_p50", show (percentile 50 crossingCounts))
+  , ("separator_crossings_per_component_p95", show (percentile 95 crossingCounts))
+  , ("separator_crossings_per_component_p99", show (percentile 99 crossingCounts))
+  , ("separator_crossings_per_component_max", show (percentile 100 crossingCounts))
+  ]
+ where
+  natural = componentFacts topology
+  routing = routingComponentFacts topology
+  crossings = separatorCrossingFacts topology
+  sizes = sort [count | (_, _, count, _, _) <- routing]
+  crossingCounts = sort [count | (_, _, _, count, _) <- routing]
+  splitNatural = length (filter (> 1) (Map.elems (Map.fromListWith (+) [(naturalId, 1 :: Int) | (_, naturalId, _, _, _) <- routing])))
+  boundaryTiles = Set.size (Set.fromList [tile | edge <- crossings, tile <- [crossingFromTile edge, crossingToTile edge]])
+  percentile _ [] = 0
+  percentile p xs = xs !! ((p * length xs + 99) `div` 100 - 1)
 
 allWorldTransports :: World -> [Transport]
 allWorldTransports world = concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
@@ -306,8 +342,8 @@ provenance world gpsPath = do
     , ("generated_at", formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" now)
     , ("world_data_hash", worldHash), ("transport_data_hash", intercalate ":" transportHashes)
     , ("place_data_hash", gpsHash)
-    , ("component_model_version", "world-topology-v3")
-    , ("sailing_supported", "false"), ("generator_version", "world-facts-v3")
+    , ("component_model_version", "world-topology-v4")
+    , ("sailing_supported", "false"), ("generator_version", "world-facts-v4")
     , ("walkable_tiles", show (length (collisionTiles (worldCollision world))))
     ]
  where
@@ -323,12 +359,14 @@ buildDatabase output tempDb dir metadata = do
       copy table file = "COPY " <> table <> " FROM " <> quote (dir </> file) <> " (HEADER, DELIM ',', QUOTE '\"', ESCAPE '\"', NULL '');\n"
       sql = "CREATE TABLE metadata(key VARCHAR PRIMARY KEY, value VARCHAR);\n"
         <> "CREATE TABLE components(component_id INTEGER PRIMARY KEY, tile_count INTEGER, structurally_reachable BOOLEAN, min_x INTEGER, max_x INTEGER, min_y INTEGER, max_y INTEGER, min_plane INTEGER, max_plane INTEGER);\n"
-        <> "CREATE TABLE tiles(x INTEGER, y INTEGER, plane INTEGER, component_id INTEGER);\n"
+        <> "CREATE TABLE tiles(x INTEGER, y INTEGER, plane INTEGER, component_id INTEGER, routing_component_id INTEGER);\n"
+        <> "CREATE TABLE routing_components(routing_component_id INTEGER PRIMARY KEY, natural_component_id INTEGER, tile_count INTEGER, separator_crossing_count INTEGER, neighbouring_component_count INTEGER);\n"
+        <> "CREATE TABLE separator_crossings(from_routing_component INTEGER, to_routing_component INTEGER, from_x INTEGER, from_y INTEGER, from_plane INTEGER, to_x INTEGER, to_y INTEGER, to_plane INTEGER, cost INTEGER);\n"
         <> "CREATE TABLE point_access(x INTEGER, y INTEGER, plane INTEGER, resolved_x INTEGER, resolved_y INTEGER, resolved_plane INTEGER, component_id INTEGER, access_kind VARCHAR, structurally_reachable BOOLEAN);\n"
         <> "CREATE TABLE places(place_id VARCHAR PRIMARY KEY, name VARCHAR, x INTEGER, y INTEGER, plane INTEGER, source VARCHAR, source_kind VARCHAR, metadata JSON);\n"
         <> "CREATE TABLE transports(transport_id VARCHAR PRIMARY KEY, transport_type VARCHAR, origin_x INTEGER, origin_y INTEGER, origin_plane INTEGER, destination_x INTEGER, destination_y INTEGER, destination_plane INTEGER, duration INTEGER, display_info VARCHAR, object_info VARCHAR, consumable BOOLEAN, max_wilderness_level INTEGER, source VARCHAR, requirements_json JSON);\n"
         <> "INSERT INTO metadata VALUES " <> intercalate "," ["(" <> quote key <> "," <> quote value <> ")" | (key, value) <- metadata] <> ";\n"
-        <> copy "components" "components.csv" <> copy "tiles" "tiles.csv" <> copy "point_access" "point_access.csv" <> copy "places" "places.csv" <> copy "transports" "transports.csv"
+        <> copy "components" "components.csv" <> copy "tiles" "tiles.csv" <> copy "routing_components" "routing_components.csv" <> copy "separator_crossings" "separator_crossings.csv" <> copy "point_access" "point_access.csv" <> copy "places" "places.csv" <> copy "transports" "transports.csv"
         <> "CREATE VIEW reachable_tiles AS SELECT t.* FROM tiles t JOIN components c USING (component_id) WHERE c.structurally_reachable;\n"
         <> "CREATE VIEW reachable_point_access AS SELECT pa.* FROM point_access pa WHERE pa.structurally_reachable;\n"
         <> "CREATE VIEW place_facts AS WITH counts AS (SELECT place_id, count(*) FILTER (WHERE pa.component_id IS NOT NULL) AS attachments, count(DISTINCT pa.component_id) AS components FROM places p LEFT JOIN point_access pa USING (x, y, plane) GROUP BY place_id) SELECT p.place_id, p.name, p.source, p.x, p.y, p.plane, pa.resolved_x, pa.resolved_y, pa.resolved_plane, pa.component_id, pa.access_kind, pa.structurally_reachable, CASE WHEN c.attachments = 0 THEN 'unresolved' WHEN c.components > 1 THEN 'ambiguous/multiple_components' WHEN pa.structurally_reachable THEN 'reachable' ELSE 'unreachable_component' END AS status FROM places p LEFT JOIN point_access pa USING (x, y, plane) JOIN counts c USING (place_id);\n"
