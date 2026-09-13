@@ -1,5 +1,6 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE Strict #-}
 {-# OPTIONS_GHC -ddump-simpl -ddump-to-file -ddump-stg-final #-}
 
 module ShortestPath.Exact.TileAStar.Search

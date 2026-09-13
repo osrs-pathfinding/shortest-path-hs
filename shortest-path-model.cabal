@@ -148,7 +148,7 @@ executable pathfinder-tool
 
 executable route-bench
   import: warnings
-  ghc-options: -threaded
+  ghc-options: -threaded -rtsopts
   main-is: RouteBench.hs
   hs-source-dirs: app
   build-depends:
