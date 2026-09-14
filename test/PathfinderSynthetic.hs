@@ -51,7 +51,144 @@ main = do
   checkInstrumentation tileAStar tiles
   checkMultiplePointAttachments
   checkManhattanGeneratorProvenance
+  checkBankGlobalHub
   checkGeneratorScanKernel
+
+checkBankGlobalHub :: IO ()
+checkBankGlobalHub = do
+  astar <- mustRight =<< buildTileAStarWithPolicy
+    (StructuralReachabilityPolicy [bankA, bankB] Set.empty) world
+  let account = compileRoutingAccount astar (routingOptionsFromQuery enabledQuery)
+      graph = compiledSiteGraph account
+      spatialCount = Vector.length (siteTiles graph)
+      hub = spatialCount
+      hubState = stateId hub True
+      bankNodes = map (siteNode graph) [bankA, bankB]
+      destinationNodes = map (siteNode graph) [destinationA, destinationB]
+      hubIncoming = siteReverseEdges graph Boxed.! hubState
+      incidentEdges = sum
+        [ length
+            [ ()
+            | (from, _, _) <- Vector.toList edges
+            , from `div` 2 == hub || to `div` 2 == hub
+            ]
+        | (to, edges) <- zip [0 ..] (Boxed.toList (siteReverseEdges graph))
+        ]
+  assertMsg "bank globals did not create exactly one abstract capability node"
+    (siteAbstractNodes graph == Boxed.singleton BankedGlobalTeleports)
+  assertMsg "abstract node was inserted among coordinate-bearing sites"
+    (hub == Vector.length (siteTiles graph)
+      && Boxed.length (siteComponents graph) == spatialCount
+      && hub `notElem` IntMap.elems (siteTileIndex graph))
+  assertMsg "banks do not share the hub with zero-cost explicit ingress"
+    (Set.fromList (Vector.toList hubIncoming)
+      == Set.fromList [(stateId bank False, 0, True) | bank <- bankNodes])
+  assertMsg "bank/global graph did not factor to B + distinct destinations"
+    (incidentEdges == length bankNodes + length destinationNodes)
+  mapM_ (checkDestinationEdge graph hubState)
+    [(destinationA, 3), (destinationB, 5)]
+
+  mapM_ (checkOldEquivalence astar account graph bankNodes)
+    [(destinationA, 3), (destinationB, 5)]
+
+  let noGlobals = compiledSiteGraph (compileRoutingAccount astar
+        (routingOptionsFromQuery (enabledQuery {enabledTransportTypes = Set.singleton "MISSING"})))
+      noBankingQuery = enabledQuery {bankPathEnabled = False}
+      noBanking = compiledSiteGraph (compileRoutingAccount astar (routingOptionsFromQuery noBankingQuery))
+      reference = ReferenceDijkstra (tileTopology astar)
+  assertMsg "account with no banked globals received a hub" (Boxed.null (siteAbstractNodes noGlobals))
+  assertMsg "bank-disabled account received a hub" (Boxed.null (siteAbstractNodes noBanking))
+  assertMsg "banked global did not require the banking transition"
+    (routeCost (findRouteTileAStar astar enabledQuery) == 3
+      && routeCost (findRouteReferenceDijkstra reference enabledQuery) == 3
+      && routeCost (findRouteTileAStar astar noBankingQuery) == maxBound)
+
+  let bankTarget = targetOverlay astar account bankB
+      bankDistances = reverseDijkstraUncounted graph bankTarget
+  assertMsg "hub made disconnected banks mutually reachable"
+    (bankDistances Vector.! stateId (siteNode graph bankA) False == maxBound)
+
+  singleAstar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy bankA)
+    (world {worldBanks = Set.singleton bankA, worldGlobalTeleports = [teleportB]})
+  let singleGraph = compiledSiteGraph (compileRoutingAccount singleAstar
+        (routingOptionsFromQuery (enabledQuery {enabledTransportTypes = Set.singleton "GLOBAL_B"})))
+      singleHub = Vector.length (siteTiles singleGraph)
+      singleIncident = sum
+        [ length [() | (from, _, _) <- Vector.toList edges, from `div` 2 == singleHub || to `div` 2 == singleHub]
+        | (to, edges) <- zip [0 ..] (Boxed.toList (siteReverseEdges singleGraph))
+        ]
+  assertMsg "one-bank/one-global graph was not represented by two hub edges"
+    (siteAbstractNodes singleGraph == Boxed.singleton BankedGlobalTeleports && singleIncident == 2)
+ where
+  bankA = packTile 300 300 0
+  bankB = packTile 400 400 0
+  destinationA = packTile 500 500 0
+  destinationB = packTile 600 600 0
+  bankItem = Just (ItemOne (ItemTerm "999" 1))
+  teleportA7 = global "GLOBAL_A_SLOW" destinationA 7 bankItem
+  teleportA3 = global "GLOBAL_A_FAST" destinationA 3 bankItem
+  teleportB = global "GLOBAL_B" destinationB 5 bankItem
+  world = withEmptySeparatorArtifact
+    (World (collisionMap [bankA, bankB, destinationA, destinationB]) Map.empty
+      [teleportA7, teleportA3, teleportB] (Set.fromList [bankA, bankB]) Nothing)
+  enabledQuery = (defaultQuery bankA destinationA)
+    { enabledTransportTypes = Set.fromList ["GLOBAL_A_SLOW", "GLOBAL_A_FAST", "GLOBAL_B"]
+    , bankPathEnabled = True
+    , requirementMode = ConfiguredRequirements
+        (emptyAccountState {accountBank = Map.singleton "999" 1})
+    }
+  siteNode graph tile = IntMap.findWithDefault (error ("missing site " <> show tile))
+    (unTile tile) (siteTileIndex graph)
+  checkDestinationEdge graph hubState (tile, expectedCost) = do
+    let edges = siteReverseEdges graph Boxed.! stateId (siteNode graph tile) True
+        matching = [(cost, starts) | (from, cost, starts) <- Vector.toList edges, from == hubState]
+    assertMsg ("wrong deduplicated hub edge for " <> show tile)
+      (matching == [(expectedCost, False)])
+    assertMsg ("old direct bank/global edge retained for " <> show tile)
+      (all (\(from, _, _) -> from `div` 2 `notElem` map (siteNode graph) [bankA, bankB]) (Vector.toList edges))
+  checkOldEquivalence astar account graph bankNodes (target, expectedCost) = do
+    let spatialCount = Vector.length (siteTiles graph)
+        oldDirect =
+          [ (stateId bank False, stateId (siteNode graph destination) True, cost, True)
+          | bank <- bankNodes
+          , (destination, cost) <- [(destinationA, 7), (destinationA, 3), (destinationB, 5)]
+          ]
+        retained =
+          [ (from, to, cost, starts)
+          | to <- [0 .. spatialCount * 2 - 1]
+          , (from, cost, starts) <- Vector.toList (siteReverseEdges graph Boxed.! to)
+          , from `div` 2 < spatialCount
+          ]
+        oldEdges = retained <> oldDirect
+        oldGraph = graph
+          { siteAbstractNodes = Boxed.empty
+          , siteReverseEdges = Boxed.generate (spatialCount * 2) $ \to -> Vector.fromList
+              [(from, cost, starts) | (from, edgeTo, cost, starts) <- oldEdges, edgeTo == to]
+          }
+        overlay = targetOverlay astar account target
+        oldDistances = reverseDijkstraUncounted oldGraph overlay
+        newDistances = reverseDijkstraUncounted graph overlay
+        (newManhattan, _) = reverseDijkstraManhattan graph overlay
+        oldManhattan = reverseDijkstraManhattanUncounted oldGraph overlay
+        hubState = stateId spatialCount True
+        targetState = stateId (siteNode graph target) True
+    assertMsg ("hub labels differ from complete bipartite graph for " <> show target)
+      (Vector.take (spatialCount * 2) newDistances == oldDistances)
+    assertMsg ("hub Manhattan labels differ from complete bipartite graph for " <> show target)
+      (Vector.take (spatialCount * 2) (manhattanDistances newManhattan) == manhattanDistances oldManhattan)
+    assertMsg ("hub generator origins differ from complete bipartite graph for " <> show target)
+      (Vector.take (spatialCount * 2) (manhattanGeneratorOrigins newManhattan)
+        == manhattanGeneratorOrigins oldManhattan)
+    assertMsg ("hub generator weights differ from complete bipartite graph for " <> show target)
+      (Vector.take (spatialCount * 2) (manhattanGeneratorWeights newManhattan)
+        == manhattanGeneratorWeights oldManhattan)
+    assertMsg "abstract destination leg introduced a generator boundary"
+      (manhattanGeneratorOrigins newManhattan Vector.! hubState == targetState)
+    mapM_ (\bank -> assertMsg "bank hub ingress misplaced generator provenance"
+      (manhattanGeneratorOrigins newManhattan Vector.! stateId bank False == stateId bank False
+        && manhattanGeneratorWeights newManhattan Vector.! stateId bank False == expectedCost * 2)) bankNodes
+    assertMsg "already-banked bank state gained a bank-global transition"
+      (newDistances Vector.! stateId (siteNode graph bankA) True == maxBound)
 
 checkGeneratorScanKernel :: IO ()
 checkGeneratorScanKernel = do
@@ -249,7 +386,7 @@ checkTargetOverlay astar tiles = do
   assertMsg "dynamic target was inserted into static graph"
     (IntMap.notMember (targetPacked overlay) (siteTileIndex graph))
   assertMsg "ordinary target did not receive a synthetic reverse site"
-    (targetSynthetic overlay && targetSite overlay == Vector.length (siteTiles graph))
+    (targetSynthetic overlay && targetSite overlay == routingNodeCount graph)
   assertMsg "static target received a redundant synthetic reverse site"
     (not (targetSynthetic staticOverlay) && targetSite staticOverlay < Vector.length (siteTiles graph))
   assertMsg "blocked transport target was not retained as a static site"

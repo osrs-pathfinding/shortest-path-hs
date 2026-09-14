@@ -109,7 +109,7 @@ reversePathDebug astar q =
                   else mapM_ (relax best prevState prevEdge queue cost state) (debugNeighbors state) >> go
     go
   staticSiteCount = Vector.length (siteTiles graph)
-  stateCount = (staticSiteCount + if targetSynthetic overlay then 1 else 0) * 2
+  stateCount = (routingNodeCount graph + if targetSynthetic overlay then 1 else 0) * 2
   stateIsTarget state = state `div` 2 == targetSite overlay
   siteTile node
     | targetSynthetic overlay && node == targetSite overlay = targetPacked overlay

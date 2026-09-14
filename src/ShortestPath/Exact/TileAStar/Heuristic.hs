@@ -230,7 +230,7 @@ heuristicFromSeedTable seeds graph overlay distances reverseMs seedMs counters =
 heuristicFromSeedTables :: Boxed.Vector (Vector.Vector (Int, Int)) -> Boxed.Vector (Vector.Vector (Int, Int)) -> SiteGraph -> TargetOverlay -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
 heuristicFromSeedTables seeds generators graph overlay distances reverseMs seedMs counters =
   Heuristic seeds generators scans siteIndex
-    (Vector.generate (reverseSiteCount * 2) (distances Vector.!))
+    (Vector.generate (reverseNodeCount * 2) (distances Vector.!))
     reverseMs seedMs counters seedTotal componentCount seedMax seedP50 seedP90 seedP95 seedP99
     generatorTotal generatorMax generatorP50 generatorP90 generatorP95 generatorP99
     ratioP50 ratioP90 ratioP95 ratioP99 ratioMax
@@ -238,7 +238,7 @@ heuristicFromSeedTables seeds generators graph overlay distances reverseMs seedM
   siteIndex
     | targetSynthetic overlay = IntMap.insert (targetPacked overlay) (targetSite overlay) (siteTileIndex graph)
     | otherwise = siteTileIndex graph
-  reverseSiteCount = Vector.length (siteTiles graph) + if targetSynthetic overlay then 1 else 0
+  reverseNodeCount = routingNodeCount graph + if targetSynthetic overlay then 1 else 0
   scans = Boxed.zipWith prepare seeds generators
   prepare seedEntries generatorEntries = generatorScanFromVector
     (if Vector.null generatorEntries then seedEntries else generatorEntries)
@@ -310,7 +310,7 @@ seedTablesFromManhattanResult components graph overlay distances result = runST 
           originWeight = manhattanGeneratorWeights result Vector.! state
           originNode = originState `div` 2
           originValid
-            | originState < 0 || originNode >= reverseSiteCount = False
+            | originState < 0 || not (spatialOrTarget originNode) = False
             | odd originState /= banked = False
             | otherwise =
                 let originTile = packedAt originNode
@@ -329,7 +329,8 @@ seedTablesFromManhattanResult components graph overlay distances result = runST 
     -- any other non-geodesic path conservatively remain their own raw seed.
     | originValid && Vector.elem cid (componentsAt originNode) = originState
     | otherwise = fallback
-  reverseSiteCount = Vector.length (siteTiles graph) + if targetSynthetic overlay then 1 else 0
+  spatialCount = Vector.length (siteTiles graph)
+  spatialOrTarget node = node < spatialCount || targetSynthetic overlay && node == targetSite overlay
   packedAt node
     | targetSynthetic overlay && node == targetSite overlay = targetPacked overlay
     | otherwise = siteTiles graph Vector.! node

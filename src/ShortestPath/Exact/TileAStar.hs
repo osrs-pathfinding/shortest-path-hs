@@ -252,6 +252,7 @@ forceCompiledRoutingAccount account = evaluate
       + length (bankedGlobalTransports availability)
       + Map.size (compiledTransportPenalties account)
       + Vector.length (siteTiles graph)
+      + Boxed.length (siteAbstractNodes graph)
       + IntMap.size (siteTileIndex graph)
       + Boxed.foldl' (\total components -> total + Vector.length components) 0 (siteComponents graph)
       + Boxed.foldl' (\total sites -> total + Vector.length sites) 0 (siteComponentSiteIds graph)

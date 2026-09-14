@@ -1,6 +1,8 @@
 module ShortestPath.Exact.TileAStar.Types
   ( TileAStar(..)
   , TileStatic(..)
+  , AbstractNode(..)
+  , ReverseRoutingEdge
   , SiteGraph(..)
   , TargetOverlay(..)
   , TileAStarCounters(..)
@@ -53,14 +55,24 @@ data TileStatic = TileStatic
   , staticWalkingNetwork :: SparseWalkingNetwork
   }
 
+-- | A dense routing node with no RuneScape coordinate or walking attachment.
+-- More constructors can represent transport networks without inventing tiles.
+data AbstractNode = BankedGlobalTeleports
+  deriving stock (Eq, Show)
+
+-- | Reverse destination state, cost, and whether crossing the edge starts new
+-- generator provenance. All entries are explicit, non-walking graph edges.
+type ReverseRoutingEdge = (Int, Int, Bool)
+
 data SiteGraph = SiteGraph
   { siteTiles :: Vector.Vector Int
   , siteTileIndex :: IntMap.IntMap Int
   , siteComponents :: Boxed.Vector (Vector.Vector Int)
+  , siteAbstractNodes :: Boxed.Vector AbstractNode
   , siteStaticCount :: !Int
   , siteSparseNetwork :: SparseWalkingNetwork
   , siteComponentSiteIds :: Boxed.Vector (Vector.Vector Int)
-  , siteReverseEdges :: Boxed.Vector (Vector.Vector (Int, Int))
+  , siteReverseEdges :: Boxed.Vector (Vector.Vector ReverseRoutingEdge)
   }
 
 data TargetOverlay = TargetOverlay

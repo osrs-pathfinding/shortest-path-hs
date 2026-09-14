@@ -6,6 +6,7 @@ module ShortestPath.Exact.TileAStar.RelaxedGraph
   , attachedSites
   , binarySearch
   , chebyshevPacked
+  , routingNodeCount
   , siteComponentGroups
   , stateId
   , targetOverlay
@@ -37,19 +38,22 @@ compileRoutingAccount astar@(TileAStar topology _) options = account
 -- | Immutable account-specific relaxed graph.
 accountSiteGraph :: TileAStar -> CompiledRoutingAccount -> SiteGraph
 accountSiteGraph (TileAStar topology static) account =
-  SiteGraph tiles tileIndex comps staticCount (staticWalkingNetwork static) componentSites reverseEdges
+  SiteGraph tiles tileIndex comps abstractNodes staticCount (staticWalkingNetwork static) componentSites reverseEdges
  where
   staticCount = Vector.length (staticTiles static)
   tiles = staticTiles static
   tileIndex = staticSiteTileIndex static
   comps = staticComponents static
   componentSites = staticSiteComponentIds static
-  nodeCount = Vector.length tiles
+  spatialCount = Vector.length tiles
+  abstractNodes = Boxed.fromList [BankedGlobalTeleports | bankGlobalEnabled]
+  nodeCount = spatialCount + Boxed.length abstractNodes
+  bankGlobalHub = spatialCount
   reverseEdges = reverseAdjacency (nodeCount * 2) (localEdges <> bankEdges <> bankGlobalEdges <> crossingEdges)
   reachableBanks = staticReachableBanks static
 
   localEdges =
-    [ (stateId from banked, stateId to banked, stepCost)
+    [ (stateId from banked, stateId to banked, stepCost, True)
     | compiledAllowTransports account
     , banked <- [False, True]
     , transports <- Map.elems (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
@@ -62,26 +66,37 @@ accountSiteGraph (TileAStar topology static) account =
     ]
 
   bankEdges =
-    [ (stateId node False, stateId node True, 0)
+    [ (stateId node False, stateId node True, 0, True)
     | compiledBankPathEnabled account
     , tile <- Set.toList reachableBanks
     , Just node <- [nodeFor tile]
     ]
 
-  bankGlobalEdges =
-    [ (stateId from False, stateId to True, stepCost)
-    | compiledAllowTransports account
-    , compiledBankPathEnabled account
-    , bank <- Set.toList reachableBanks
-    , Just from <- [nodeFor bank]
-    , t <- preparedGlobalTransports availability True
+  bankGlobalEdges
+    | not bankGlobalEnabled = []
+    | otherwise =
+        [ (stateId bank False, stateId bankGlobalHub True, 0, True)
+        | bank <- bankNodes
+        ] <>
+        [ (stateId bankGlobalHub True, stateId destinationNode True, stepCost, False)
+        | (destinationNode, stepCost) <- IntMap.toList bankedGlobalDestinations
+        ]
+  bankGlobalEnabled = compiledAllowTransports account
+    && compiledBankPathEnabled account
+    && not (null bankNodes)
+    && not (IntMap.null bankedGlobalDestinations)
+  bankNodes = [node | bank <- Set.toList reachableBanks, Just node <- [nodeFor bank]]
+  -- Requirement filtering has already happened, and these transitions have no
+  -- remaining state effect beyond entering the banked destination state.
+  bankedGlobalDestinations = IntMap.fromListWith min
+    [ (to, duration t + Map.findWithDefault 0 (transportType t) (compiledTransportPenalties account))
+    | t <- preparedGlobalTransports availability True
     , Just destinationTile <- [destination t]
-    , let stepCost = duration t + Map.findWithDefault 0 (transportType t) (compiledTransportPenalties account)
     , Just to <- [nodeFor destinationTile]
     ]
 
   crossingEdges =
-    [ (stateId from banked, stateId to banked, crossingCost edge)
+    [ (stateId from banked, stateId to banked, crossingCost edge, True)
     | edge <- topologySeparatorCrossings topology
     , (fromTile, toTile) <- [(crossingFromTile edge, crossingToTile edge), (crossingToTile edge, crossingFromTile edge)]
     , banked <- [False, True]
@@ -111,6 +126,9 @@ attachedSites graph node =
  where
   attachments = siteComponents graph Boxed.! node
 
+routingNodeCount :: SiteGraph -> Int
+routingNodeCount graph = Vector.length (siteTiles graph) + Boxed.length (siteAbstractNodes graph)
+
 targetOverlay :: TileAStar -> CompiledRoutingAccount -> Tile -> TargetOverlay
 targetOverlay (TileAStar topology _) account target =
   TargetOverlay packed components attachments node synthetic
@@ -119,7 +137,7 @@ targetOverlay (TileAStar topology _) account target =
   packed = unTile target
   components = Vector.fromList (routingPointAttachments topology target)
   existing = IntMap.lookup packed (siteTileIndex graph)
-  node = maybe (Vector.length (siteTiles graph)) id existing
+  node = maybe (routingNodeCount graph) id existing
   synthetic = maybe True (const False) existing
   -- Assign a multi-component site to its first shared component so the union is emitted once.
   attachments = Vector.fromList
@@ -146,12 +164,12 @@ chebyshevPacked a b =
       (bx, by, bp) = unpackTile (Tile b)
    in if ap == bp then max (abs (ax - bx)) (abs (ay - by)) else maxBound
 
-reverseAdjacency :: Int -> [(Int, Int, Int)] -> Boxed.Vector (Vector.Vector (Int, Int))
+reverseAdjacency :: Int -> [(Int, Int, Int, Bool)] -> Boxed.Vector (Vector.Vector ReverseRoutingEdge)
 reverseAdjacency size edges = runST $ do
   lists <- Boxed.thaw (Boxed.replicate size [])
-  forM_ edges $ \(from, to, cost) -> do
+  forM_ edges $ \(from, to, cost, startsGenerator) -> do
     current <- BoxedMutable.read lists to
-    BoxedMutable.write lists to ((from, cost) : current)
+    BoxedMutable.write lists to ((from, cost, startsGenerator) : current)
   Boxed.map Vector.fromList <$> Boxed.freeze lists
 
 binarySearch :: Int -> Vector.Vector Int -> Maybe Int
