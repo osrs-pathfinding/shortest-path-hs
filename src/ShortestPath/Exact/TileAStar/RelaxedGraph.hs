@@ -31,13 +31,14 @@ import ShortestPath.Topology
 import ShortestPath.Transport
 
 compileRoutingAccount :: TileAStar -> RoutingOptions -> CompiledRoutingAccount
-compileRoutingAccount astar@(TileAStar topology _) options = account
+compileRoutingAccount astar@(TileAStar topology _) options = CompiledRoutingAccount routing graph
  where
-  account = compileRoutingAccountWithGraph (topologyWorld topology) options (accountSiteGraph astar account)
+  routing = prepareRoutingAccount (topologyWorld topology) options
+  graph = accountSiteGraph astar routing
 
 -- | Immutable account-specific relaxed graph.
-accountSiteGraph :: TileAStar -> CompiledRoutingAccount -> SiteGraph
-accountSiteGraph (TileAStar topology static) account =
+accountSiteGraph :: TileAStar -> PreparedRoutingAccount -> SiteGraph
+accountSiteGraph (TileAStar topology static) routing =
   SiteGraph tiles tileIndex comps abstractNodes staticCount (staticWalkingNetwork static) componentSites reverseEdges
  where
   staticCount = Vector.length (staticTiles static)
@@ -54,20 +55,20 @@ accountSiteGraph (TileAStar topology static) account =
 
   localEdges =
     [ (stateId from banked, stateId to banked, stepCost, True)
-    | compiledAllowTransports account
+    | preparedAllowTransports routing
     , banked <- [False, True]
     , transports <- Map.elems (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
     , t <- transports
     , Just originTile <- [origin t]
     , Just destinationTile <- [destination t]
-    , let stepCost = duration t + Map.findWithDefault 0 (transportType t) (compiledTransportPenalties account)
+    , let stepCost = duration t + Map.findWithDefault 0 (transportType t) (preparedTransportPenalties routing)
     , Just from <- [nodeFor originTile]
     , Just to <- [nodeFor destinationTile]
     ]
 
   bankEdges =
     [ (stateId node False, stateId node True, 0, True)
-    | compiledBankPathEnabled account
+    | preparedBankPathEnabled routing
     , tile <- Set.toList reachableBanks
     , Just node <- [nodeFor tile]
     ]
@@ -81,15 +82,15 @@ accountSiteGraph (TileAStar topology static) account =
         [ (stateId bankGlobalHub True, stateId destinationNode True, stepCost, False)
         | (destinationNode, stepCost) <- IntMap.toList bankedGlobalDestinations
         ]
-  bankGlobalEnabled = compiledAllowTransports account
-    && compiledBankPathEnabled account
+  bankGlobalEnabled = preparedAllowTransports routing
+    && preparedBankPathEnabled routing
     && not (null bankNodes)
     && not (IntMap.null bankedGlobalDestinations)
   bankNodes = [node | bank <- Set.toList reachableBanks, Just node <- [nodeFor bank]]
   -- Requirement filtering has already happened, and these transitions have no
   -- remaining state effect beyond entering the banked destination state.
   bankedGlobalDestinations = IntMap.fromListWith min
-    [ (to, duration t + Map.findWithDefault 0 (transportType t) (compiledTransportPenalties account))
+    [ (to, duration t + Map.findWithDefault 0 (transportType t) (preparedTransportPenalties routing))
     | t <- preparedGlobalTransports availability True
     , Just destinationTile <- [destination t]
     , Just to <- [nodeFor destinationTile]
@@ -105,7 +106,7 @@ accountSiteGraph (TileAStar topology static) account =
     ]
 
   nodeFor tile = IntMap.lookup (unTile tile) tileIndex
-  availability = compiledTransportAvailability account
+  availability = preparedTransportAvailability routing
 
 siteComponentGroups :: Int -> Boxed.Vector (Vector.Vector Int) -> Boxed.Vector (Vector.Vector Int)
 siteComponentGroups highestComponent comps = runST $ do

@@ -1,5 +1,11 @@
 module ShortestPath.Exact.TileAStar.Types
   ( TileAStar(..)
+  , CompiledRoutingAccount(..)
+  , compiledTransportAvailability
+  , compiledAllowTransports
+  , compiledTransportPenalties
+  , compiledBankPathEnabled
+  , compiledRoutingFingerprint
   , TileStatic(..)
   , AbstractNode(..)
   , ReverseRoutingEdge
@@ -24,16 +30,38 @@ import Data.Binary (Binary(..))
 import Data.Int (Int32, Int64)
 import Data.Word (Word8)
 import qualified Data.IntMap.Strict as IntMap
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
 
 import ShortestPath.Exact.TileAStar.SparseWalking
+import ShortestPath.Pathfinder
 import ShortestPath.Tile
 import ShortestPath.Topology
 import ShortestPath.World
 
 data TileAStar = TileAStar WorldTopology TileStatic
+
+data CompiledRoutingAccount = CompiledRoutingAccount
+  { compiledRoutingAccount :: !PreparedRoutingAccount
+  , compiledSiteGraph :: !SiteGraph
+  }
+
+compiledTransportAvailability :: CompiledRoutingAccount -> QueryTransportAvailability
+compiledTransportAvailability = preparedTransportAvailability . compiledRoutingAccount
+
+compiledAllowTransports :: CompiledRoutingAccount -> Bool
+compiledAllowTransports = preparedAllowTransports . compiledRoutingAccount
+
+compiledTransportPenalties :: CompiledRoutingAccount -> Map.Map String Int
+compiledTransportPenalties = preparedTransportPenalties . compiledRoutingAccount
+
+compiledBankPathEnabled :: CompiledRoutingAccount -> Bool
+compiledBankPathEnabled = preparedBankPathEnabled . compiledRoutingAccount
+
+compiledRoutingFingerprint :: CompiledRoutingAccount -> EffectiveRoutingFingerprint
+compiledRoutingFingerprint = preparedRoutingFingerprint . compiledRoutingAccount
 
 tileWorld :: TileAStar -> World
 tileWorld = topologyWorld . tileTopology

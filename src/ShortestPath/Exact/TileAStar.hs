@@ -8,7 +8,12 @@ module ShortestPath.Exact.TileAStar
   , TileAStarTimings(..)
   , TileAStarConfig(..)
   , CompiledRoutingAccount
+  , compiledTransportAvailability
+  , compiledAllowTransports
+  , compiledTransportPenalties
+  , compiledBankPathEnabled
   , compiledRoutingFingerprint
+  , compiledSiteGraph
   , EffectiveRoutingFingerprint
   , PreparedTarget
   , preparedTargetTile

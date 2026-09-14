@@ -2,18 +2,12 @@ module ShortestPath.Pathfinder
   ( Query(..)
   , RoutingOptions(..)
   , SearchOptions(..)
-  , CompiledRoutingAccount
-  , compiledTransportAvailability
-  , compiledAllowTransports
-  , compiledTransportPenalties
-  , compiledBankPathEnabled
-  , compiledRoutingFingerprint
-  , compiledSiteGraph
+  , PreparedRoutingAccount(..)
   , EffectiveRoutingFingerprint
   , QueryTransportAvailability(..)
   , routingOptionsFromQuery
   , searchOptionsFromQuery
-  , compileRoutingAccountWithGraph
+  , prepareRoutingAccount
   , queryRequirementContext
   , prepareQueryTransports
   , preparedLocalTransportsAt
@@ -33,7 +27,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import ShortestPath.Account
-import ShortestPath.Exact.TileAStar.Types (SiteGraph)
 import ShortestPath.Tile
 import ShortestPath.Transport (Transport(..), TransportType(..), transportTypes)
 import ShortestPath.World (World(..))
@@ -80,13 +73,12 @@ data EffectiveRoutingFingerprint = EffectiveRoutingFingerprint
   !Bool !Bool !(Map.Map String Int) !QueryTransportAvailability
   deriving stock (Eq, Show)
 
-data CompiledRoutingAccount = CompiledRoutingAccount
-  { compiledTransportAvailability :: QueryTransportAvailability
-  , compiledAllowTransports :: !Bool
-  , compiledTransportPenalties :: Map.Map String Int
-  , compiledBankPathEnabled :: !Bool
-  , compiledRoutingFingerprint :: EffectiveRoutingFingerprint
-  , compiledSiteGraph :: SiteGraph
+data PreparedRoutingAccount = PreparedRoutingAccount
+  { preparedTransportAvailability :: QueryTransportAvailability
+  , preparedAllowTransports :: !Bool
+  , preparedTransportPenalties :: Map.Map String Int
+  , preparedBankPathEnabled :: !Bool
+  , preparedRoutingFingerprint :: EffectiveRoutingFingerprint
   }
 
 data RouteStep = Walk Tile | UseTransport String Tile
@@ -132,9 +124,9 @@ routingOptionsFromQuery query = RoutingOptions
 searchOptionsFromQuery :: Query -> SearchOptions
 searchOptionsFromQuery = SearchOptions . heuristicWeight
 
-compileRoutingAccountWithGraph :: World -> RoutingOptions -> SiteGraph -> CompiledRoutingAccount
-compileRoutingAccountWithGraph world options graph =
-  CompiledRoutingAccount availability allow penalties bankEnabled fingerprint graph
+prepareRoutingAccount :: World -> RoutingOptions -> PreparedRoutingAccount
+prepareRoutingAccount world options =
+  PreparedRoutingAccount availability allow penalties bankEnabled fingerprint
  where
   availability = prepareRoutingTransports world options
   allow = routingAllowTransports options
