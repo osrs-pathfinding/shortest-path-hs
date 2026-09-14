@@ -31,6 +31,7 @@ import ShortestPath.Pathfinder
 import ShortestPath.Tile
 import ShortestPath.Topology
 import ShortestPath.Transport
+import ShortestPath.Wilderness
 import ShortestPath.World
 
 data SearchSpace = SearchSpace
@@ -56,12 +57,13 @@ search trace astar@(TileAStar topology static) account prepared start options = 
   bankTraceRef <- newSTRef []
   counters <- Mutable.replicate counterCount 0
   queue <- heapNew (min stateCount 262144)
+  when (initialCapability == WildernessGlobals) (Mutable.write best (wildernessHub False) 0)
   forM_ initialStates $ \(state, cost, kind, label) -> do
     known <- Mutable.read best state
     when (cost < known) $ do
       updateBestBank counters bestBankRef state cost
       bestBank <- readSTRef bestBankRef
-      case effectiveHeuristicRaw bestBank cost state of
+      case searchHeuristic (initialCapability /= AllGlobals) bestBank cost state of
         (# h#, dominated#, scanned# #) -> do
           recordHeuristicScan counters (I# scanned#)
           if I# h# == maxBound
@@ -77,10 +79,13 @@ search trace astar@(TileAStar topology static) account prepared start options = 
               bump counters counterUniqueStates (if known == maxBound then 1 else 0)
               bump counters counterHeuristicEvaluations 1
               bump counters counterBankDominated (I# dominated#)
-  go exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
+  case initialCapability of
+    AllGlobals -> goAll exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
+    _ -> goRestricted exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
  where
   space = searchSpace astar start prepared
-  stateCount = searchSize space * 2
+  tileStateCount = searchSize space * 2
+  stateCount = tileStateCount + if initialCapability == AllGlobals then 0 else 4
   startNode = max 0 (nodeForPacked (unTile start))
   startState = stateId startNode False
   target = preparedTargetTile prepared
@@ -88,17 +93,26 @@ search trace astar@(TileAStar topology static) account prepared start options = 
   availability = compiledTransportAvailability account
   reachableBanks = staticReachableBanks static
   bankGlobalRelevant = compiledAllowTransports account && compiledBankPathEnabled account
+  initialCapability
+    | compiledAllowTransports account = globalCapabilityAt start
+    | otherwise = AllGlobals
+  wildernessHub banked = tileStateCount + if banked then 1 else 0
+  allHub banked = tileStateCount + 2 + if banked then 1 else 0
   isBankCandidate state = bankGlobalRelevant && not (stateBanked state) && Set.member (stateTile state) reachableBanks
-  initialStates = (startState, 0, -1, "") :
+  initialStates = (startState, 0, -1, "") : initialGlobals
+  initialGlobals =
     [ (next, transportCost t, 1, transportLabel t)
     | compiledAllowTransports account
-    , t <- preparedGlobalTransports availability False
+    , t <- case initialCapability of
+        AllGlobals -> preparedGlobalTransports availability False
+        WildernessGlobals -> preparedWildernessGlobalTransports availability False
+        NoGlobals -> []
     , Just dst <- [destination t]
     , let !next = stateForPacked (unTile dst) False
     , next >= 0
     ]
 
-  go ::
+  goAll, goRestricted ::
     STRef s [(Tile, Bool)] ->
     STRef s [TileBankGlobalObservation] ->
     Mutable.MVector s Int ->
@@ -109,7 +123,23 @@ search trace astar@(TileAStar topology static) account prepared start options = 
     MutableHeap s ->
     STRef s Int ->
     ST s (Route, TileAStarCounters, [(Tile, Bool)])
-  go exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef = do
+  goAll = goWith False
+  {-# INLINE goAll #-}
+  goRestricted = goWith True
+  {-# INLINE goRestricted #-}
+
+  goWith :: forall s. Bool ->
+    STRef s [(Tile, Bool)] ->
+    STRef s [TileBankGlobalObservation] ->
+    Mutable.MVector s Int ->
+    Mutable.MVector s Int ->
+    Mutable.MVector s Int ->
+    Mutable.MVector s Int ->
+    BoxedMutable.MVector s String ->
+    MutableHeap s ->
+    STRef s Int ->
+    ST s (Route, TileAStarCounters, [(Tile, Bool)])
+  goWith restricted exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef = do
     popped <- heapPop queue
     case popped of
       Nothing -> do
@@ -119,19 +149,27 @@ search trace astar@(TileAStar topology static) account prepared start options = 
       Just (priority, state, cost) -> do
         known <- Mutable.read best state
         if cost /= known
-          then bump counters counterStalePqEntries 1 >> go exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
+          then bump counters counterStalePqEntries 1 >> continue exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
+          else if restricted && state >= tileStateCount
+            then do
+              let banked = odd (state - tileStateCount)
+                  globals
+                    | state < tileStateCount + 2 = preparedWildernessGlobalTransports availability banked
+                    | otherwise = preparedGlobalTransports availability banked
+              forM_ globals (relaxTransportFromHub counters best prevState prevKind prevLabel queue bestBankRef cost state banked)
+              continue exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
           else do
             bestBank <- readSTRef bestBankRef
-            case effectiveHeuristicRaw bestBank cost state of
+            case searchHeuristic restricted bestBank cost state of
               (# h#, dominated#, scanned# #) -> do
                 recordHeuristicScan counters (I# scanned#)
                 if I# h# == maxBound
-                  then countHeuristicPrune counters state >> go exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
+                  then countHeuristicPrune counters state >> continue exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
                   else if addCostDefault maxBound cost (weightedHeuristic (I# h#)) > priority then do
                     heapPush queue (addCostDefault maxBound cost (weightedHeuristic (I# h#))) state cost
                     bump counters counterBankBoundPQRekeys 1
                     bump counters counterBankDominated (I# dominated#)
-                    go exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
+                    continue exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
                   else do
                     let tile = stateTile state
                     when trace $ do
@@ -153,13 +191,17 @@ search trace astar@(TileAStar topology static) account prepared start options = 
                         when (compiledAllowTransports account && Set.member tile reachableBanks) $ do
                           observations <- readSTRef bankTraceRef
                           writeSTRef bankTraceRef (bankObservation currentBestBank cost state : observations)
-                        relaxNeighbors counters best prevState prevKind prevLabel queue bestBankRef currentBestBank cost state
-                        go exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
+                        relaxNeighbors restricted counters best prevState prevKind prevLabel queue bestBankRef currentBestBank cost state
+                        when restricted (relaxGlobalActivation counters best prevState prevKind queue cost state)
+                        continue exploredRef bankTraceRef counters best prevState prevKind prevLabel queue bestBankRef
+   where
+    continue = if restricted then goRestricted else goAll
+  {-# INLINE goWith #-}
 
   relaxNeighbors ::
-    Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int ->
+    Bool -> Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int ->
     BoxedMutable.MVector s String -> MutableHeap s -> STRef s Int -> Int -> Int -> Int -> ST s ()
-  relaxNeighbors counters best prevState prevKind prevLabel queue bestBankRef bestBank cost state = do
+  relaxNeighbors restricted counters best prevState prevKind prevLabel queue bestBankRef bestBank cost state = do
     if node < baseLength
       then do
         walkNodes node
@@ -172,11 +214,11 @@ search trace astar@(TileAStar topology static) account prepared start options = 
       else forM_ (walkingNeighborsRaw world tile) $ \nextTile ->
         when (isWalkable (worldCollision world) nextTile || usableOrigin banked nextTile) (relaxWalk nextTile)
     when (compiledBankTransitionAvailable banked tile) $
-      relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state (state + 1) 0 "" transportEdge
+      relaxEdge restricted counters best prevState prevKind prevLabel queue bestBankRef cost state (state + 1) 0 "" transportEdge
     when (compiledAllowTransports account) $
       forM_ (localTransports banked tile) $ \transport ->
         when (transportType transport /= "VIRTUAL_WALL") (relaxTransport banked transport)
-    when (compiledAllowTransports account && compiledBankTransitionAvailable banked tile && not dominatedBankGlobal) $
+    when (not restricted && compiledAllowTransports account && compiledBankTransitionAvailable banked tile && not dominatedBankGlobal) $
       forM_ (preparedGlobalTransports availability True) (relaxTransport True)
    where
     tile = stateTile state
@@ -193,22 +235,22 @@ search trace astar@(TileAStar topology static) account prepared start options = 
     dominatedBankGlobal = not banked && Set.member tile reachableBanks && cost > bestBank
     relaxWalk nextTile =
       let !next = stateForPacked (unTile nextTile) banked
-       in when (next >= 0) (relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state next 1 "" walkingEdge)
+       in when (next >= 0) (relaxEdge restricted counters best prevState prevKind prevLabel queue bestBankRef cost state next 1 "" walkingEdge)
     relaxNode nextNode =
       let !sid = stateId nextNode banked
-      in relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state sid 1 "" walkingEdge
+      in relaxEdge restricted counters best prevState prevKind prevLabel queue bestBankRef cost state sid 1 "" walkingEdge
     relaxTransport nextBanked transport =
       case destination transport of
         Just dst ->
           let !next = stateForPacked (unTile dst) nextBanked
               stepCost = transportCost transport
-           in when (next >= 0) (relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state next stepCost (transportLabel transport) transportEdge)
+           in when (next >= 0) (relaxEdge restricted counters best prevState prevKind prevLabel queue bestBankRef cost state next stepCost (transportLabel transport) transportEdge)
         Nothing -> pure ()
 
   relaxEdge ::
-    Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int ->
+    Bool -> Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int ->
     BoxedMutable.MVector s String -> MutableHeap s -> STRef s Int -> Int -> Int -> Int -> Int -> String -> Int -> ST s ()
-  relaxEdge counters best prevState prevKind prevLabel queue bestBankRef cost state next stepCost label kind =
+  relaxEdge restricted counters best prevState prevKind prevLabel queue bestBankRef cost state next stepCost label kind =
     when (cost /= maxBound && stepCost /= maxBound && stepCost >= 0 && cost <= maxBound - stepCost) $ do
         let newCost = cost + stepCost
         bump counters kind 1
@@ -216,7 +258,7 @@ search trace astar@(TileAStar topology static) account prepared start options = 
         when (newCost < known) $ do
             updateBestBank counters bestBankRef next newCost
             currentBestBank <- readSTRef bestBankRef
-            case effectiveHeuristicRaw currentBestBank newCost next of
+            case searchHeuristic restricted currentBestBank newCost next of
               (# h#, dominated#, scanned# #) -> do
                 recordHeuristicScan counters (I# scanned#)
                 if I# h# == maxBound
@@ -231,6 +273,36 @@ search trace astar@(TileAStar topology static) account prepared start options = 
                     bump counters counterUniqueStates (if known == maxBound then 1 else 0)
                     bump counters counterHeuristicEvaluations 1
                     bump counters counterBankDominated (I# dominated#)
+
+  relaxGlobalActivation :: forall s. Mutable.MVector s Int -> Mutable.MVector s Int ->
+    Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> ST s ()
+  relaxGlobalActivation counters best prevState prevKind queue cost state =
+    case globalCapabilityAt (stateTile state) of
+      NoGlobals -> pure ()
+      WildernessGlobals -> relaxHub (wildernessHub banked)
+      AllGlobals -> relaxHub (allHub banked)
+   where
+    banked = stateBanked state
+    relaxHub hub = do
+      known <- Mutable.read best hub
+      when (cost < known) $ do
+        Mutable.write best hub cost
+        Mutable.write prevState hub state
+        Mutable.write prevKind hub 2
+        heapPush queue cost hub cost
+        bump counters counterPqPushes 1
+        bump counters counterUniqueStates (if known == maxBound then 1 else 0)
+
+  relaxTransportFromHub :: forall s. Mutable.MVector s Int -> Mutable.MVector s Int ->
+    Mutable.MVector s Int -> Mutable.MVector s Int -> BoxedMutable.MVector s String ->
+    MutableHeap s -> STRef s Int -> Int -> Int -> Bool -> Transport -> ST s ()
+  relaxTransportFromHub counters best prevState prevKind prevLabel queue bestBankRef cost state banked transport =
+    case destination transport of
+      Nothing -> pure ()
+      Just dst ->
+        let next = stateForPacked (unTile dst) banked
+         in when (next >= 0) (relaxEdge True counters best prevState prevKind prevLabel queue bestBankRef
+              cost state next (transportCost transport) (transportLabel transport) transportEdge)
 
   weightedHeuristic value = min maxBound (round (searchHeuristicWeight options * fromIntegral value))
   effectiveHeuristicRaw :: Int -> Int -> Int -> (# Int#, Int#, Int# #)
@@ -247,6 +319,21 @@ search trace astar@(TileAStar topology static) account prepared start options = 
     | otherwise =
         case heuristicAtSearchNodeRaw state False of
           (# unbanked#, scanned# #) -> (# unbanked#, 0#, scanned# #)
+  searchHeuristic restricted bestBank cost state
+    | not restricted = effectiveHeuristicRaw bestBank cost state
+    | otherwise = case effectiveHeuristicRaw bestBank cost state of
+        (# h#, dominated#, scanned# #) -> case min (I# h#) (globalBound (stateBanked state)) of
+          I# relaxed# -> (# relaxed#, dominated#, scanned# #)
+  globalBound banked = if banked then snd globalBounds else fst globalBounds
+  globalBounds = (computeGlobalBound False, computeGlobalBound True)
+  computeGlobalBound banked = foldl' bound maxBound (preparedGlobalTransports availability banked)
+   where
+    bound bestGlobal transport = case destination transport of
+      Nothing -> bestGlobal
+      Just dst ->
+        let next = stateForPacked (unTile dst) banked
+         in if next < 0 then bestGlobal else case heuristicAtSearchNodeRaw next banked of
+              (# h#, _ #) -> min bestGlobal (addCostDefault maxBound (transportCost transport) (I# h#))
   heuristicAtSearchNodeRaw state banked
     | node < baseLength = heuristicAtComponentCountedRaw heuristic packed (searchBaseComponents space Vector.! node) banked
     | otherwise = heuristicAtResolvedCountedRaw heuristic packed

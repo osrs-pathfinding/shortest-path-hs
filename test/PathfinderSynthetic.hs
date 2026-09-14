@@ -25,6 +25,7 @@ import ShortestPath.Requirements
 import ShortestPath.Tile
 import ShortestPath.Topology
 import ShortestPath.Transport
+import ShortestPath.Wilderness
 import ShortestPath.World
 
 main :: IO ()
@@ -52,7 +53,94 @@ main = do
   checkMultiplePointAttachments
   checkManhattanGeneratorProvenance
   checkBankGlobalHub
+  checkWildernessGlobals
   checkGeneratorScanKernel
+
+checkWildernessGlobals :: IO ()
+checkWildernessGlobals = do
+  assertMsg "outside Wilderness was not AllGlobals" (globalCapabilityAt outside == AllGlobals)
+  assertMsg "level 21-30 was not WildernessGlobals" (globalCapabilityAt mid == WildernessGlobals)
+  assertMsg "above level 30 was not NoGlobals" (globalCapabilityAt deep == NoGlobals)
+  astar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy deep) world
+  let reference = ReferenceDijkstra (tileTopology astar)
+      run start target enabled = do
+        let q = (defaultQuery start target)
+              { enabledTransportTypes = Set.fromList enabled, bankPathEnabled = False }
+            exact = findRouteReferenceDijkstra reference q
+            fast = findRouteTileAStar astar q
+        assertMsg ("Wilderness A*/Dijkstra mismatch: " <> show (start, target, routeCost fast, routeCost exact, routeSteps fast, routeSteps exact))
+          (routeCost fast == routeCost exact)
+        pure fast
+  outsideRoute <- run outside ordinaryTarget ["WILD_20"]
+  assertMsg "ordinary global was not immediately available outside Wilderness"
+    (routeCost outsideRoute == 1 && routeSteps outsideRoute == [UseTransport "WILD_20" ordinaryTarget])
+  midRestricted <- run mid restrictedTarget ["WILD_30"]
+  midOrdinary <- run mid ordinaryTarget ["WILD_20"]
+  assertMsg "level-30 global was unavailable in level 21-30 Wilderness" (routeCost midRestricted == 1)
+  assertMsg "ordinary global was illegally available above level 20" (routeCost midOrdinary == 81)
+  deepRestricted <- run deep restrictedTarget ["WILD_30"]
+  deepOrdinary <- run deep ordinaryTarget ["WILD_20"]
+  assertMsg "deep Wilderness did not activate level-30 globals at the boundary"
+    (routeCost deepRestricted == 3 && take 2 (routeSteps deepRestricted) == [Walk deep30, Walk mid])
+  assertMsg "deep Wilderness did not continue to level 20 for an ordinary global"
+    (routeCost deepOrdinary == 83 && length (filter isWalk (routeSteps deepOrdinary)) == 82)
+  localExit <- run deep ordinaryTarget ["WILD_EXIT", "WILD_20"]
+  assertMsg "local transport destination did not activate globals"
+    (routeCost localExit == 4 && routeSteps localExit == [UseTransport "WILD_EXIT" outside, UseTransport "WILD_20" ordinaryTarget])
+  noGlobal <- run deep deepNeighbor ["WILD_20", "WILD_30"]
+  assertMsg "search used a global when walking was optimal" (routeCost noGlobal == 1 && routeSteps noGlobal == [Walk deepNeighbor])
+
+  competingAstar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy deep) competingWorld
+  let competingReference = ReferenceDijkstra (tileTopology competingAstar)
+      competingQuery = (defaultQuery deep ordinaryTarget)
+        { enabledTransportTypes = Set.fromList ["EXPENSIVE_EXIT", "CHEAP_STAGE", "CHEAP_EXIT", "WILD_20"]
+        , bankPathEnabled = False
+        }
+      competingFast = findRouteTileAStar competingAstar competingQuery
+      competingExact = findRouteReferenceDijkstra competingReference competingQuery
+  assertMsg "first-discovered activation incorrectly won"
+    (routeCost competingFast == 4 && routeCost competingExact == 4
+      && routeSteps competingFast == [UseTransport "CHEAP_STAGE" cheapStage, UseTransport "CHEAP_EXIT" cheapOutside, UseTransport "WILD_20" ordinaryTarget])
+
+  bankAstar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy deep) bankWorld
+  let bankReference = ReferenceDijkstra (tileTopology bankAstar)
+      bankQuery = (defaultQuery deep ordinaryTarget)
+        { enabledTransportTypes = Set.singleton "BANK_WILD_20"
+        , requirementMode = ConfiguredRequirements (emptyAccountState {accountBank = Map.singleton "999" 1})
+        }
+      bankFast = findRouteTileAStar bankAstar bankQuery
+      bankExact = findRouteReferenceDijkstra bankReference bankQuery
+  assertMsg ("banked global Wilderness mismatch: " <> show (routeCost bankFast, routeCost bankExact, routeSteps bankFast))
+    (routeCost bankFast == 83 && routeCost bankExact == 83
+      && length (filter isWalk (routeSteps bankFast)) == 82
+      && last (routeSteps bankFast) == UseTransport "BANK_WILD_20" ordinaryTarget)
+ where
+  outside = packTile 3000 3678 0
+  mid = packTile 3000 3759 0
+  deep30 = packTile 3000 3760 0
+  deep = packTile 3000 3761 0
+  deepNeighbor = packTile 3000 3762 0
+  ordinaryTarget = packTile 500 500 0
+  restrictedTarget = packTile 600 600 0
+  cheapStage = packTile 3010 3800 0
+  cheapOutside = packTile 3010 3600 0
+  corridor = [packTile 3000 y 0 | y <- [3678 .. 3762]]
+  ordinary = globalAt "WILD_20" ordinaryTarget 1 20 Nothing
+  restricted = globalAt "WILD_30" restrictedTarget 1 30 Nothing
+  exit = local "WILD_EXIT" deep outside 3
+  world = withEmptySeparatorArtifact (World (collisionMap (ordinaryTarget : restrictedTarget : corridor))
+    (Map.singleton deep [exit]) [ordinary, restricted] Set.empty Nothing)
+  competingWorld = withEmptySeparatorArtifact (World
+    (collisionMap [deep, cheapStage, cheapOutside, ordinaryTarget])
+    (Map.fromList
+      [ (deep, [local "EXPENSIVE_EXIT" deep outside 10, local "CHEAP_STAGE" deep cheapStage 2])
+      , (cheapStage, [local "CHEAP_EXIT" cheapStage cheapOutside 1])
+      ]) [ordinary] Set.empty Nothing)
+  bankWorld = withEmptySeparatorArtifact (World (collisionMap (ordinaryTarget : corridor)) Map.empty
+    [globalAt "BANK_WILD_20" ordinaryTarget 1 20 (Just (ItemOne (ItemTerm "999" 1)))]
+    (Set.singleton deep) Nothing)
+  isWalk (Walk _) = True
+  isWalk _ = False
 
 checkBankGlobalHub :: IO ()
 checkBankGlobalHub = do
@@ -520,6 +608,10 @@ localReq kind from to cost itemReq = Transport kind (Just from) (Just to) cost k
 
 global :: String -> Tile -> Int -> Maybe ItemExpr -> Transport
 global kind to cost itemReq = Transport kind Nothing (Just to) cost kind "" False Nothing [] itemReq [] [] [] "synthetic"
+
+globalAt :: String -> Tile -> Int -> Int -> Maybe ItemExpr -> Transport
+globalAt kind to cost wilderness itemReq =
+  (global kind to cost itemReq) {maxWildernessLevel = Just wilderness}
 
 data Case = Case String Query Expect
 data Expect = Reachable | Unreachable

@@ -41,6 +41,7 @@ library
     ShortestPath.Topology
     ShortestPath.Transport
     ShortestPath.Tsv
+    ShortestPath.Wilderness
     ShortestPath.World
   hs-source-dirs: src
   c-sources:

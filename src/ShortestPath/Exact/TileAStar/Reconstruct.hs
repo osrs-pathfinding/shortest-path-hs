@@ -26,7 +26,8 @@ reconstructRouteSteps stateTile prevState prevKind prevLabel state = reverse <$>
       then pure []
       else do
         kind <- Mutable.read prevKind current
-        step <- if kind == 0
-          then pure (Walk (stateTile current))
-          else UseTransport <$> BoxedMutable.read prevLabel current <*> pure (stateTile current)
-        (step :) <$> collect previous
+        rest <- collect previous
+        case kind of
+          0 -> pure (Walk (stateTile current) : rest)
+          1 -> (: rest) <$> (UseTransport <$> BoxedMutable.read prevLabel current <*> pure (stateTile current))
+          _ -> pure rest

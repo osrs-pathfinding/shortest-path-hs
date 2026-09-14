@@ -18,6 +18,7 @@ module ShortestPath.Pathfinder
   , prepareQueryTransports
   , preparedLocalTransportsAt
   , preparedGlobalTransports
+  , preparedWildernessGlobalTransports
   , preparedTransport
   , transportLabel
   , bankTransitionAvailable
@@ -70,6 +71,8 @@ data QueryTransportAvailability = QueryTransportAvailability
   , bankedLocalTransports :: Map.Map Tile [Transport]
   , carriedGlobalTransports :: [Transport]
   , bankedGlobalTransports :: [Transport]
+  , carriedWildernessGlobalTransports :: [Transport]
+  , bankedWildernessGlobalTransports :: [Transport]
   }
   deriving stock (Eq, Show)
 
@@ -148,17 +151,19 @@ compileRoutingAccountWithGraph world options graph =
     ]
   effectiveAvailability
     | allow = availability
-    | otherwise = QueryTransportAvailability Map.empty Map.empty [] []
+    | otherwise = QueryTransportAvailability Map.empty Map.empty [] [] [] []
   fingerprint = EffectiveRoutingFingerprint allow bankEnabled penalties effectiveAvailability
 
 prepareRoutingTransports :: World -> RoutingOptions -> QueryTransportAvailability
 prepareRoutingTransports world options =
-  QueryTransportAvailability
-    (filterLocals False)
-    (filterLocals True)
-    (filterAvailable False (worldGlobalTeleports world))
-    (filterAvailable True (worldGlobalTeleports world))
+  QueryTransportAvailability carriedLocals bankedLocals carriedGlobals bankedGlobals
+    (filter wildernessCapable carriedGlobals) (filter wildernessCapable bankedGlobals)
  where
+  carriedLocals = filterLocals False
+  bankedLocals = filterLocals True
+  carriedGlobals = filterAvailable False (worldGlobalTeleports world)
+  bankedGlobals = filterAvailable True (worldGlobalTeleports world)
+  wildernessCapable transport = maxWildernessLevel transport >= Just 30
   filterLocals banked = Map.map (filterAvailable banked) (worldTransports world)
   filterAvailable banked = filter (transportAvailableWithOptions options banked)
 
@@ -172,6 +177,11 @@ preparedGlobalTransports :: QueryTransportAvailability -> Bool -> [Transport]
 {-# INLINE preparedGlobalTransports #-}
 preparedGlobalTransports availability banked =
   if banked then bankedGlobalTransports availability else carriedGlobalTransports availability
+
+preparedWildernessGlobalTransports :: QueryTransportAvailability -> Bool -> [Transport]
+{-# INLINE preparedWildernessGlobalTransports #-}
+preparedWildernessGlobalTransports availability banked =
+  if banked then bankedWildernessGlobalTransports availability else carriedWildernessGlobalTransports availability
 
 preparedTransport :: Query -> Transport -> Maybe (Tile, Int, RouteStep)
 {-# INLINE preparedTransport #-}
