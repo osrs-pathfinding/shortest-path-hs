@@ -2,6 +2,7 @@ module ShortestPath.Exact.TileAStar.Types
   ( TileAStar(..)
   , TileStatic(..)
   , SiteGraph(..)
+  , TargetOverlay(..)
   , TileAStarCounters(..)
   , TileBankGlobalObservation(..)
   , TileReverseCounters(..)
@@ -60,6 +61,14 @@ data SiteGraph = SiteGraph
   , siteSparseNetwork :: SparseWalkingNetwork
   , siteComponentSiteIds :: Boxed.Vector (Vector.Vector Int)
   , siteReverseEdges :: Boxed.Vector (Vector.Vector (Int, Int))
+  }
+
+data TargetOverlay = TargetOverlay
+  { targetPacked :: !Int
+  , targetComponents :: Vector.Vector Int
+  , targetAttachmentSites :: Vector.Vector (Int, Int)
+  , targetSite :: !Int
+  , targetSynthetic :: !Bool
   }
 
 instance Binary TileStatic where

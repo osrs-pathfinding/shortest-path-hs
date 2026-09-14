@@ -15,7 +15,8 @@ import ShortestPath.Exact.TileAStar.Heuristic
   , heuristicAtResolved, prepareHeuristic, prepareHeuristicProfiled, seedKey
   )
 import ShortestPath.Exact.TileAStar.HeuristicScan
-import ShortestPath.Exact.TileAStar.RelaxedGraph (chebyshevPacked)
+import ShortestPath.Exact.TileAStar.RelaxedGraph
+import ShortestPath.Exact.TileAStar.ReverseSearch
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Exact.ReferenceDijkstra
 import ShortestPath.Account
@@ -37,6 +38,7 @@ main = do
   mapM_ (checkRoute reference tileAStar world) (cases tiles)
   checkHeuristicLookup tileAStar tiles
   checkPreparationLifetimes tileAStar tiles
+  checkTargetOverlay tileAStar tiles
   let globalQuery = query (tA3 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
       rawGlobalRoute = findRouteReferenceDijkstra reference globalQuery
       tileGlobalRoute = findRouteTileAStar tileAStar globalQuery
@@ -178,11 +180,18 @@ checkMultiplePointAttachments = do
       attachments = pointAttachments (tileTopology tileAStar) point
       referenceRoute = findRouteReferenceDijkstra reference routeQuery
       tileRoute = findRouteTileAStar tileAStar routeQuery
-      heuristic = prepareHeuristic tileAStar (compileRoutingAccount tileAStar (routingOptionsFromQuery routeQuery)) (queryTarget routeQuery)
+      account = compileRoutingAccount tileAStar (routingOptionsFromQuery routeQuery)
+      heuristic = prepareHeuristic tileAStar account (queryTarget routeQuery)
+      overlay = targetOverlay tileAStar account point
+      graph = compiledSiteGraph account
   assertMsg ("attachments: " <> show attachments) (length attachments == 2)
   assertMsg ("reference route: " <> show referenceRoute) (routeCost referenceRoute == 2)
   assertMsg ("tile route: " <> show tileRoute) (routeCost tileRoute == 2)
   assertMsg "reverse shared-point route" (routeCost (findRouteTileAStar tileAStar (query right left (Set.singleton "SYNTHETIC_SHARED_POINT") False)) == 2)
+  assertMsg "multi-component target attachments were lost"
+    (Vector.length (targetComponents overlay) == 2 && Vector.length (targetAttachmentSites overlay) == 2)
+  let (manhattan, _) = reverseDijkstraManhattan graph overlay
+  assertReverseLabelsEqual graph overlay (fst (reverseDijkstra graph overlay)) (halveDistances (manhattanDistances manhattan))
   assertResolvedHeuristic tileAStar heuristic point
 
 checkHeuristicLookup :: TileAStar -> Tiles -> IO ()
@@ -221,6 +230,54 @@ checkPreparationLifetimes tileAStar tiles = do
     (compiledRoutingFingerprint relevant /= compiledRoutingFingerprint account)
   assertMsg "irrelevant account change altered routing fingerprint"
     (compiledRoutingFingerprint irrelevant == compiledRoutingFingerprint account)
+
+checkTargetOverlay :: TileAStar -> Tiles -> IO ()
+checkTargetOverlay astar tiles = do
+  let routeQuery = walkingQuery (tA0 tiles) (tA3 tiles)
+      account = compileRoutingAccount astar (routingOptionsFromQuery routeQuery)
+      graph = compiledSiteGraph account
+      overlay = targetOverlay astar account (tA3 tiles)
+      staticOverlay = targetOverlay astar account (tD1 tiles)
+      blockedOverlay = targetOverlay astar account (tUnknown tiles)
+      attachments = targetAttachmentSites overlay
+      attachmentIds = Vector.map fst attachments
+      (manhattan, counters) = reverseDijkstraManhattan graph overlay
+      staticManhattan = reverseDijkstraManhattanUncounted graph staticOverlay
+      blockedDistances = reverseDijkstraUncounted graph blockedOverlay
+      clique = fst (reverseDijkstra graph overlay)
+      sparse = halveDistances (manhattanDistances manhattan)
+  assertMsg "dynamic target was inserted into static graph"
+    (IntMap.notMember (targetPacked overlay) (siteTileIndex graph))
+  assertMsg "ordinary target did not receive a synthetic reverse site"
+    (targetSynthetic overlay && targetSite overlay == Vector.length (siteTiles graph))
+  assertMsg "static target received a redundant synthetic reverse site"
+    (not (targetSynthetic staticOverlay) && targetSite staticOverlay < Vector.length (siteTiles graph))
+  assertMsg "blocked transport target was not retained as a static site"
+    (not (targetSynthetic blockedOverlay) && Vector.null (targetComponents blockedOverlay))
+  assertMsg "target attachment set was too small for the shared component"
+    (Vector.length attachments >= 3)
+  assertMsg "target attachment sites were not deduplicated"
+    (Set.size (Set.fromList (Vector.toList attachmentIds)) == Vector.length attachmentIds)
+  Vector.forM_ attachments $ \(site, cost) ->
+    assertMsg "target attachment cost mismatch"
+      (cost == chebyshevPacked (targetPacked overlay) (siteTiles graph Vector.! site))
+  assertReverseLabelsEqual graph overlay clique sparse
+  mapM_ (\banked -> do
+    let targetState = stateId (targetSite overlay) banked
+    assertMsg "target layer lost generator provenance"
+      (manhattanGeneratorOrigins manhattan Vector.! targetState == targetState)
+    Vector.forM_ attachmentIds $ \site ->
+      assertMsg "walking target attachment changed generator provenance"
+        (manhattanGeneratorOrigins manhattan Vector.! stateId site banked == targetState)) [False, True]
+  mapM_ (\banked -> do
+    let staticState = stateId (targetSite staticOverlay) banked
+        blockedState = stateId (targetSite blockedOverlay) banked
+    assertMsg "static target layer changed generator provenance"
+      (manhattanGeneratorOrigins staticManhattan Vector.! staticState == staticState)
+    assertMsg "blocked target layer was not seeded"
+      (blockedDistances Vector.! blockedState == 0)) [False, True]
+  assertMsg "static sites still scanned component lists for the query target"
+    (reverseTotalSitesScanned counters == Vector.length attachments * 2)
 
 assertResolvedHeuristic :: TileAStar -> Heuristic -> Tile -> IO ()
 assertResolvedHeuristic tileAStar heuristic tile =

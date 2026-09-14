@@ -53,7 +53,7 @@ import ShortestPath.Pathfinder
 import ShortestPath.Exact.TileAStar.Heuristic
 import ShortestPath.Exact.TileAStar.HeuristicScan (forceGeneratorScan)
 import ShortestPath.Exact.TileAStar.Preprocessing
-import ShortestPath.Exact.TileAStar.RelaxedGraph (binarySearch, compileRoutingAccount)
+import ShortestPath.Exact.TileAStar.RelaxedGraph (binarySearch, compileRoutingAccount, targetOverlay)
 import ShortestPath.Exact.TileAStar.ReverseSearch (emptyReverseCounters)
 import ShortestPath.Exact.TileAStar.Search
 import ShortestPath.Exact.TileAStar.SparseWalking
@@ -71,7 +71,9 @@ findRouteTileAStar astar q =
   target = prepareTarget astar account (queryTarget q)
 
 prepareTarget :: TileAStar -> CompiledRoutingAccount -> Tile -> PreparedTarget
-prepareTarget astar account target = preparedTarget astar target (prepareHeuristic astar account target)
+prepareTarget astar account target = preparedTarget astar target overlay (prepareHeuristicFor astar account overlay)
+ where
+  overlay = targetOverlay astar account target
 
 compileRoutingAccountProfiled :: TileAStar -> RoutingOptions -> IO (CompiledRoutingAccount, Double)
 compileRoutingAccountProfiled astar options =
@@ -80,14 +82,14 @@ compileRoutingAccountProfiled astar options =
 prepareTargetProfiled :: TileAStarConfig -> TileAStar -> CompiledRoutingAccount -> Tile -> IO (PreparedTarget, Double)
 prepareTargetProfiled config astar account target =
   timedIO forcePreparedTarget
-    (preparedTarget astar target <$> prepareHeuristicProfiled config astar account target)
-
-preparedTarget :: TileAStar -> Tile -> Heuristic -> PreparedTarget
-preparedTarget (TileAStar topology static) target heuristic =
-  PreparedTarget target attachments site extras extraComponents extraSites heuristic
+    (preparedTarget astar target overlay <$> prepareHeuristicProfiledFor config astar account overlay)
  where
-  attachments = Vector.fromList (routingPointAttachments topology target)
-  site = IntMap.findWithDefault (-1) (unTile target) (heuristicSiteIndex heuristic)
+  overlay = targetOverlay astar account target
+
+preparedTarget :: TileAStar -> Tile -> TargetOverlay -> Heuristic -> PreparedTarget
+preparedTarget (TileAStar _ static) target overlay heuristic =
+  PreparedTarget target overlay extras extraComponents extraSites heuristic
+ where
   extras = Vector.fromList
     [ packed
     | packed <- IntSet.toAscList (IntSet.insert (unTile target) (IntSet.fromList (Vector.toList (staticTiles static))))
@@ -96,7 +98,7 @@ preparedTarget (TileAStar topology static) target heuristic =
   staticIndex = IntMap.fromList [(packed, ix) | (ix, packed) <- Vector.toList (Vector.indexed (staticTiles static))]
   extraComponents = Boxed.fromList [componentsAt packed | packed <- Vector.toList extras]
   componentsAt packed
-    | packed == unTile target = attachments
+    | packed == unTile target = targetComponents overlay
     | otherwise = maybe Vector.empty (staticComponents static Boxed.!) (IntMap.lookup packed staticIndex)
   extraSites = Vector.map (\packed -> IntMap.findWithDefault (-1) packed (heuristicSiteIndex heuristic)) extras
 
@@ -292,11 +294,15 @@ forcePreparedTarget target = do
   forcedHeuristic <- forceHeuristic (preparedTargetHeuristic target)
   evaluate
     ( forcedHeuristic
-        + Vector.length (preparedTargetAttachments target)
+        + Vector.length (targetComponents overlay)
+        + Vector.foldl' (\total (site, cost) -> total + site + cost) 0 (targetAttachmentSites overlay)
+        + targetSite overlay
         + Vector.length (preparedSearchExtraTiles target)
         + Boxed.foldl' (\total components -> total + Vector.length components) 0 (preparedSearchExtraComponents target)
         + Vector.sum (preparedSearchExtraSites target)
     )
+ where
+  overlay = preparedTargetOverlay target
 
 forceSearch :: (Route, TileAStarCounters, [(Tile, Bool)]) -> IO Int
 forceSearch (route, counters, explored) =

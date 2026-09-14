@@ -48,9 +48,10 @@ reversePathDebug astar q =
  where
   availability = compiledTransportAvailability account
   account = compileRoutingAccount astar (routingOptionsFromQuery q)
-  graph = siteGraph astar account (queryTarget q)
-  distances = reverseDijkstraUncounted graph (targetSeeds graph (queryTarget q))
-  heuristic = heuristicFromDistances components graph distances 0 0 emptyReverseCounters
+  graph = compiledSiteGraph account
+  overlay = targetOverlay astar account (queryTarget q)
+  distances = reverseDijkstraUncounted graph overlay
+  heuristic = heuristicFromDistances components graph overlay distances 0 0 emptyReverseCounters
   stateDebug banked =
     case bestSource banked of
       Nothing -> ReversePathState banked (Just source) maxBound 0 True []
@@ -60,7 +61,7 @@ reversePathDebug astar q =
   source = queryStart q
   bestSource banked = foldl choose Nothing candidates
    where
-    exact = [(node, distances Vector.! stateId node banked, 0) | Just node <- [IntMap.lookup (unTile source) (siteTileIndex graph)]]
+    exact = [(node, distances Vector.! stateId node banked, 0) | Just node <- [sourceSite]]
     attached =
       [ (node, total, walking)
       | cid <- routingPointAttachments topology source
@@ -68,7 +69,16 @@ reversePathDebug astar q =
       , let walking = chebyshevPacked (unTile source) (siteTiles graph Vector.! node)
             total = addCostDefault maxBound walking (distances Vector.! stateId node banked)
       ]
-    candidates = filter (\(_, total, _) -> total /= maxBound) (exact <> attached)
+    directTarget =
+      [ (targetSite overlay, walking, walking)
+      | targetSynthetic overlay
+      , Vector.any (`Vector.elem` targetComponents overlay) (Vector.fromList (routingPointAttachments topology source))
+      , let walking = chebyshevPacked (unTile source) (targetPacked overlay)
+      ]
+    candidates = filter (\(_, total, _) -> total /= maxBound) (exact <> attached <> directTarget)
+    sourceSite
+      | unTile source == targetPacked overlay = Just (targetSite overlay)
+      | otherwise = IntMap.lookup (unTile source) (siteTileIndex graph)
     choose Nothing candidate = Just candidate
     choose current@(Just (_, best, _)) candidate@(_, cost, _)
       | cost < best = Just candidate
@@ -77,7 +87,7 @@ reversePathDebug astar q =
     | cost == 0 = []
     | otherwise = [ReversePathEdge source site banked banked "component-walk" "component walk" cost cost]
    where
-    site = Tile (siteTiles graph Vector.! node)
+    site = Tile (siteTile node)
   shiftCumulative approachCost edge = edge {reverseEdgeCumulativeCost = approachCost + reverseEdgeCumulativeCost edge}
   forwardPath sourceState = runST $ do
     best <- Mutable.replicate stateCount maxBound
@@ -98,8 +108,12 @@ reversePathDebug astar q =
                   then reconstruct best prevState prevEdge state
                   else mapM_ (relax best prevState prevEdge queue cost state) (debugNeighbors state) >> go
     go
-  stateCount = Vector.length (siteTiles graph) * 2
-  stateIsTarget state = siteTiles graph Vector.! (state `div` 2) == unTile (queryTarget q)
+  staticSiteCount = Vector.length (siteTiles graph)
+  stateCount = (staticSiteCount + if targetSynthetic overlay then 1 else 0) * 2
+  stateIsTarget state = state `div` 2 == targetSite overlay
+  siteTile node
+    | targetSynthetic overlay && node == targetSite overlay = targetPacked overlay
+    | otherwise = siteTiles graph Vector.! node
   relax best prevState prevEdge queue cost state edge =
     case addCost cost (debugEdgeCost edge) of
       Nothing -> pure ()
@@ -130,28 +144,41 @@ reversePathDebug astar q =
    where
     node = state `div` 2
     banked = odd state
-    tile = Tile (siteTiles graph Vector.! node)
-    componentSites = attachedSites graph node
+    tile = Tile (siteTile node)
+    walkingAttachments
+      | targetSynthetic overlay && node == targetSite overlay = Vector.toList (targetAttachmentSites overlay)
+      | otherwise =
+          [ (other, chebyshevPacked (siteTile node) (siteTile other))
+          | other <- Vector.toList (attachedSites graph node)
+          , other /= node
+          ] <> targetEdge
+    targetEdge =
+      [ (targetSite overlay, chebyshevPacked (siteTile node) (targetPacked overlay))
+      | node < staticSiteCount
+      , targetSynthetic overlay
+      , Vector.any (`Vector.elem` targetComponents overlay) (siteComponents graph Boxed.! node)
+      ]
     walkingEdges =
-      [ DebugEdge (stateId other banked) tile (Tile otherTile) banked banked "component-walk" "component walk" (chebyshevPacked (unTile tile) otherTile)
-      | other <- Vector.toList componentSites
-      , other /= node
-      , let otherTile = siteTiles graph Vector.! other
+      [ DebugEdge (stateId other banked) tile (Tile (siteTile other)) banked banked "component-walk" "component walk" edgeCost
+      | (other, edgeCost) <- walkingAttachments
       ]
     transportEdges =
       [ DebugEdge (stateId to banked) tile dst banked banked "transport" (transportLabel t) stepCost
-      | allowTransports q
+      | node < staticSiteCount
+      , allowTransports q
       , t <- preparedLocalTransportsAt availability banked tile
       , Just (dst, stepCost, _) <- [preparedTransport q t]
       , Just to <- [IntMap.lookup (unTile dst) (siteTileIndex graph)]
       ]
     bankEdges =
       [ DebugEdge (stateId node True) tile tile False True "bank" "bank" 0
-      | bankTransitionAvailable q reachableBanks banked tile
+      | node < staticSiteCount
+      , bankTransitionAvailable q reachableBanks banked tile
       ]
     bankGlobalEdges =
       [ DebugEdge (stateId to True) tile dst False True "transport" (transportLabel t) stepCost
-      | allowTransports q
+      | node < staticSiteCount
+      , allowTransports q
       , bankTransitionAvailable q reachableBanks banked tile
       , t <- preparedGlobalTransports availability True
       , Just (dst, stepCost, _) <- [preparedTransport q t]

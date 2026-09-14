@@ -29,8 +29,8 @@ data ManhattanReverseResult = ManhattanReverseResult
 emptyReverseCounters :: TileReverseCounters
 emptyReverseCounters = TileReverseCounters 0 0 0 0 0 0 0 0 0 0 0
 
-reverseDijkstra :: SiteGraph -> [(Int, Int)] -> (Vector.Vector Int, TileReverseCounters)
-reverseDijkstra graph seeds = runST $ do
+reverseDijkstra :: SiteGraph -> TargetOverlay -> (Vector.Vector Int, TileReverseCounters)
+reverseDijkstra graph overlay = runST $ do
   result <- Mutable.replicate stateCount maxBound
   queue <- heapNew (max 262144 (stateCount * 16))
   counters <- foldM (seed result queue) emptyReverseCounters seeds
@@ -48,13 +48,16 @@ reverseDijkstra graph seeds = runST $ do
             if cost /= known
               then searchReverse poppedCounters {reverseStalePqEntries = reverseStalePqEntries poppedCounters + 1}
               else do
-                transportCounters <- Vector.foldM (relax result queue cost True) (poppedCounters {reverseStatesPopped = reverseStatesPopped poppedCounters + 1}) (siteReverseEdges graph Boxed.! node)
+                transportCounters <- if node `div` 2 < siteCount
+                  then Vector.foldM (relax result queue cost True) (poppedCounters {reverseStatesPopped = reverseStatesPopped poppedCounters + 1}) (siteReverseEdges graph Boxed.! node)
+                  else pure (poppedCounters {reverseStatesPopped = reverseStatesPopped poppedCounters + 1})
                 scanCounters <- relaxSameComponent result queue cost node transportCounters
                 searchReverse scanCounters
   searchReverse counters
  where
   siteCount = Vector.length (siteTiles graph)
-  stateCount = siteCount * 2
+  stateCount = querySiteCount graph overlay * 2
+  seeds = targetSeeds overlay
   seed :: Mutable.MVector s Int -> MutableHeap s -> TileReverseCounters -> (Int, Int) -> ST s TileReverseCounters
   seed result queue counters (node, cost) = do
     Mutable.write result node cost
@@ -86,27 +89,41 @@ reverseDijkstra graph seeds = runST $ do
      where
       site = node `div` 2
       banked = odd node
-      sourceTile = siteTiles graph Vector.! site
-      sameComponentSites = attachedSites graph site
-      scanned = Vector.length sameComponentSites
+      sourceTile = querySiteTile graph overlay site
+      targetNode = targetSynthetic overlay && site == targetSite overlay
+      targetAttachments = targetAttachmentSites overlay
+      sameComponentSites
+        | targetNode = Vector.empty
+        | otherwise = attachedSites graph site
+      scanned
+        | targetNode = Vector.length targetAttachments
+        | otherwise = Vector.length sameComponentSites
       counters' = counters
         { reverseSameComponentSiteScans = reverseSameComponentSiteScans counters + 1
         , reverseTotalSitesScanned = reverseTotalSitesScanned counters + scanned
         , reverseMaxSitesScannedPerPop = max (reverseMaxSitesScannedPerPop counters) scanned
         }
       go ix countersSoFar
-        | ix >= scanned = pure countersSoFar
+        | ix >= scanned = relaxTarget countersSoFar
         | other == site = go (ix + 1) countersSoFar
         | otherwise = do
-            nextCounters <- relax result queue cost False scanCounters (stateId other banked, chebyshevPacked sourceTile otherTile)
+            nextCounters <- relax result queue cost False scanCounters (stateId other banked, edgeCost)
             go (ix + 1) nextCounters
        where
-        other = sameComponentSites Vector.! ix
-        otherTile = siteTiles graph Vector.! other
+        (other, edgeCost)
+          | targetNode = targetAttachments Vector.! ix
+          | otherwise =
+              let otherSite = sameComponentSites Vector.! ix
+               in (otherSite, chebyshevPacked sourceTile (querySiteTile graph overlay otherSite))
         scanCounters = countersSoFar {reverseChebyshevComparisons = reverseChebyshevComparisons countersSoFar + 1}
+      relaxTarget countersSoFar
+        | site >= siteCount || not (targetAttachedToSite graph overlay site) = pure countersSoFar
+        | otherwise = relax result queue cost False
+            (countersSoFar {reverseChebyshevComparisons = reverseChebyshevComparisons countersSoFar + 1})
+            (stateId (targetSite overlay) banked, chebyshevPacked sourceTile (targetPacked overlay))
 
-reverseDijkstraUncounted :: SiteGraph -> [(Int, Int)] -> Vector.Vector Int
-reverseDijkstraUncounted graph seeds = runST $ do
+reverseDijkstraUncounted :: SiteGraph -> TargetOverlay -> Vector.Vector Int
+reverseDijkstraUncounted graph overlay = runST $ do
   result <- Mutable.replicate stateCount maxBound
   queue <- heapNew (max 262144 (stateCount * 16))
   forM_ seeds (seed result queue)
@@ -119,13 +136,15 @@ reverseDijkstraUncounted graph seeds = runST $ do
             if cost /= known
               then searchReverse
               else do
-                Vector.forM_ (siteReverseEdges graph Boxed.! node) (relax result queue cost)
+                when (node `div` 2 < siteCount) $
+                  Vector.forM_ (siteReverseEdges graph Boxed.! node) (relax result queue cost)
                 relaxSameComponent result queue cost node
                 searchReverse
   searchReverse
  where
   siteCount = Vector.length (siteTiles graph)
-  stateCount = siteCount * 2
+  stateCount = querySiteCount graph overlay * 2
+  seeds = targetSeeds overlay
   seed :: Mutable.MVector s Int -> MutableHeap s -> (Int, Int) -> ST s ()
   seed result queue (node, cost) = do
     Mutable.write result node cost
@@ -145,21 +164,31 @@ reverseDijkstraUncounted graph seeds = runST $ do
    where
     site = node `div` 2
     banked = odd node
-    sourceTile = siteTiles graph Vector.! site
-    sameComponentSites = attachedSites graph site
-    scanned = Vector.length sameComponentSites
+    sourceTile = querySiteTile graph overlay site
+    targetNode = targetSynthetic overlay && site == targetSite overlay
+    targetAttachments = targetAttachmentSites overlay
+    sameComponentSites
+      | targetNode = Vector.empty
+      | otherwise = attachedSites graph site
+    scanned
+      | targetNode = Vector.length targetAttachments
+      | otherwise = Vector.length sameComponentSites
     go ix
-      | ix >= scanned = pure ()
+      | ix >= scanned = when (site < siteCount && targetAttachedToSite graph overlay site) $
+          relax result queue cost (stateId (targetSite overlay) banked, chebyshevPacked sourceTile (targetPacked overlay))
       | other == site = go (ix + 1)
       | otherwise = do
-          relax result queue cost (stateId other banked, chebyshevPacked sourceTile otherTile)
+          relax result queue cost (stateId other banked, edgeCost)
           go (ix + 1)
      where
-      other = sameComponentSites Vector.! ix
-      otherTile = siteTiles graph Vector.! other
+      (other, edgeCost)
+        | targetNode = targetAttachments Vector.! ix
+        | otherwise =
+            let otherSite = sameComponentSites Vector.! ix
+             in (otherSite, chebyshevPacked sourceTile (querySiteTile graph overlay otherSite))
 
-reverseDijkstraManhattan :: SiteGraph -> [(Int, Int)] -> (ManhattanReverseResult, TileReverseCounters)
-reverseDijkstraManhattan graph seeds = runST $ do
+reverseDijkstraManhattan :: SiteGraph -> TargetOverlay -> (ManhattanReverseResult, TileReverseCounters)
+reverseDijkstraManhattan graph overlay = runST $ do
   result <- Mutable.replicate stateCount maxBound
   generatorOrigins <- Mutable.replicate stateCount (-1)
   generatorWeights <- Mutable.replicate stateCount maxBound
@@ -192,9 +221,11 @@ reverseDijkstraManhattan graph seeds = runST $ do
   searchReverse
  where
   siteCount = Vector.length (siteTiles graph)
+  reverseSiteCount = querySiteCount graph overlay
   staticCount = siteStaticCount graph
   network = siteSparseNetwork graph
-  stateCount = (siteCount + sparseSteinerCount network) * 2
+  stateCount = (reverseSiteCount + sparseSteinerCount network) * 2
+  seeds = targetSeeds overlay
   seed :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> (Int, Int) -> ST s ()
   seed result generatorOrigins generatorWeights queue counters (node, cost) = do
     Mutable.write result node (cost * 2)
@@ -227,17 +258,17 @@ reverseDijkstraManhattan graph seeds = runST $ do
   relaxWalking :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Int -> ST s ()
   relaxWalking result generatorOrigins generatorWeights queue counters cost state = do
     relaxSparseWalkingEdges result generatorOrigins generatorWeights queue counters cost state banked vertex
-    when (vertex < siteCount) (relaxQueryAttachments result generatorOrigins generatorWeights queue counters cost state vertex banked)
+    when (vertex < reverseSiteCount) (relaxQueryAttachments result generatorOrigins generatorWeights queue counters cost state vertex banked)
    where
     vertex = state `div` 2
     banked = odd state
   relaxSparseWalkingEdges :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Int -> Bool -> Int -> ST s ()
   relaxSparseWalkingEdges result generatorOrigins generatorWeights queue counters cost state banked vertex
     | vertex < staticCount = go (sparseOffsets network Vector.! vertex)
-    | vertex < siteCount = pure ()
+    | vertex < reverseSiteCount = pure ()
     | otherwise = go (sparseOffsets network Vector.! sparseVertex)
    where
-    sparseVertex = staticCount + vertex - siteCount
+    sparseVertex = staticCount + vertex - reverseSiteCount
     end
       | vertex < staticCount = sparseOffsets network Vector.! (vertex + 1)
       | otherwise = sparseOffsets network Vector.! (sparseVertex + 1)
@@ -248,34 +279,37 @@ reverseDijkstraManhattan graph seeds = runST $ do
               edgeCost = sparseWeights network Vector.! ix
               next
                 | sparseNext < staticCount = sparseNext
-                | otherwise = siteCount + sparseNext - staticCount
+                | otherwise = reverseSiteCount + sparseNext - staticCount
           relax result generatorOrigins generatorWeights queue counters cost state False (stateId next banked, edgeCost)
           go (ix + 1)
   relaxQueryAttachments :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Int -> Int -> Bool -> ST s ()
-  relaxQueryAttachments result generatorOrigins generatorWeights queue counters cost state vertex banked = do
-    bumpReverse counters reverseCounterComponentScans 1
-    bumpReverse counters reverseCounterSitesScanned count
-    maxReverse counters reverseCounterMaxSitesPerPop count
-    go 0
+  relaxQueryAttachments result generatorOrigins generatorWeights queue counters cost state vertex banked
+    | targetSynthetic overlay && vertex == targetSite overlay = do
+        bumpReverse counters reverseCounterComponentScans 1
+        bumpReverse counters reverseCounterSitesScanned count
+        maxReverse counters reverseCounterMaxSitesPerPop count
+        go 0
+    | vertex < siteCount && targetAttachedToSite graph overlay vertex = do
+        bumpReverse counters reverseCounterChebyshevComparisons 1
+        relax result generatorOrigins generatorWeights queue counters cost state False
+          (stateId (targetSite overlay) banked, chebyshevPacked vertexTile (targetPacked overlay) * 2)
+    | otherwise = pure ()
    where
-    vertexTile = siteTiles graph Vector.! vertex
-    componentSites = attachedSites graph vertex
-    count = Vector.length componentSites
+    vertexTile = querySiteTile graph overlay vertex
+    attachments = targetAttachmentSites overlay
+    count = Vector.length attachments
     go ix
       | ix >= count = pure ()
-      | other == vertex = go (ix + 1)
-      | vertex < staticCount && other < staticCount = go (ix + 1)
       | otherwise = do
           bumpReverse counters reverseCounterChebyshevComparisons 1
           relax result generatorOrigins generatorWeights queue counters cost state False
-            (stateId other banked, chebyshevPacked vertexTile otherTile * 2)
+            (stateId other banked, edgeCost * 2)
           go (ix + 1)
      where
-      other = componentSites Vector.! ix
-      otherTile = siteTiles graph Vector.! other
+      (other, edgeCost) = attachments Vector.! ix
 
-reverseDijkstraManhattanUncounted :: SiteGraph -> [(Int, Int)] -> ManhattanReverseResult
-reverseDijkstraManhattanUncounted graph seeds = runST $ do
+reverseDijkstraManhattanUncounted :: SiteGraph -> TargetOverlay -> ManhattanReverseResult
+reverseDijkstraManhattanUncounted graph overlay = runST $ do
   result <- Mutable.replicate stateCount maxBound
   generatorOrigins <- Mutable.replicate stateCount (-1)
   generatorWeights <- Mutable.replicate stateCount maxBound
@@ -302,9 +336,11 @@ reverseDijkstraManhattanUncounted graph seeds = runST $ do
   searchReverse
  where
   siteCount = Vector.length (siteTiles graph)
+  reverseSiteCount = querySiteCount graph overlay
   staticCount = siteStaticCount graph
   network = siteSparseNetwork graph
-  stateCount = (siteCount + sparseSteinerCount network) * 2
+  stateCount = (reverseSiteCount + sparseSteinerCount network) * 2
+  seeds = targetSeeds overlay
   seed :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> (Int, Int) -> ST s ()
   seed result generatorOrigins generatorWeights queue (node, cost) = do
     Mutable.write result node (cost * 2)
@@ -331,17 +367,17 @@ reverseDijkstraManhattanUncounted graph seeds = runST $ do
   relaxWalking :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> ST s ()
   relaxWalking result generatorOrigins generatorWeights queue cost state = do
     relaxSparseWalkingEdges result generatorOrigins generatorWeights queue cost state banked vertex
-    when (vertex < siteCount) (relaxQueryAttachments result generatorOrigins generatorWeights queue cost state vertex banked)
+    when (vertex < reverseSiteCount) (relaxQueryAttachments result generatorOrigins generatorWeights queue cost state vertex banked)
    where
     vertex = state `div` 2
     banked = odd state
   relaxSparseWalkingEdges :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> Bool -> Int -> ST s ()
   relaxSparseWalkingEdges result generatorOrigins generatorWeights queue cost state banked vertex
     | vertex < staticCount = go (sparseOffsets network Vector.! vertex)
-    | vertex < siteCount = pure ()
+    | vertex < reverseSiteCount = pure ()
     | otherwise = go (sparseOffsets network Vector.! sparseVertex)
    where
-    sparseVertex = staticCount + vertex - siteCount
+    sparseVertex = staticCount + vertex - reverseSiteCount
     end
       | vertex < staticCount = sparseOffsets network Vector.! (vertex + 1)
       | otherwise = sparseOffsets network Vector.! (sparseVertex + 1)
@@ -352,26 +388,40 @@ reverseDijkstraManhattanUncounted graph seeds = runST $ do
               edgeCost = sparseWeights network Vector.! ix
               next
                 | sparseNext < staticCount = sparseNext
-                | otherwise = siteCount + sparseNext - staticCount
+                | otherwise = reverseSiteCount + sparseNext - staticCount
           relax result generatorOrigins generatorWeights queue cost state False (stateId next banked, edgeCost)
           go (ix + 1)
   relaxQueryAttachments :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> Int -> Bool -> ST s ()
-  relaxQueryAttachments result generatorOrigins generatorWeights queue cost state vertex banked = go 0
+  relaxQueryAttachments result generatorOrigins generatorWeights queue cost state vertex banked
+    | targetSynthetic overlay && vertex == targetSite overlay = go 0
+    | vertex < siteCount && targetAttachedToSite graph overlay vertex =
+        relax result generatorOrigins generatorWeights queue cost state False
+          (stateId (targetSite overlay) banked, chebyshevPacked vertexTile (targetPacked overlay) * 2)
+    | otherwise = pure ()
    where
-    vertexTile = siteTiles graph Vector.! vertex
-    componentSites = attachedSites graph vertex
-    count = Vector.length componentSites
+    vertexTile = querySiteTile graph overlay vertex
+    attachments = targetAttachmentSites overlay
+    count = Vector.length attachments
     go ix
       | ix >= count = pure ()
-      | other == vertex = go (ix + 1)
-      | vertex < staticCount && other < staticCount = go (ix + 1)
       | otherwise = do
           relax result generatorOrigins generatorWeights queue cost state False
-            (stateId other banked, chebyshevPacked vertexTile otherTile * 2)
+            (stateId other banked, edgeCost * 2)
           go (ix + 1)
      where
-      other = componentSites Vector.! ix
-      otherTile = siteTiles graph Vector.! other
+      (other, edgeCost) = attachments Vector.! ix
+
+querySiteCount :: SiteGraph -> TargetOverlay -> Int
+querySiteCount graph overlay = Vector.length (siteTiles graph) + if targetSynthetic overlay then 1 else 0
+
+querySiteTile :: SiteGraph -> TargetOverlay -> Int -> Int
+querySiteTile graph overlay site
+  | targetSynthetic overlay && site == targetSite overlay = targetPacked overlay
+  | otherwise = siteTiles graph Vector.! site
+
+targetAttachedToSite :: SiteGraph -> TargetOverlay -> Int -> Bool
+targetAttachedToSite graph overlay site = targetSynthetic overlay &&
+  Vector.any (`Vector.elem` targetComponents overlay) (siteComponents graph Boxed.! site)
 
 reverseCounterStatesSettled, reverseCounterStalePops, reverseCounterPushes, reverseCounterPops,
   reverseCounterMaxSize, reverseCounterEdgesRelaxed, reverseCounterComponentScans,
@@ -439,10 +489,10 @@ halveDistances = Vector.map halve
     | value == maxBound = maxBound
     | otherwise = value `div` 2
 
-assertReverseLabelsEqual :: SiteGraph -> Vector.Vector Int -> Vector.Vector Int -> IO ()
-assertReverseLabelsEqual graph clique manhattan =
+assertReverseLabelsEqual :: SiteGraph -> TargetOverlay -> Vector.Vector Int -> Vector.Vector Int -> IO ()
+assertReverseLabelsEqual graph overlay clique manhattan =
   case [ (state, clique Vector.! state, manhattan Vector.! state)
-       | node <- [0 .. Vector.length (siteTiles graph) - 1]
+       | node <- [0 .. querySiteCount graph overlay - 1]
        , banked <- [False, True]
        , let state = stateId node banked
        , clique Vector.! state /= manhattan Vector.! state

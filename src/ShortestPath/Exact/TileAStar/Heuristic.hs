@@ -17,7 +17,9 @@ module ShortestPath.Exact.TileAStar.Heuristic
   , heuristicAtResolvedCountedRaw
   , heuristicFromDistances
   , prepareHeuristic
+  , prepareHeuristicFor
   , prepareHeuristicProfiled
+  , prepareHeuristicProfiledFor
   , seedKey
   ) where
 
@@ -85,8 +87,7 @@ data Heuristic = Heuristic
 
 data PreparedTarget = PreparedTarget
   { preparedTargetTile :: !Tile
-  , preparedTargetAttachments :: Vector.Vector Int
-  , preparedTargetSite :: !Int
+  , preparedTargetOverlay :: TargetOverlay
   , preparedSearchExtraTiles :: Vector.Vector Int
   , preparedSearchExtraComponents :: Boxed.Vector (Vector.Vector Int)
   , preparedSearchExtraSites :: Vector.Vector Int
@@ -96,43 +97,50 @@ data PreparedTarget = PreparedTarget
 -- | The production, untimed heuristic used by the pure Tile A* entry point.
 prepareHeuristic :: TileAStar -> CompiledRoutingAccount -> Tile -> Heuristic
 prepareHeuristic astar account target =
-  heuristicFromDistances components graph distances 0 0 emptyReverseCounters
+  prepareHeuristicFor astar account (targetOverlay astar account target)
+
+prepareHeuristicFor :: TileAStar -> CompiledRoutingAccount -> TargetOverlay -> Heuristic
+prepareHeuristicFor astar account overlay =
+  heuristicFromDistances components graph overlay distances 0 0 emptyReverseCounters
  where
-  graph = siteGraph astar account target
-  distances = reverseDijkstraUncounted graph (targetSeeds graph target)
+  graph = compiledSiteGraph account
+  distances = reverseDijkstraUncounted graph overlay
   components = topologyRoutingComponents (tileTopology astar)
 
 prepareHeuristicProfiled :: TileAStarConfig -> TileAStar -> CompiledRoutingAccount -> Tile -> IO Heuristic
-prepareHeuristicProfiled config astar account target = do
+prepareHeuristicProfiled config astar account target =
+  prepareHeuristicProfiledFor config astar account (targetOverlay astar account target)
+
+prepareHeuristicProfiledFor :: TileAStarConfig -> TileAStar -> CompiledRoutingAccount -> TargetOverlay -> IO Heuristic
+prepareHeuristicProfiledFor config astar account overlay = do
   ((distances, counters, provenance), reverseMs) <- timedIO forceReverseResult reverseAction
   ((table, generators), seedMs) <- timedIO forceSeedTables (pure (case provenance of
-    Nothing -> (seedTableFromDistances components graph distances, emptyGeneratorTable components)
-    Just result -> seedTablesFromManhattanResult components graph distances result))
-  pure (heuristicFromSeedTables table generators graph distances reverseMs seedMs counters)
+    Nothing -> (seedTableFromDistances components graph overlay distances, emptyGeneratorTable components)
+    Just result -> seedTablesFromManhattanResult components graph overlay distances result))
+  pure (heuristicFromSeedTables table generators graph overlay distances reverseMs seedMs counters)
  where
-  graph = siteGraph astar account target
-  seeds = targetSeeds graph target
+  graph = compiledSiteGraph account
   components = topologyRoutingComponents (tileTopology astar)
   reverseAction = case tileReverseImplementation config of
     CliqueReverse
       | tileCollectReverseCounters config ->
-          let (distances, counters) = reverseDijkstra graph seeds
+          let (distances, counters) = reverseDijkstra graph overlay
            in pure (distances, counters, Nothing)
-      | otherwise -> pure (reverseDijkstraUncounted graph seeds, emptyReverseCounters, Nothing)
+      | otherwise -> pure (reverseDijkstraUncounted graph overlay, emptyReverseCounters, Nothing)
     SparseWalkingReverse
       | tileCollectReverseCounters config -> do
-          let (result, counters) = reverseDijkstraManhattan graph seeds
+          let (result, counters) = reverseDijkstraManhattan graph overlay
               distances = halveDistances (manhattanDistances result)
           compareReverse distances
           pure (distances, counters, Just result)
       | otherwise -> do
-          let result = reverseDijkstraManhattanUncounted graph seeds
+          let result = reverseDijkstraManhattanUncounted graph overlay
               distances = halveDistances (manhattanDistances result)
           compareReverse distances
           pure (distances, emptyReverseCounters, Just result)
   compareReverse distances =
     when (tileCompareReverseImplementations config)
-      (assertReverseLabelsEqual graph (reverseDijkstraUncounted graph seeds) distances)
+      (assertReverseLabelsEqual graph overlay (reverseDijkstraUncounted graph overlay) distances)
 
 heuristicAt :: WorldTopology -> Heuristic -> Tile -> Bool -> Maybe Int
 {-# INLINE heuristicAt #-}
@@ -211,22 +219,26 @@ finite value
   | value == maxBound = Nothing
   | otherwise = Just value
 
-heuristicFromDistances :: NaturalComponents -> SiteGraph -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
-heuristicFromDistances components graph distances reverseMs seedMs counters =
-  heuristicFromSeedTable (seedTableFromDistances components graph distances) graph distances reverseMs seedMs counters
+heuristicFromDistances :: NaturalComponents -> SiteGraph -> TargetOverlay -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
+heuristicFromDistances components graph overlay distances reverseMs seedMs counters =
+  heuristicFromSeedTable (seedTableFromDistances components graph overlay distances) graph overlay distances reverseMs seedMs counters
 
-heuristicFromSeedTable :: Boxed.Vector (Vector.Vector (Int, Int)) -> SiteGraph -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
-heuristicFromSeedTable seeds graph distances reverseMs seedMs counters =
-  heuristicFromSeedTables seeds (Boxed.map (const Vector.empty) seeds) graph distances reverseMs seedMs counters
+heuristicFromSeedTable :: Boxed.Vector (Vector.Vector (Int, Int)) -> SiteGraph -> TargetOverlay -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
+heuristicFromSeedTable seeds graph overlay distances reverseMs seedMs counters =
+  heuristicFromSeedTables seeds (Boxed.map (const Vector.empty) seeds) graph overlay distances reverseMs seedMs counters
 
-heuristicFromSeedTables :: Boxed.Vector (Vector.Vector (Int, Int)) -> Boxed.Vector (Vector.Vector (Int, Int)) -> SiteGraph -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
-heuristicFromSeedTables seeds generators graph distances reverseMs seedMs counters =
-  Heuristic seeds generators scans (siteTileIndex graph)
-    (Vector.generate (Vector.length (siteTiles graph) * 2) (distances Vector.!))
+heuristicFromSeedTables :: Boxed.Vector (Vector.Vector (Int, Int)) -> Boxed.Vector (Vector.Vector (Int, Int)) -> SiteGraph -> TargetOverlay -> Vector.Vector Int -> Double -> Double -> TileReverseCounters -> Heuristic
+heuristicFromSeedTables seeds generators graph overlay distances reverseMs seedMs counters =
+  Heuristic seeds generators scans siteIndex
+    (Vector.generate (reverseSiteCount * 2) (distances Vector.!))
     reverseMs seedMs counters seedTotal componentCount seedMax seedP50 seedP90 seedP95 seedP99
     generatorTotal generatorMax generatorP50 generatorP90 generatorP95 generatorP99
     ratioP50 ratioP90 ratioP95 ratioP99 ratioMax
  where
+  siteIndex
+    | targetSynthetic overlay = IntMap.insert (targetPacked overlay) (targetSite overlay) (siteTileIndex graph)
+    | otherwise = siteTileIndex graph
+  reverseSiteCount = Vector.length (siteTiles graph) + if targetSynthetic overlay then 1 else 0
   scans = Boxed.zipWith prepare seeds generators
   prepare seedEntries generatorEntries = generatorScanFromVector
     (if Vector.null generatorEntries then seedEntries else generatorEntries)
@@ -266,15 +278,18 @@ generatorRatioStats seeds generators =
 emptyGeneratorTable :: NaturalComponents -> Boxed.Vector (Vector.Vector (Int, Int))
 emptyGeneratorTable components = Boxed.replicate ((maxComponentId components + 1) * 2) Vector.empty
 
-seedTablesFromManhattanResult :: NaturalComponents -> SiteGraph -> Vector.Vector Int -> ManhattanReverseResult
+seedTablesFromManhattanResult :: NaturalComponents -> SiteGraph -> TargetOverlay -> Vector.Vector Int -> ManhattanReverseResult
   -> (Boxed.Vector (Vector.Vector (Int, Int)), Boxed.Vector (Vector.Vector (Int, Int)))
-seedTablesFromManhattanResult components graph distances result = runST $ do
+seedTablesFromManhattanResult components graph overlay distances result = runST $ do
   rawTable <- BoxedMutable.replicate tableSize []
   generatorIds <- BoxedMutable.replicate tableSize []
   Vector.iforM_ (siteTiles graph) $ \node packed ->
     let cids = siteComponents graph Boxed.! node in do
       addCandidate rawTable generatorIds cids False node packed
       addCandidate rawTable generatorIds cids True node packed
+  when (targetSynthetic overlay) $ do
+    addCandidate rawTable generatorIds (targetComponents overlay) False (targetSite overlay) (targetPacked overlay)
+    addCandidate rawTable generatorIds (targetComponents overlay) True (targetSite overlay) (targetPacked overlay)
   raw <- Boxed.map Vector.fromList <$> Boxed.freeze rawTable
   ids <- Boxed.freeze generatorIds
   let generators = Boxed.map (Vector.fromList . map generator . uniqueSorted . sort) ids
@@ -282,7 +297,7 @@ seedTablesFromManhattanResult components graph distances result = runST $ do
  where
   tableSize = (maxComponentId components + 1) * 2
   generator candidateState =
-    ( siteTiles graph Vector.! (candidateState `div` 2)
+    ( packedAt (candidateState `div` 2)
     , distances Vector.! candidateState
     )
   addCandidate :: BoxedMutable.MVector s [(Int, Int)] -> BoxedMutable.MVector s [Int]
@@ -295,10 +310,10 @@ seedTablesFromManhattanResult components graph distances result = runST $ do
           originWeight = manhattanGeneratorWeights result Vector.! state
           originNode = originState `div` 2
           originValid
-            | originState < 0 || originNode >= Vector.length (siteTiles graph) = False
+            | originState < 0 || originNode >= reverseSiteCount = False
             | odd originState /= banked = False
             | otherwise =
-                let originTile = siteTiles graph Vector.! originNode
+                let originTile = packedAt originNode
                     directDistance = chebyshevPacked originTile packed
                  in directDistance /= maxBound
                     && manhattanDistances result Vector.! state == addCostDefault maxBound originWeight (directDistance * 2)
@@ -312,8 +327,15 @@ seedTablesFromManhattanResult components graph distances result = runST $ do
     -- A sparse/query walking path is removable only when it is also a direct
     -- Chebyshev geodesic in this component. Shared multi-attachment sites and
     -- any other non-geodesic path conservatively remain their own raw seed.
-    | originValid && Vector.elem cid (siteComponents graph Boxed.! originNode) = originState
+    | originValid && Vector.elem cid (componentsAt originNode) = originState
     | otherwise = fallback
+  reverseSiteCount = Vector.length (siteTiles graph) + if targetSynthetic overlay then 1 else 0
+  packedAt node
+    | targetSynthetic overlay && node == targetSite overlay = targetPacked overlay
+    | otherwise = siteTiles graph Vector.! node
+  componentsAt node
+    | targetSynthetic overlay && node == targetSite overlay = targetComponents overlay
+    | otherwise = siteComponents graph Boxed.! node
   uniqueSorted [] = []
   uniqueSorted (x:xs) = x : go x xs
    where
@@ -322,13 +344,17 @@ seedTablesFromManhattanResult components graph distances result = runST $ do
       | value == previous = go previous rest
       | otherwise = value : go value rest
 
-seedTableFromDistances :: NaturalComponents -> SiteGraph -> Vector.Vector Int -> Boxed.Vector (Vector.Vector (Int, Int))
-seedTableFromDistances components graph distances = runST $ do
+seedTableFromDistances :: NaturalComponents -> SiteGraph -> TargetOverlay -> Vector.Vector Int -> Boxed.Vector (Vector.Vector (Int, Int))
+seedTableFromDistances components graph overlay distances = runST $ do
   table <- Boxed.thaw (Boxed.replicate ((maxComponentId components + 1) * 2) [])
   Vector.iforM_ (siteTiles graph) $ \node packed ->
     Vector.forM_ (siteComponents graph Boxed.! node) $ \cid -> do
       addSeed table cid False packed (distances Vector.! stateId node False)
       addSeed table cid True packed (distances Vector.! stateId node True)
+  when (targetSynthetic overlay) $
+    Vector.forM_ (targetComponents overlay) $ \cid -> do
+      addSeed table cid False (targetPacked overlay) (distances Vector.! stateId (targetSite overlay) False)
+      addSeed table cid True (targetPacked overlay) (distances Vector.! stateId (targetSite overlay) True)
   Boxed.map Vector.fromList <$> Boxed.freeze table
  where
   addSeed table cid banked packed distance =

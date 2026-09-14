@@ -6,9 +6,9 @@ module ShortestPath.Exact.TileAStar.RelaxedGraph
   , attachedSites
   , binarySearch
   , chebyshevPacked
-  , siteGraph
   , siteComponentGroups
   , stateId
+  , targetOverlay
   , targetSeeds
   ) where
 
@@ -29,29 +29,12 @@ import ShortestPath.Tile
 import ShortestPath.Topology
 import ShortestPath.Transport
 
-siteGraph :: TileAStar -> CompiledRoutingAccount -> Tile -> SiteGraph
-siteGraph (TileAStar topology _) account target
-  | IntMap.member (unTile target) (siteTileIndex base) = base
-  | otherwise = base
-      { siteTiles = tiles
-      , siteTileIndex = IntMap.insert (unTile target) targetNode (siteTileIndex base)
-      , siteComponents = comps
-      , siteComponentSiteIds = siteComponentGroups (maxComponentId components) comps
-      , siteReverseEdges = siteReverseEdges base <> Boxed.replicate 2 Vector.empty
-      }
- where
-  base = compiledSiteGraph account
-  targetNode = Vector.length (siteTiles base)
-  tiles = Vector.snoc (siteTiles base) (unTile target)
-  comps = Boxed.snoc (siteComponents base) (Vector.fromList (routingPointAttachments topology target))
-  components = topologyRoutingComponents topology
-
 compileRoutingAccount :: TileAStar -> RoutingOptions -> CompiledRoutingAccount
 compileRoutingAccount astar@(TileAStar topology _) options = account
  where
   account = compileRoutingAccountWithGraph (topologyWorld topology) options (accountSiteGraph astar account)
 
--- | Account-specific relaxed graph. Target sites are appended by 'siteGraph'.
+-- | Immutable account-specific relaxed graph.
 accountSiteGraph :: TileAStar -> CompiledRoutingAccount -> SiteGraph
 accountSiteGraph (TileAStar topology static) account =
   SiteGraph tiles tileIndex comps staticCount (staticWalkingNetwork static) componentSites reverseEdges
@@ -128,12 +111,29 @@ attachedSites graph node =
  where
   attachments = siteComponents graph Boxed.! node
 
-targetSeeds :: SiteGraph -> Tile -> [(Int, Int)]
-targetSeeds graph target =
-  [ (stateId node banked, 0)
-  | Just node <- [IntMap.lookup (unTile target) (siteTileIndex graph)]
-  , banked <- [False, True]
-  ]
+targetOverlay :: TileAStar -> CompiledRoutingAccount -> Tile -> TargetOverlay
+targetOverlay (TileAStar topology _) account target =
+  TargetOverlay packed components attachments node synthetic
+ where
+  graph = compiledSiteGraph account
+  packed = unTile target
+  components = Vector.fromList (routingPointAttachments topology target)
+  existing = IntMap.lookup packed (siteTileIndex graph)
+  node = maybe (Vector.length (siteTiles graph)) id existing
+  synthetic = maybe True (const False) existing
+  -- Assign a multi-component site to its first shared component so the union is emitted once.
+  attachments = Vector.fromList
+    [ (site, chebyshevPacked packed (siteTiles graph Vector.! site))
+    | cid <- Vector.toList components
+    , site <- Vector.toList (siteComponentSiteIds graph Boxed.! cid)
+    , cid == firstSharedComponent site
+    ]
+  firstSharedComponent site = case Vector.find (`Vector.elem` components) (siteComponents graph Boxed.! site) of
+    Just cid -> cid
+    Nothing -> error "target attachment missing shared routing component"
+
+targetSeeds :: TargetOverlay -> [(Int, Int)]
+targetSeeds overlay = [(stateId (targetSite overlay) banked, 0) | banked <- [False, True]]
 
 stateId :: Int -> Bool -> Int
 {-# INLINE stateId #-}
