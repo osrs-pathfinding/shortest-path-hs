@@ -1,5 +1,7 @@
 # AGENTS.md
 
+This system is Nixos, and there is a nix shell which provides the necessary dependencies to build and run the project.
+
 This repository is an experimental/production-oriented OSRS pathfinding implementation. The main focus is **exact or near-exact tile pathfinding with transports and strong transport-aware heuristics**, backed by a broad reproducible benchmark corpus.
 
 ## Project map
