@@ -30,6 +30,7 @@ import ShortestPath.Exact.TileAStar
 import ShortestPath.Exact.TileAStar.Configuration
 import ShortestPath.Exact.TileAStar.Debug
 import ShortestPath.Exact.TileAStar.Preprocessing (componentTileGroups)
+import ShortestPath.Exact.TileAStar.StaticArtifact
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Internal.DistanceTransform
 import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..), findRouteReferenceDijkstra)
@@ -88,22 +89,26 @@ main = do
   command <- parseCommand =<< getArgs
   world <- timedPhase "load world" (loadWorld defaultSourcePaths)
   tileAStar <- loadOrBuildTileAStar world
-  tileConfig <- tileAStarConfigFromEnvironment
-  useCTransform <- tileUseCTransformFromEnvironment
   case command of
-    Serve -> serveLoop tileConfig useCTransform world tileAStar
+    Serve -> do
+      tileConfig <- tileAStarConfigFromEnvironment
+      useCTransform <- tileUseCTransformFromEnvironment
+      serveLoop tileConfig useCTransform world tileAStar
     ComponentTransformReport -> writeComponentTransformReport tileAStar
     TileStaticReport -> writeTileStaticReport tileAStar
+    ExportRoutingStatic path -> writeRoutingStaticReport path tileAStar
 
-data Command = Serve | ComponentTransformReport | TileStaticReport
+data Command = Serve | ComponentTransformReport | TileStaticReport | ExportRoutingStatic FilePath
   deriving (Eq, Show)
 
 parseCommand :: [String] -> IO Command
 parseCommand ["serve"] = pure Serve
 parseCommand ["component-transform-report"] = pure ComponentTransformReport
 parseCommand ["tile-static-report"] = pure TileStaticReport
+parseCommand ["export-routing-static"] = pure (ExportRoutingStatic "out/routing-static-v1.bin")
+parseCommand ["export-routing-static", path] = pure (ExportRoutingStatic path)
 parseCommand _ = do
-  putStrLn "usage: pathfinder-tool serve|component-transform-report|tile-static-report"
+  putStrLn "usage: pathfinder-tool serve|component-transform-report|tile-static-report|export-routing-static [PATH]"
   exitFailure
 
 writeComponentTransformReport :: TileAStar -> IO ()
@@ -134,6 +139,34 @@ writeTileStaticReport astar = do
   printf "sparse walking undirected edges: %d\n" edges
   printf "global complete-clique directed edge proxy: %d\n" cliqueDirected
   printf "rough adjacency memory estimate: %.2f MiB\n" (fromIntegral bytesEstimate / (1024 * 1024) :: Double)
+
+writeRoutingStaticReport :: FilePath -> TileAStar -> IO ()
+writeRoutingStaticReport path astar = do
+  (bytes, artifact) <- writeRoutingStaticV1 path astar
+  let searchCount = Vector.length (artifactSearchTiles artifact)
+      siteCount = Vector.length (artifactSiteTiles artifact)
+      componentCount = artifactRoutingComponentCount artifact
+      siteComponentValues = Vector.length (artifactSiteComponentIds artifact)
+      componentSiteValues = Vector.length (artifactComponentSiteIds artifact)
+      bankCount = Vector.length (artifactReachableBankTiles artifact)
+      crossingCount = Vector.length (artifactCrossingFromSite artifact)
+      sparseOriginals = artifactSparseOriginalCount artifact
+      sparseSteiners = artifactSparseSteinerCount artifact
+      sparseEdges = artifactSparseUndirectedEdgeCount artifact
+      sparseAdjacency = artifactSparseAdjacencyCount artifact
+  printf "routing static v1 written: %s\n" path
+  printf "bytes: %d\n" bytes
+  printf "search tiles: %d\n" searchCount
+  printf "sites: %d\n" siteCount
+  printf "routing component groups: %d\n" componentCount
+  printf "site-component attachments: %d\n" siteComponentValues
+  printf "component-site attachments: %d\n" componentSiteValues
+  printf "reachable banks: %d\n" bankCount
+  printf "separator crossings: %d\n" crossingCount
+  printf "sparse original vertices: %d\n" sparseOriginals
+  printf "sparse Steiner vertices: %d\n" sparseSteiners
+  printf "sparse undirected edges: %d\n" sparseEdges
+  printf "sparse adjacency entries: %d\n" sparseAdjacency
 
 data ComponentTransformRow = ComponentTransformRow
   { componentTransformId :: !Int

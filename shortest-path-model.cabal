@@ -33,6 +33,7 @@ library
     ShortestPath.Exact.TileAStar.ReverseSearch
     ShortestPath.Exact.TileAStar.Search
     ShortestPath.Exact.TileAStar.SparseWalking
+    ShortestPath.Exact.TileAStar.StaticArtifact
     ShortestPath.Exact.TileAStar.Types
     ShortestPath.Pathfinder
     ShortestPath.Requirements
@@ -253,6 +254,19 @@ test-suite separator-topology
   hs-source-dirs: test
   build-depends:
     aeson,
+    base,
+    bytestring,
+    containers,
+    shortest-path-model,
+    vector
+  default-language: GHC2024
+
+test-suite routing-static-artifact
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: RoutingStaticArtifact.hs
+  hs-source-dirs: test
+  build-depends:
     base,
     bytestring,
     containers,
