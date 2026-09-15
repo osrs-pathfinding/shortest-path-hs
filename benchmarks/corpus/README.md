@@ -13,6 +13,14 @@ included route/profile pair.
 
 `sentinels-v1.json` contains the individually tracked route/profile pairs.
 
+`account-profiles-v1.json` is a language-neutral serialization of the four
+compiled benchmark `AccountState`s used for cross-language benchmark parity.
+Regenerate it with:
+
+```bash
+cabal run account-profile -- export-java benchmarks/corpus/account-profiles-v1.json
+```
+
 Before generating the oracle, run `node benchmarks/validate-corpus.js`. It
 requires IDs, raw/resolved route coordinates, names, provenance, tier tags,
 valid classifications, a matching oracle, and disjoint exclusions.

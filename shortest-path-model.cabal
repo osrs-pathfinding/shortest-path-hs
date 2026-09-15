@@ -101,7 +101,10 @@ executable account-profile
   build-depends:
     aeson,
     base,
+    bytestring,
     containers,
+    directory,
+    filepath,
     shortest-path-model
   default-language: GHC2024
 

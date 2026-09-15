@@ -1,8 +1,15 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
+import qualified Data.Aeson as Aeson
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
 import Data.List (intercalate)
+import qualified Data.Set as Set
+import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs)
+import System.FilePath (takeDirectory)
 
 import ShortestPath.Account
 import ShortestPath.AccountSemantics
@@ -10,7 +17,7 @@ import ShortestPath.BenchmarkProfiles
 import qualified ShortestPath.GameVars.Varbits as VB
 import qualified ShortestPath.GameVars.VarPlayers as VP
 import ShortestPath.Pathfinder
-import ShortestPath.Requirements (GameVar(..), VarReq(..))
+import ShortestPath.Requirements (GameVar(..), VarReq(..), VarbitId(..), VarPlayerId(..))
 import ShortestPath.Tile
 import ShortestPath.Transport
 import ShortestPath.World
@@ -26,7 +33,89 @@ main = do
       compareProfiles before after
     ["coverage"] -> coverage
     ["vars"] -> variableAudit
-    _ -> fail "usage: account-profile validate early|mid|end|maxed | compare BEFORE AFTER | coverage | vars"
+    ["export-java", path] -> exportJava path
+    ["check-java", path] -> checkJava path
+    _ -> fail "usage: account-profile validate early|mid|end|maxed | compare BEFORE AFTER | coverage | vars | export-java PATH | check-java PATH"
+
+exportJava :: FilePath -> IO ()
+exportJava path = do
+  value <- javaFixture
+  createDirectoryIfMissing True (takeDirectory path)
+  BL.writeFile path (Aeson.encode value <> BL.singleton 10)
+
+checkJava :: FilePath -> IO ()
+checkJava path = do
+  expected <- Aeson.encode <$> javaFixture
+  actual <- BL.readFile path
+  if actual == expected <> BL.singleton 10
+    then putStrLn ("account fixture is deterministic and current: " <> path)
+    else fail ("account fixture differs from regenerated output: " <> path)
+
+javaFixture :: IO Aeson.Value
+javaFixture = do
+  world <- loadWorld defaultSourcePaths
+  accounts <- mapM (\name -> do
+    account <- maybe (fail ("unknown account profile: " <> name)) pure
+      (benchmarkAccount name (allTransports world))
+    pure (name, accountValue account)) benchmarkProfileNames
+  pure $ Aeson.object
+    [ "formatVersion" Aeson..= (1 :: Int)
+    , "benchmarkNowMinutes" Aeson..= benchmarkNowMinutes
+    , "profiles" Aeson..= Map.fromList accounts
+    ]
+
+accountValue :: AccountState -> Aeson.Value
+accountValue account = Aeson.object
+  [ "levels" Aeson..= accountLevels account
+  , "completedQuests" Aeson..= Set.toAscList (accountCompletedQuests account)
+  , "varbits" Aeson..= Map.fromList
+      [(show identifier, value) | (VarbitId identifier, value) <- Map.toAscList (accountVarbits account)]
+  , "varplayers" Aeson..= Map.fromList
+      [(show identifier, value) | (VarPlayerId identifier, value) <- Map.toAscList (accountVarPlayers account)]
+  , "inventory" Aeson..= accountInventory account
+  , "equipment" Aeson..= accountEquipment account
+  , "runePouch" Aeson..= accountRunePouch account
+  , "bank" Aeson..= accountBank account
+  , "diaries" Aeson..= Map.fromList
+      [(show diary, show tier) | (diary, tier) <- Map.toAscList (accountDiaries account)]
+  , "poh" Aeson..= pohValue (accountPoh account)
+  , "fairyRingsUnlocked" Aeson..= accountFairyRingsUnlocked account
+  , "runtime" Aeson..= runtimeValue (accountRuntime account)
+  ]
+
+pohValue :: PohBuild -> Aeson.Value
+pohValue poh = Aeson.object
+  [ "location" Aeson..= show (pohLocation poh)
+  , "jewelleryBox" Aeson..= show (pohJewelleryBox poh)
+  , "portals" Aeson..= portalValue (pohPortalDestinations poh)
+  , "fairyRing" Aeson..= pohFairyRing poh
+  , "spiritTree" Aeson..= pohSpiritTree poh
+  , "obelisk" Aeson..= pohObelisk poh
+  , "mountedGlory" Aeson..= pohMountedGlory poh
+  , "mountedXerics" Aeson..= pohMountedXerics poh
+  , "mountedDigsite" Aeson..= pohMountedDigsite poh
+  , "mountedMythical" Aeson..= pohMountedMythical poh
+  ]
+
+portalValue :: PohPortalAccess -> Aeson.Value
+portalValue AllPohPortals = Aeson.object
+  [ "mode" Aeson..= ("all" :: String), "destinations" Aeson..= ([] :: [String]) ]
+portalValue (SelectedPohPortals destinations) = Aeson.object
+  [ "mode" Aeson..= ("selected" :: String)
+  , "destinations" Aeson..= Set.toAscList destinations
+  ]
+
+runtimeValue :: RuntimeState -> Aeson.Value
+runtimeValue runtime = Aeson.object
+  [ "spellbook" Aeson..= show (runtimeSpellbook runtime)
+  , "minigameTeleport" Aeson..= cooldownValue (runtimeMinigameTeleport runtime)
+  , "arriveInsidePoh" Aeson..= runtimeArriveInsidePoh runtime
+  ]
+
+cooldownValue :: CooldownState -> Aeson.Value
+cooldownValue CooldownReady = Aeson.object ["state" Aeson..= ("ready" :: String)]
+cooldownValue (CooldownUsedAt minutes) = Aeson.object
+  [ "state" Aeson..= ("usedAt" :: String), "minutes" Aeson..= minutes ]
 
 loadAccount :: String -> IO AccountState
 loadAccount name = do
