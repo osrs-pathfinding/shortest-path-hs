@@ -102,7 +102,8 @@ loadType :: SourcePaths -> TransportType -> IO [Transport]
 loadType paths tt = do
   let path = resourcesDir paths </> "transports" </> ttFile tt
   rows <- zip [2 :: Int ..] <$> readRows path
-  let raw = map (uncurry (fromRow tt path)) rows
+  raw <- either fail pure (mapM (uncurry (fromRow tt path)) rows)
+  let
       direct = filter isDirect raw
       origins = filter isOriginOnly raw
       destinations = filter isDestinationOnly raw
@@ -120,24 +121,26 @@ loadType paths tt = do
       (Just x, Just y) -> maybe False (> ttRadius tt) (chebyshev2 x y)
       _ -> False
 
-fromRow :: TransportType -> FilePath -> Int -> Row -> Transport
+fromRow :: TransportType -> FilePath -> Int -> Row -> Either String Transport
 fromRow tt path lineNo r =
-  Transport
-    { transportType = ttName tt
-    , origin = parseTileField (field "Origin" r)
-    , destination = parseTileField (field "Destination" r)
-    , duration = max teleportMinimum (parseInt 0 (field "Duration" r))
-    , displayInfo = field "Display info" r
-    , objectInfo = field "menuOption menuTarget objectID" r
-    , consumable = field "Consumable" r `elem` ["T", "yes", "YES"]
-    , maxWildernessLevel = parseMaybeInt (field "Wilderness level" r)
-    , skills = parseSkills (field "Skills" r)
-    , items = parseItems (field "Items" r)
-    , quests = parseQuests (field "Quests" r)
-    , varbits = parseVars Varbit (field "Varbits" r)
-    , varPlayers = parseVars VarPlayer (field "VarPlayers" r)
-    , source = path <> ":" <> show lineNo
-    }
+  case parseItems (field "Items" r) of
+    Left resolutionError -> Left (path <> ":" <> show lineNo <> ": item requirement: " <> show resolutionError)
+    Right itemRequirements -> Right Transport
+      { transportType = ttName tt
+      , origin = parseTileField (field "Origin" r)
+      , destination = parseTileField (field "Destination" r)
+      , duration = max teleportMinimum (parseInt 0 (field "Duration" r))
+      , displayInfo = field "Display info" r
+      , objectInfo = field "menuOption menuTarget objectID" r
+      , consumable = field "Consumable" r `elem` ["T", "yes", "YES"]
+      , maxWildernessLevel = parseMaybeInt (field "Wilderness level" r)
+      , skills = parseSkills (field "Skills" r)
+      , items = itemRequirements
+      , quests = parseQuests (field "Quests" r)
+      , varbits = parseVars Varbit (field "Varbits" r)
+      , varPlayers = parseVars VarPlayer (field "VarPlayers" r)
+      , source = path <> ":" <> show lineNo
+      }
  where
   teleportMinimum = if ttIsTeleport tt then 1 else 0
 

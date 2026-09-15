@@ -1,5 +1,7 @@
 module ShortestPath.Account
   ( ItemCounts
+  , ItemReferences
+  , SkillLevels
   , AccountState(..)
   , Diary(..)
   , DiaryTier(..)
@@ -27,13 +29,16 @@ import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
+import ShortestPath.Items
 import ShortestPath.Requirements
 import ShortestPath.Transport (Transport(..))
 
-type ItemCounts = Map.Map String Int
+type ItemCounts = Map.Map ItemId Int
+type ItemReferences = Map.Map String Int
+type SkillLevels = Map.Map String Int
 
 data AccountState = AccountState
-  { accountLevels :: ItemCounts
+  { accountLevels :: SkillLevels
   , accountCompletedQuests :: Set.Set String
   , accountVarbits :: Map.Map VarbitId Int
   , accountVarPlayers :: Map.Map VarPlayerId Int
@@ -159,7 +164,7 @@ specialFailures context transport =
   case transportType transport of
     "FAIRY_RING"
       | not (accountFairyRingsUnlocked account) -> [MissingCapability "Fairy rings are not unlocked"]
-      | hasLumbridgeElite || hasItem "772" -> []
+      | hasLumbridgeElite || hasItem 772 -> []
       | otherwise -> [MissingCapability "Fairy rings require a Dramen or Lunar staff"]
     "TELEPORTATION_BOX"
       | "Basic" `isInfixOf` displayInfo transport && pohJewelleryBox poh == NoJewelleryBox -> [MissingCapability "Basic jewellery box is not built"]
@@ -186,9 +191,13 @@ requirementsSatisfied context transport = transportAvailability context transpor
 itemExprSatisfied :: ItemCounts -> ItemExpr -> Bool
 itemExprSatisfied counts expression =
   case expression of
-    ItemOne (ItemTerm name quantity)
-      | quantity <= 0 -> Map.findWithDefault 0 name counts <= 0
-      | otherwise -> Map.findWithDefault 0 name counts >= quantity
+    ItemOne term
+      | quantity <= 0 -> all absent (itemIds term)
+      | otherwise -> any sufficient (itemIds term)
+     where
+      quantity = itemQuantity term
+      absent identifier = Map.findWithDefault 0 identifier counts <= 0
+      sufficient identifier = Map.findWithDefault 0 identifier counts >= quantity
     ItemAnd expressions -> all (itemExprSatisfied counts) expressions
     ItemOr expressions -> any (itemExprSatisfied counts) expressions
 

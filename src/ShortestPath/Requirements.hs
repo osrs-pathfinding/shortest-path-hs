@@ -1,6 +1,7 @@
 module ShortestPath.Requirements
   ( ItemExpr(..)
   , ItemTerm(..)
+  , ItemId
   , SkillReq(..)
   , GameVar(..)
   , VarKind(..)
@@ -18,8 +19,9 @@ import Data.Char (isDigit, isSpace, toUpper)
 import qualified Data.Text as T
 
 import ShortestPath.GameVars
+import ShortestPath.Items
 
-data ItemTerm = ItemTerm { itemName :: String, itemQuantity :: Int }
+data ItemTerm = ItemTerm { itemName :: String, itemIds :: [ItemId], itemQuantity :: Int }
   deriving stock (Eq, Ord, Show)
 
 data ItemExpr = ItemOne ItemTerm | ItemAnd [ItemExpr] | ItemOr [ItemExpr]
@@ -51,23 +53,25 @@ parseSkills = mapMaybe parseOne . splitChar ';'
 parseQuests :: String -> [String]
 parseQuests = filter (not . null) . map trim . splitChar ';'
 
-parseItems :: String -> Maybe ItemExpr
+parseItems :: String -> Either ItemResolutionError (Maybe ItemExpr)
 parseItems raw = parseOr (filter (not . isSpace) (map toUpper raw))
  where
   parseOr s =
-    case splitText "|" s of
-      [] -> Nothing
-      [one] -> parseAnd one
-      xs -> Just (ItemOr (mapMaybe parseAnd xs))
+    case filter (not . null) (splitText "|" s) of
+      [] -> Right Nothing
+      [one] -> Just <$> parseAnd one
+      xs -> Just . ItemOr <$> mapM parseAnd xs
   parseAnd s =
-    case splitText "&" s of
-      [] -> Nothing
+    case filter (not . null) (splitText "&" s) of
+      [] -> Left (UnknownItemName s)
       [one] -> ItemOne <$> parseTerm one
-      xs -> Just (ItemAnd (mapMaybe (fmap ItemOne . parseTerm) xs))
+      xs -> ItemAnd . map ItemOne <$> mapM parseTerm xs
   parseTerm s =
     case break (== '=') s of
-      (name, '=':qty) | not (null name), all isDigit qty -> Just (ItemTerm name (read qty))
-      _ -> Nothing
+      (name, '=':qty) | not (null name), all isDigit qty -> do
+        variation <- resolveItemName name
+        pure (ItemTerm name (variationIds variation) (read qty))
+      _ -> Left (UnknownItemName s)
 
 parseVars :: VarKind -> String -> [VarReq]
 parseVars kind = mapMaybe (parseVar kind) . filter (not . null) . splitChar ';'

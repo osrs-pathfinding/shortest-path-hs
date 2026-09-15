@@ -1,11 +1,13 @@
 module Main (main) where
 
-import Data.Either (isRight)
+import Data.Char (isDigit)
+import Data.Either (isLeft, isRight)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.List (find)
 
 import ShortestPath.Requirements
+import ShortestPath.Items
 import ShortestPath.Account
 import ShortestPath.AccountSemantics
 import qualified ShortestPath.GameVars.Varbits as VB
@@ -24,6 +26,7 @@ main = do
   assert (parseSkills "75 Construction;83 Farming" == [SkillReq 75 "Construction", SkillReq 83 "Farming"])
   assert (parseVars Varbit "4070=0;4560&2" == [VarReq (GameVarbit (VarbitId 4070)) 0 VarEq, VarReq (GameVarbit (VarbitId 4560)) 2 VarMask])
   requirementChecks
+  itemNormalizationChecks
   profileChecks
   semanticProfileChecks
   assert (parseTileField "3221 3218 0" == Just (packTile 3221 3218 0))
@@ -41,22 +44,90 @@ requirementChecks = do
         , accountCompletedQuests = Set.singleton "Quest"
         , accountVarbits = Map.singleton (VarbitId 1) 6
         , accountVarPlayers = Map.singleton (VarPlayerId 2) 100
-        , accountInventory = Map.singleton "1" 2
-        , accountEquipment = Map.singleton "2" 1
-        , accountRunePouch = Map.singleton "3" 1
-        , accountBank = Map.singleton "4" 1
+        , accountInventory = Map.singleton 1 2
+        , accountEquipment = Map.singleton 2 1
+        , accountRunePouch = Map.singleton 3 1
+        , accountBank = Map.singleton 4 1
         }
       carried = RequirementContext account CarriedOnly 130
       banked = RequirementContext account CarriedAndBank 130
-      transport = Transport "TEST" Nothing Nothing 0 "" "" False Nothing [SkillReq 70 "Agility"] (Just (ItemAnd [ItemOne (ItemTerm "1" 2), ItemOr [ItemOne (ItemTerm "2" 1), ItemOne (ItemTerm "4" 1)]])) ["Quest"] [VarReq (GameVarbit (VarbitId 1)) 6 VarEq, VarReq (GameVarbit (VarbitId 1)) 2 VarMask] [VarReq (GameVarPlayer (VarPlayerId 2)) 20 VarCooldownMinutes] "test"
+      transport = Transport "TEST" Nothing Nothing 0 "" "" False Nothing [SkillReq 70 "Agility"] (Just (ItemAnd [ItemOne (ItemTerm "1" [1] 2), ItemOr [ItemOne (ItemTerm "2" [2] 1), ItemOne (ItemTerm "4" [4] 1)]])) ["Quest"] [VarReq (GameVarbit (VarbitId 1)) 6 VarEq, VarReq (GameVarbit (VarbitId 1)) 2 VarMask] [VarReq (GameVarPlayer (VarPlayerId 2)) 20 VarCooldownMinutes] "test"
   assert (requirementsSatisfied carried transport)
   assert (not (requirementsSatisfied (carried { requirementAccount = account { accountVarPlayers = Map.singleton (VarPlayerId 2) 110 } }) transport))
   assert (requirementsSatisfied (carried { requirementAccount = account { accountVarPlayers = Map.singleton (VarPlayerId 2) 109 } }) transport)
   assert (not (requirementsSatisfied carried (transport { skills = [SkillReq 71 "Agility"] })))
   assert (not (requirementsSatisfied carried (transport { quests = ["Missing"] })))
   assert (not (requirementsSatisfied carried (transport { varbits = [VarReq (GameVarbit (VarbitId 9)) 0 VarEq] })))
-  assert (not (requirementsSatisfied carried (transport { items = Just (ItemOne (ItemTerm "4" 1)) })))
-  assert (requirementsSatisfied banked (transport { items = Just (ItemOne (ItemTerm "4" 1)) }))
+  assert (not (requirementsSatisfied carried (transport { items = Just (ItemOne (ItemTerm "4" [4] 1)) })))
+  assert (requirementsSatisfied banked (transport { items = Just (ItemOne (ItemTerm "4" [4] 1)) }))
+
+itemNormalizationChecks :: IO ()
+itemNormalizationChecks = do
+  assert (resolveItemName "995" == Right (ItemVariation [995]))
+  assert (resolveItemName "COINS" == Right (ItemVariation [995]))
+  assert (resolveItemName "AIR_RUNE" == Right (ItemVariation [556, 4695, 4696, 4697]))
+  assert (resolveItemName "LAW_RUNE" == Right (ItemVariation [563]))
+  assert (resolveItemName "SHANTAY_PASS" == Right (ItemVariation [1854]))
+  let coinsRequirement = parsed "COINS=100"
+      numericAccount = emptyAccountState {accountInventory = Map.singleton 995 100000}
+      symbolicSpec = mustSpec "early" (benchmarkAccountSpec "early" [])
+      symbolicAccountSpec = symbolicSpec
+        { accountSpecCarried = ItemLoadout (Map.singleton "COINS" 1000) Map.empty Map.empty }
+      unknownAccountSpec = symbolicSpec
+        { accountSpecCarried = ItemLoadout (Map.singleton "UNKNOWN_ROUTING_ITEM" 1) Map.empty Map.empty }
+  assert (requirementsSatisfied (RequirementContext numericAccount CarriedOnly 0) (itemTransport coinsRequirement))
+  assert (compiledItem 995 symbolicAccountSpec == Just 1000)
+  assert (case compileAccount 0 unknownAccountSpec of
+    Left (UnknownItemReference "UNKNOWN_ROUTING_ITEM" _) -> True
+    _ -> False)
+  assert (compileItemReferences "test" (Map.fromList [("995", 1000), ("COINS", 500)]) == Right (Map.singleton 995 1500))
+  assert (requiresItem "AIR_RUNE=3" (Map.singleton 556 10))
+  assert (requiresItem "AIR_RUNE=3" (Map.singleton 4695 10))
+  assert (not (requiresItem "AIR_RUNE=3" (Map.fromList [(556, 2), (4695, 1)])))
+  assert (requiresItem "AXE=1" (Map.singleton 1349 1))
+  assert (requiresItem "SHANTAY_PASS=1" (Map.singleton 1854 1))
+  assert (requiresItem "SHANTAY_PASS=1|COINS=5" (Map.singleton 1854 1))
+  assert (not (requiresItem "SHANTAY_PASS=1|COINS=5" (Map.singleton 995 4)))
+  assert (requiresItem "SHANTAY_PASS=1|COINS=5" (Map.singleton 995 5))
+  assert (isLeft (parseItems "UNKNOWN_ROUTING_ITEM=1"))
+  let alternatives = parsed "1=50|2=100"
+  assert (requiresItem "1=50|2=100" (Map.singleton 1 50))
+  assert (requiresItem "1=50|2=100" (Map.singleton 2 100))
+  assert (not (requirementsSatisfied (RequirementContext (emptyAccountState {accountInventory = Map.fromList [(1, 49), (2, 99)]}) CarriedOnly 0) (itemTransport alternatives)))
+  transports <- loadTransports defaultSourcePaths
+  let routingNames = symbolicNames transports
+      profileNames = Set.fromList
+        [ name
+        | profile <- benchmarkProfileNames
+        , spec <- maybeToList (benchmarkAccountSpec profile transports)
+        , name <- Map.keys (loadoutInventory (accountSpecCarried spec))
+          <> Map.keys (loadoutEquipment (accountSpecCarried spec))
+          <> Map.keys (loadoutRunePouch (accountSpecCarried spec))
+          <> Map.keys (accountSpecBank spec)
+        , symbolic name
+        ]
+  putStrLn ("symbolic item names: " <> show (Set.toAscList (routingNames <> profileNames)))
+  assert (all (isRight . resolveItemName) (Set.toList (routingNames <> profileNames)))
+ where
+  parsed raw = case parseItems raw of
+    Right (Just expression) -> expression
+    result -> error ("item parse failed: " <> show result)
+  itemTransport expression = Transport "ITEM_TEST" Nothing Nothing 0 "" "" False Nothing [] (Just expression) [] [] [] "test"
+  requiresItem raw counts = requirementsSatisfied (RequirementContext (emptyAccountState {accountInventory = counts}) CarriedOnly 0) (itemTransport (parsed raw))
+  compiledItem identifier spec = Map.lookup identifier =<< either (const Nothing) (Just . accountInventory) (compileAccount 0 spec)
+  symbolic name = not (null name) && not (all isDigit name)
+  symbolicNames transports = Set.fromList
+    [ itemName term
+    | transport <- transports
+    , Just expression <- [items transport]
+    , term <- itemTerms expression
+    , symbolic (itemName term)
+    ]
+  itemTerms expression = case expression of
+    ItemOne term -> [term]
+    ItemAnd expressions -> concatMap itemTerms expressions
+    ItemOr expressions -> concatMap itemTerms expressions
+  maybeToList = maybe [] pure
 
 profileChecks :: IO ()
 profileChecks = do
@@ -72,7 +143,7 @@ profileChecks = do
       maxedWithDragon = mustProfile "maxed" (benchmarkAccount "maxed" [dragonDoor])
       unknownDoor = dragonDoor { quests = [], varbits = [VarReq (GameVarbit VB.tapoyauikRuinsFailedWallslide) 1 VarEq] }
       context account = RequirementContext account CarriedOnly benchmarkNowMinutes
-      withoutStaff account = account { accountInventory = Map.delete "772" (accountInventory account) }
+      withoutStaff account = account { accountInventory = Map.delete 772 (accountInventory account) }
   assert (requirementsSatisfied (context early) fairyRing)
   assert (not (requirementsSatisfied (context (withoutStaff early)) fairyRing))
   assert (requirementsSatisfied (context mid) fairyRing)
@@ -92,11 +163,11 @@ profileChecks = do
   assert (all (== Just 0) [Map.lookup VB.fremennikBasicTeleport (accountVarbits account) | account <- [early, mid, end, maxed]])
   assert (all (== Just 1) [Map.lookup VB.pohHouseLocation (accountVarbits account) | account <- [early, mid, end, maxed]])
   assert (case transportAvailability (context maxed) unknownDoor of Unavailable failures -> any isUnknown failures; _ -> False)
-  assert (Map.member "13393" (accountBank mid))
-  assert (Map.member "28327" (accountBank end))
-  assert (not (Map.member "28327" (accountBank mid)))
-  assert (not (Map.member "13249" (accountBank end)))
-  assert (not (Map.member "CAPESLOT" (accountBank mid)))
+  assert (Map.member 13393 (accountBank mid))
+  assert (Map.member 28327 (accountBank end))
+  assert (not (Map.member 28327 (accountBank mid)))
+  assert (not (Map.member 13249 (accountBank end)))
+  assert (not (Map.member 4513 (accountBank mid)))
   assert (Map.keysSet (accountBank end) `Set.isSubsetOf` Map.keysSet (accountBank maxed))
  where
   isUnknown (UnknownVarRequirements _) = True

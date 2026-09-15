@@ -1,6 +1,7 @@
 module ShortestPath.AccountSemantics
   ( AccountSpec(..)
   , AccountCompileError(..)
+  , compileItemReferences
   , Progression(..)
   , QuestMilestone(..)
   , QuetzalPlatform(..)
@@ -30,6 +31,7 @@ import qualified Data.Set as Set
 import Data.Bits ((.|.))
 
 import ShortestPath.Account
+import ShortestPath.Items
 import qualified ShortestPath.GameVars.Varbits as VB
 import qualified ShortestPath.GameVars.VarPlayers as VP
 import ShortestPath.Requirements
@@ -91,7 +93,7 @@ classifyUnmodelledVar variable
   | otherwise = Nothing
 
 data Progression = Progression
-  { progressionLevels :: ItemCounts
+  { progressionLevels :: SkillLevels
   , progressionQuests :: Set.Set String
   , progressionMilestones :: Set.Set QuestMilestone
   , progressionDiaries :: Map.Map Diary DiaryTier
@@ -109,9 +111,9 @@ data QuestMilestone
   deriving stock (Eq, Ord, Show)
 
 data ItemLoadout = ItemLoadout
-  { loadoutInventory :: ItemCounts
-  , loadoutEquipment :: ItemCounts
-  , loadoutRunePouch :: ItemCounts
+  { loadoutInventory :: ItemReferences
+  , loadoutEquipment :: ItemReferences
+  , loadoutRunePouch :: ItemReferences
   }
   deriving stock (Eq, Show)
 
@@ -132,7 +134,7 @@ data AccountSpec = AccountSpec
   , accountSpecRawGameState :: RawGameState
   , accountSpecPoh :: PohBuild
   , accountSpecCarried :: ItemLoadout
-  , accountSpecBank :: ItemCounts
+  , accountSpecBank :: ItemReferences
   , accountSpecRuntime :: RuntimeState
   }
   deriving stock (Eq, Show)
@@ -148,10 +150,16 @@ effectiveQuestMilestones progress = progressionMilestones progress <> Set.fromLi
 data AccountCompileError
   = ConflictingVarbit VarbitId Int Int
   | ConflictingVarPlayer VarPlayerId Int Int
+  | UnknownItemReference String ItemResolutionError
+  | ItemQuantityOverflow String
   deriving stock (Eq, Show)
 
 compileAccount :: Int -> AccountSpec -> Either AccountCompileError AccountState
 compileAccount now spec = do
+  inventory <- compileItemReferences "inventory" (loadoutInventory loadout)
+  equipment <- compileItemReferences "equipment" (loadoutEquipment loadout)
+  runePouch <- compileItemReferences "rune pouch" (loadoutRunePouch loadout)
+  bank <- compileItemReferences "bank" (accountSpecBank spec)
   progressionVars <- compileProgressionVars progress
   compiled <- mergeCompiledVars
     [ progressionVars
@@ -164,10 +172,10 @@ compileAccount now spec = do
     , accountCompletedQuests = progressionQuests progress
     , accountVarbits = compiledVarbits compiled
     , accountVarPlayers = compiledVarPlayers compiled
-    , accountInventory = loadoutInventory loadout
-    , accountEquipment = loadoutEquipment loadout
-    , accountRunePouch = loadoutRunePouch loadout
-    , accountBank = accountSpecBank spec
+    , accountInventory = inventory
+    , accountEquipment = equipment
+    , accountRunePouch = runePouch
+    , accountBank = bank
     , accountDiaries = progressionDiaries progress
     , accountPoh = accountSpecPoh spec
     , accountFairyRingsUnlocked = progressionFairyRings progress
@@ -177,6 +185,26 @@ compileAccount now spec = do
   progress = accountSpecProgression spec
   raw = accountSpecRawGameState spec
   loadout = accountSpecCarried spec
+
+compileItemReferences :: String -> ItemReferences -> Either AccountCompileError ItemCounts
+compileItemReferences field = foldM add Map.empty . Map.toList
+ where
+  add counts (name, quantity) = do
+    variation <- either (Left . UnknownItemReference name) Right (resolveItemName name)
+    case variationIds variation of
+      identifier : _ -> addQuantity counts identifier quantity
+      [] -> Left (ItemQuantityOverflow (field <> ": empty item variation " <> name))
+  addQuantity counts identifier quantity =
+    case Map.lookup identifier counts of
+      Nothing -> Right (Map.insert identifier quantity counts)
+      Just current -> do
+        total <- checkedAdd current quantity
+        Right (Map.insert identifier total counts)
+  checkedAdd left right =
+    let total = toInteger left + toInteger right
+     in if total < toInteger (minBound :: Int) || total > toInteger (maxBound :: Int)
+          then Left (ItemQuantityOverflow (field <> ": " <> show left <> " + " <> show right))
+          else Right (fromInteger total)
 
 compileProgressionVars :: Progression -> Either AccountCompileError CompiledVars
 compileProgressionVars progress = mergeCompiledVars

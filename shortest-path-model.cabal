@@ -21,6 +21,7 @@ library
     ShortestPath.Internal.MutableHeap
     ShortestPath.Internal.RgbaTile
     ShortestPath.Internal.Timing
+    ShortestPath.Items
     ShortestPath.Exact.ReferenceDijkstra
     ShortestPath.Exact.TileAStar
     ShortestPath.Exact.TileAStar.Configuration

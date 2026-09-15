@@ -265,7 +265,7 @@ requirementsJson transport = object
   ]
 
 itemExprJson :: ItemExpr -> Value
-itemExprJson (ItemOne term) = object ["kind" .= ("item" :: String), "name" .= itemName term, "quantity" .= itemQuantity term]
+itemExprJson (ItemOne term) = object ["kind" .= ("item" :: String), "name" .= itemName term, "ids" .= itemIds term, "quantity" .= itemQuantity term]
 itemExprJson (ItemAnd terms) = object ["kind" .= ("and" :: String), "terms" .= map itemExprJson terms]
 itemExprJson (ItemOr terms) = object ["kind" .= ("or" :: String), "terms" .= map itemExprJson terms]
 

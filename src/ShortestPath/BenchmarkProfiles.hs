@@ -58,7 +58,7 @@ earlySpec = spec (progression earlyLevels earlyQuests (allDiaries Medium) Set.em
 midSpec = spec (progression midLevels canonicalQuestUniverse (allDiaries Hard) allPlatforms allBalloonDestinations allCatacombsEntrances allPermanentUnlocks) midPoh midLoadout midBank
 endSpec = spec (progression (Map.insert "Quest" 327 endLevels) canonicalQuestUniverse endDiaries allPlatforms allBalloonDestinations allCatacombsEntrances allPermanentUnlocks) maxedPoh endLoadout endBank
 
-maxedSpec :: ItemCounts -> AccountSpec
+maxedSpec :: ItemReferences -> AccountSpec
 maxedSpec allItems =
   spec
     (progression
@@ -73,11 +73,11 @@ maxedSpec allItems =
     maxedLoadout
     (allItems <> endBank)
 
-spec :: Progression -> PohBuild -> ItemLoadout -> ItemCounts -> AccountSpec
+spec :: Progression -> PohBuild -> ItemLoadout -> ItemReferences -> AccountSpec
 spec progress poh carried bank =
   AccountSpec progress emptyRawGameState poh carried bank standardRuntime
 
-progression :: ItemCounts -> Set.Set String -> Map.Map Diary DiaryTier -> Set.Set QuetzalPlatform -> Set.Set HotAirBalloonDestination -> Set.Set CatacombsEntrance -> Set.Set PermanentUnlock -> Progression
+progression :: SkillLevels -> Set.Set String -> Map.Map Diary DiaryTier -> Set.Set QuetzalPlatform -> Set.Set HotAirBalloonDestination -> Set.Set CatacombsEntrance -> Set.Set PermanentUnlock -> Progression
 progression skillLevels quests diaries platforms balloons catacombs unlocks =
   Progression skillLevels (Set.insert "Dragon Slayer I" quests) Set.empty diaries True platforms balloons catacombs unlocks
 
@@ -123,10 +123,10 @@ canonicalQuestUniverse = earlyQuests <> Set.fromList
 allSkills :: [String]
 allSkills = ["Attack", "Strength", "Defence", "Hitpoints", "Ranged", "Prayer", "Magic", "Agility", "Herblore", "Thieving", "Crafting", "Fletching", "Slayer", "Hunter", "Mining", "Smithing", "Fishing", "Cooking", "Firemaking", "Woodcutting", "Farming", "Runecraft", "Construction", "Sailing"]
 
-levels :: [Int] -> ItemCounts
+levels :: [Int] -> SkillLevels
 levels values = Map.fromList (zip allSkills values)
 
-earlyLevels, midLevels, endLevels :: ItemCounts
+earlyLevels, midLevels, endLevels :: SkillLevels
 earlyLevels = levels [70, 75, 70, 75, 70, 60, 70, 70, 65, 65, 65, 65, 65, 65, 65, 65, 65, 70, 70, 65, 65, 60, 60, 60]
 midLevels = levels [80, 85, 80, 85, 80, 70, 85, 80, 78, 82, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 83, 75, 78, 75]
 endLevels = levels [90, 95, 90, 95, 90, 85, 94, 90, 90, 91, 90, 90, 95, 90, 85, 91, 90, 95, 90, 90, 91, 85, 85, 85]
@@ -148,13 +148,13 @@ midLoadout = ItemLoadout (Map.fromList [("772", 1), ("2552", 1), ("1704", 1), ("
 endLoadout = ItemLoadout (Map.fromList [("9813", 1), ("2552", 1), ("1704", 1), ("8013", 1), ("995", 5000000)]) Map.empty standardRunes
 maxedLoadout = ItemLoadout (Map.fromList [("13280", 1), ("13069", 1), ("8013", 1), ("995", 10000000)]) Map.empty standardRunes
 
-standardRunes :: ItemCounts
+standardRunes :: ItemReferences
 standardRunes = Map.fromList [("554", 10000), ("555", 10000), ("556", 10000), ("563", 10000)]
 
-earlyBank :: ItemCounts
+earlyBank :: ItemReferences
 earlyBank = itemBank ["772", "2552", "3853", "1704", "11118", "11105", "21146", "11980", "8013", "995"]
 
-midBank, endBank :: ItemCounts
+midBank, endBank :: ItemReferences
 midBank = itemBank
   [ "2552", "3853", "11978", "11968", "11972", "11194", "11866", "11980", "21146", "21166"
   , "8007", "8008", "8009", "8010", "8011", "8012", "8013", "12402", "12403", "12404", "12406", "12407", "12409", "12410", "12938"
@@ -170,7 +170,7 @@ endBank = itemBank
   , "AIR_RUNE", "WATER_RUNE", "EARTH_RUNE", "FIRE_RUNE", "LAW_RUNE", "NATURE_RUNE", "COINS", "AXE", "PICKAXE", "ROPE", "MACHETE", "SHANTAY_PASS", "CROSSBOW", "MITH_GRAPPLE"
   ]
 
-itemBank :: [String] -> ItemCounts
+itemBank :: [String] -> ItemReferences
 itemBank itemIds = Map.fromList [(item, 1000) | item <- itemIds]
 
 itemNames :: ItemExpr -> [String]

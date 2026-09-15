@@ -106,7 +106,7 @@ checkWildernessGlobals = do
   let bankReference = ReferenceDijkstra (tileTopology bankAstar)
       bankQuery = (defaultQuery deep ordinaryTarget)
         { enabledTransportTypes = Set.singleton "BANK_WILD_20"
-        , requirementMode = ConfiguredRequirements (emptyAccountState {accountBank = Map.singleton "999" 1})
+        , requirementMode = ConfiguredRequirements (emptyAccountState {accountBank = Map.singleton 999 1})
         }
       bankFast = findRouteTileAStar bankAstar bankQuery
       bankExact = findRouteReferenceDijkstra bankReference bankQuery
@@ -137,7 +137,7 @@ checkWildernessGlobals = do
       , (cheapStage, [local "CHEAP_EXIT" cheapStage cheapOutside 1])
       ]) [ordinary] Set.empty Nothing)
   bankWorld = withEmptySeparatorArtifact (World (collisionMap (ordinaryTarget : corridor)) Map.empty
-    [globalAt "BANK_WILD_20" ordinaryTarget 1 20 (Just (ItemOne (ItemTerm "999" 1)))]
+    [globalAt "BANK_WILD_20" ordinaryTarget 1 20 (Just (ItemOne (ItemTerm "999" [999] 1)))]
     (Set.singleton deep) Nothing)
   isWalk (Walk _) = True
   isWalk _ = False
@@ -212,7 +212,7 @@ checkBankGlobalHub = do
   bankB = packTile 400 400 0
   destinationA = packTile 500 500 0
   destinationB = packTile 600 600 0
-  bankItem = Just (ItemOne (ItemTerm "999" 1))
+  bankItem = Just (ItemOne (ItemTerm "999" [999] 1))
   teleportA7 = global "GLOBAL_A_SLOW" destinationA 7 bankItem
   teleportA3 = global "GLOBAL_A_FAST" destinationA 3 bankItem
   teleportB = global "GLOBAL_B" destinationB 5 bankItem
@@ -223,7 +223,7 @@ checkBankGlobalHub = do
     { enabledTransportTypes = Set.fromList ["GLOBAL_A_SLOW", "GLOBAL_A_FAST", "GLOBAL_B"]
     , bankPathEnabled = True
     , requirementMode = ConfiguredRequirements
-        (emptyAccountState {accountBank = Map.singleton "999" 1})
+        (emptyAccountState {accountBank = Map.singleton 999 1})
     }
   siteNode graph tile = IntMap.findWithDefault (error ("missing site " <> show tile))
     (unTile tile) (siteTileIndex graph)
@@ -440,7 +440,7 @@ checkPreparationLifetimes tileAStar tiles = do
       fromA3 = searchPrepared tileAStar account target (tA3 tiles) (searchOptionsFromQuery moved)
       otherTarget = prepareTarget tileAStar account (tA25 tiles)
       relevant = compileRoutingAccount tileAStar (routingOptionsFromQuery (withoutInventory base))
-      irrelevantAccount = syntheticAccount {accountBank = Map.insert "unrelated" 1 (accountBank syntheticAccount)}
+      irrelevantAccount = syntheticAccount {accountBank = Map.insert 888888 1 (accountBank syntheticAccount)}
       irrelevantQuery = base {requirementMode = ConfiguredRequirements irrelevantAccount}
       irrelevant = compileRoutingAccount tileAStar (routingOptionsFromQuery irrelevantQuery)
   (_, warmTimings) <- searchPreparedProfiled tileAStar account target (tA0 tiles) (searchOptionsFromQuery base)
@@ -578,7 +578,7 @@ synthetic =
   transports = Map.fromListWith (<>)
     [ (a0, [ local "SYNTHETIC_DIRECT" a0 a1 10
            , local "SYNTHETIC_LONG" a0 d1 20
-           , localReq "SYNTHETIC_BANK_LOCAL_AT_BANK" a0 d1 5 (ItemOne (ItemTerm "999" 1))
+           , localReq "SYNTHETIC_BANK_LOCAL_AT_BANK" a0 d1 5 (ItemOne (ItemTerm "999" [999] 1))
            , local "SYNTHETIC_UNKNOWN" a0 unknown 1
            , local "SYNTHETIC_X_1" a0 xSite 5
            , local "SYNTHETIC_DEAD_END" a0 ySite 1
@@ -586,11 +586,11 @@ synthetic =
     , (xSite, [local "SYNTHETIC_X_2" xSite c0 7])
     , (b1, [local "SYNTHETIC_BOAT" b1 c0 2])
     , (c1, [local "SYNTHETIC_RETURN" c1 a25 1])
-    , (e0, [local "SYNTHETIC_RING" e0 c0 2, localReq "SYNTHETIC_BANK_LOCAL" e0 d1 5 (ItemOne (ItemTerm "999" 1))])
+    , (e0, [local "SYNTHETIC_RING" e0 c0 2, localReq "SYNTHETIC_BANK_LOCAL" e0 d1 5 (ItemOne (ItemTerm "999" [999] 1))])
     ]
   globals =
-    [ global "SYNTHETIC_GLOBAL" d1 4 (Just (ItemOne (ItemTerm "13393" 1)))
-    , global "SYNTHETIC_BANK_GLOBAL" d1 3 (Just (ItemOne (ItemTerm "999" 1)))
+    [ global "SYNTHETIC_GLOBAL" d1 4 (Just (ItemOne (ItemTerm "13393" [13393] 1)))
+    , global "SYNTHETIC_BANK_GLOBAL" d1 3 (Just (ItemOne (ItemTerm "999" [999] 1)))
     ]
   banks = Set.singleton a0
 
@@ -643,7 +643,7 @@ query start target enabled bank =
     }
 
 syntheticAccount :: AccountState
-syntheticAccount = emptyAccountState { accountInventory = Map.singleton "13393" 1, accountBank = Map.singleton "999" 1 }
+syntheticAccount = emptyAccountState { accountInventory = Map.singleton 13393 1, accountBank = Map.singleton 999 1 }
 
 withoutInventory :: Query -> Query
 withoutInventory q = q { requirementMode = ConfiguredRequirements (syntheticAccount { accountInventory = Map.empty }) }
