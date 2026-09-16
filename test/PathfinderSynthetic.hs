@@ -20,6 +20,7 @@ import ShortestPath.Exact.TileAStar.ReverseSearch
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Exact.ReferenceDijkstra
 import ShortestPath.Account
+import ShortestPath.BenchmarkProfiles (benchmarkAccount)
 import ShortestPath.Pathfinder
 import ShortestPath.Requirements
 import ShortestPath.Tile
@@ -48,6 +49,7 @@ main = do
   checkReversePathDebug tileAStar tiles
   checkTransportOnlyEndpoint reference tileAStar tiles
   checkIntermediateTransportEndpoint reference tileAStar tiles
+  checkPohCapabilityGates
   checkPohTopology
   checkHeuristicPruning tileAStar tiles
   checkInstrumentation tileAStar tiles
@@ -801,6 +803,44 @@ checkPohTopology = do
   assert (routeSteps positiveRoute == [UseTransport "POH_INGRESS" pohLanding, UseTransport "Portal A" (packTile 110 110 0)])
   assert (routeCost negativeRoute == maxBound)
   assert (routeCost literalRoute == 4 && routeSteps literalRoute == [UseTransport "Portal A" (packTile 110 110 0)])
+
+checkPohCapabilityGates :: IO ()
+checkPohCapabilityGates = do
+  let outsideA = packTile 100 100 0
+      outsideB = packTile 200 200 0
+      transport kind from to = local kind from to 1
+      pohTransports =
+        [ ("POH fairy ring is not built", pohFairyRing, \value poh -> poh {pohFairyRing = value}, transport "FAIRY_RING" pohLanding outsideB)
+        , ("POH spirit tree is not built", pohSpiritTree, \value poh -> poh {pohSpiritTree = value}, transport "SPIRIT_TREE" outsideA pohLanding)
+        , ("POH obelisk is not built", pohObelisk, \value poh -> poh {pohObelisk = value}, transport "WILDERNESS_OBELISK" pohLanding outsideB)
+        ]
+      base = emptyAccountState
+        { accountFairyRingsUnlocked = True
+        , accountInventory = Map.singleton 772 1
+        }
+      availability account = transportAvailability (RequirementContext account CarriedOnly 0)
+      checkGate (message, enabled, enable, pohTransport) = do
+        assert (not (enabled (accountPoh base)))
+        assert (availability base pohTransport == Unavailable [MissingCapability message])
+        assert (availability (base {accountPoh = enable True (accountPoh base)}) pohTransport == Available)
+      overworld kind = transport kind outsideA outsideB
+  mapM_ checkGate pohTransports
+  assert (availability base (overworld "FAIRY_RING") == Available)
+  assert (availability base (overworld "SPIRIT_TREE") == Available)
+  assert (availability base (overworld "WILDERNESS_OBELISK") == Available)
+  assert (availability (base {accountFairyRingsUnlocked = False}) (overworld "FAIRY_RING")
+    == Unavailable [MissingCapability "Fairy rings are not unlocked"])
+  let pohFairy = transport "FAIRY_RING" pohLanding outsideB
+      world = withEmptySeparatorArtifact (World (collisionMap [pohLanding, outsideB])
+        (Map.singleton pohLanding [pohFairy]) [] Set.empty Nothing)
+  astar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy pohLanding) world
+  let route profile = findRouteTileAStar astar ((defaultQuery pohLanding outsideB)
+        { enabledTransportTypes = Set.singleton "FAIRY_RING"
+        , bankPathEnabled = False
+        , requirementMode = ConfiguredRequirements (must "benchmark profile" (benchmarkAccount profile [pohFairy]))
+        })
+  assert (all ((== maxBound) . routeCost . route) ["early", "mid"])
+  assert (all ((== 1) . routeCost . route) ["end", "maxed"])
 
 localWithDisplay :: String -> Tile -> Tile -> Int -> String -> Transport
 localWithDisplay kind from to cost info = (local kind from to cost) {displayInfo = info}

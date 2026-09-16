@@ -31,7 +31,7 @@ import qualified Data.Set as Set
 
 import ShortestPath.Items
 import ShortestPath.Requirements
-import ShortestPath.Transport (Transport(..))
+import ShortestPath.Transport (Transport(..), isInsidePoh)
 
 type ItemCounts = Map.Map ItemId Int
 type ItemReferences = Map.Map String Int
@@ -161,7 +161,7 @@ specialFailures :: RequirementContext -> Transport -> [RequirementFailure]
 -- GPS does not encode these three POH/fairy-ring capabilities as ordinary
 -- transport requirements, so the authoritative evaluator handles them here.
 specialFailures context transport =
-  case transportType transport of
+  pohFailures <> case transportType transport of
     "FAIRY_RING"
       | not (accountFairyRingsUnlocked account) -> [MissingCapability "Fairy rings are not unlocked"]
       | hasLumbridgeElite || hasItem 772 -> []
@@ -178,6 +178,13 @@ specialFailures context transport =
  where
   account = requirementAccount context
   poh = accountPoh account
+  pohFailures
+    | not (any (maybe False isInsidePoh) [origin transport, destination transport]) = []
+    | otherwise = case transportType transport of
+        "FAIRY_RING" | not (pohFairyRing poh) -> [MissingCapability "POH fairy ring is not built"]
+        "SPIRIT_TREE" | not (pohSpiritTree poh) -> [MissingCapability "POH spirit tree is not built"]
+        "WILDERNESS_OBELISK" | not (pohObelisk poh) -> [MissingCapability "POH obelisk is not built"]
+        _ -> []
   hasLumbridgeElite = Map.findWithDefault NoDiary LumbridgeDraynor (accountDiaries account) >= Elite
   hasItem item = Map.findWithDefault 0 item (availableItems account (requirementItemAccess context)) > 0
 
