@@ -5,6 +5,10 @@ module ShortestPath.Transport
   , defaultSourcePaths
   , transportTypes
   , loadTransports
+  , pohLanding
+  , isInsidePoh
+  , normalizePohDestination
+  , addPohOriginAliases
   , loadBanks
   , parseTileField
   ) where
@@ -12,6 +16,7 @@ module ShortestPath.Transport
 import Control.Monad (forM)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
+import qualified Data.Set as Set
 import System.FilePath ((</>))
 
 import ShortestPath.Requirements
@@ -43,6 +48,39 @@ data Transport = Transport
   , source :: FilePath
   }
   deriving stock (Eq, Ord, Show)
+
+pohLanding :: Tile
+pohLanding = packTile 1923 5709 0
+
+isInsidePoh :: Tile -> Bool
+isInsidePoh tile =
+  let (x, y, _) = unpackTile tile
+   in x >= 1856 && x <= 2047 && y >= 5696 && y <= 5767
+
+normalizePohDestination :: Transport -> Transport
+normalizePohDestination transport = transport
+  { destination = fmap normalize (destination transport)
+  }
+ where
+  normalize tile
+    | isInsidePoh tile && tile /= pohLanding = pohLanding
+    | otherwise = tile
+
+addPohOriginAliases :: [Transport] -> [Transport]
+addPohOriginAliases transports = transports <> aliases
+ where
+  aliases = go (Set.fromList transports) candidates
+  candidates =
+    [ transport {origin = Just pohLanding}
+    | transport <- transports
+    , Just tile <- [origin transport]
+    , isInsidePoh tile
+    , tile /= pohLanding
+    ]
+  go _ [] = []
+  go seen (transport : rest)
+    | Set.member transport seen = go seen rest
+    | otherwise = transport : go (Set.insert transport seen) rest
 
 data SourcePaths = SourcePaths
   { resourcesDir :: FilePath
@@ -93,7 +131,7 @@ transportTypes =
   t n f tel r = TransportType n f tel r
 
 loadTransports :: SourcePaths -> IO [Transport]
-loadTransports paths = concat <$> forM transportTypes (loadType paths)
+loadTransports paths = map normalizePohDestination . concat <$> forM transportTypes (loadType paths)
 
 loadBanks :: SourcePaths -> IO [Tile]
 loadBanks paths = catMaybes . map (parseTileField . field "Destination") <$> readRows (bankFile paths)

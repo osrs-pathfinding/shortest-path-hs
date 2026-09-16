@@ -698,7 +698,7 @@ filesBelow path = do
       pure (files <> nested)
 
 tileComponentCacheVersion :: Word64
-tileComponentCacheVersion = 13
+tileComponentCacheVersion = 14
 
 tileComponentCachePath, heuristicTileRoot, componentTileRoot :: FilePath
 tileComponentCachePath = "out/tile-astar-components.bin"
@@ -708,6 +708,7 @@ componentTileRoot = "out/component-tiles"
 tileComponentCacheInputRoots :: [FilePath]
 tileComponentCacheInputRoots =
   [ resourcesDir defaultSourcePaths
+  , "src/ShortestPath/Transport.hs"
   , "src/ShortestPath/Exact/TileAStar.hs"
   , "src/ShortestPath/Exact/TileAStar"
   , "src/ShortestPath/Topology.hs"

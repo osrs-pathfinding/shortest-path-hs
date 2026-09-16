@@ -48,6 +48,7 @@ main = do
   checkReversePathDebug tileAStar tiles
   checkTransportOnlyEndpoint reference tileAStar tiles
   checkIntermediateTransportEndpoint reference tileAStar tiles
+  checkPohTopology
   checkHeuristicPruning tileAStar tiles
   checkInstrumentation tileAStar tiles
   checkMultiplePointAttachments
@@ -748,6 +749,61 @@ checkIntermediateTransportEndpoint raw tileAStar tiles = do
     case reverseDebugStates debug of
       [state, _] -> state
       states -> error ("expected two reverse states, got " <> show (length states))
+
+checkPohTopology :: IO ()
+checkPohTopology = do
+  let low = packTile 1856 5696 0
+      high = packTile 2047 5767 0
+      landingPlaneOne = packTile 1923 5709 1
+      outside = [packTile 1855 5696 0, packTile 2048 5696 0, packTile 1856 5695 0, packTile 1856 5768 0]
+      ingressRaw = local "POH_INGRESS" (packTile 100 100 0) low 3
+      ingress = normalizePohDestination ingressRaw
+      unchanged = local "ORDINARY" (packTile 100 100 0) (packTile 300 300 0) 7
+      exitA = localWithDisplay "TELEPORTATION_PORTAL_POH" high (packTile 110 110 0) 4 "Portal A"
+      exitB = localWithDisplay "TELEPORTATION_PORTAL_POH" high (packTile 120 120 0) 4 "Portal B"
+      world = withEmptySeparatorArtifact (World (collisionMap [packTile 100 100 0, packTile 110 110 0, packTile 120 120 0])
+        (Map.fromList [(packTile 100 100 0, [ingress]), (high, [exitA, exitB])]) [] Set.empty Nothing)
+      account portal = emptyAccountState
+        { accountPoh = (accountPoh emptyAccountState) {pohPortalDestinations = SelectedPohPortals (Set.singleton portal)} }
+      queryFor portal target = (defaultQuery (packTile 100 100 0) target)
+        { enabledTransportTypes = Set.fromList ["POH_INGRESS", "TELEPORTATION_PORTAL_POH"]
+        , bankPathEnabled = False
+        , requirementMode = ConfiguredRequirements (account portal)
+        }
+  assert (all isInsidePoh [low, high, pohLanding, landingPlaneOne])
+  assert (all (not . isInsidePoh) outside)
+  assert (destination (normalizePohDestination ingressRaw) == Just pohLanding)
+  assert (normalizePohDestination ingressRaw == (ingressRaw {destination = Just pohLanding}))
+  assert (normalizePohDestination (ingressRaw {destination = Just pohLanding}) == (ingressRaw {destination = Just pohLanding}))
+  assert (normalizePohDestination unchanged == unchanged)
+  assert (duration (normalizePohDestination ingressRaw) == duration ingressRaw)
+  assert (transportType (normalizePohDestination ingressRaw) == transportType ingressRaw)
+  assert (displayInfo (normalizePohDestination ingressRaw) == displayInfo ingressRaw)
+  let aliases = addPohOriginAliases [exitA]
+  assert (length aliases == 2)
+  assert (any ((== Just high) . origin) aliases)
+  assert (any ((== Just pohLanding) . origin) aliases)
+  assert (all ((== duration exitA) . duration) aliases)
+  assert (addPohOriginAliases [unchanged] == [unchanged])
+  assert (length (addPohOriginAliases [exitA {origin = Just pohLanding}]) == 1)
+  astar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy (packTile 100 100 0)) world
+  let positive = queryFor "Portal A" (packTile 110 110 0)
+      negative = queryFor "Portal B" (packTile 110 110 0)
+      reference = ReferenceDijkstra (tileTopology astar)
+      availability = compiledTransportAvailability (compileRoutingAccount astar (routingOptionsFromQuery positive))
+      landingTransports = preparedLocalTransportsAt availability False pohLanding
+      positiveRoute = findRouteTileAStar astar positive
+      referenceRoute = findRouteReferenceDijkstra reference positive
+      negativeRoute = findRouteTileAStar astar negative
+      literalRoute = findRouteTileAStar astar (positive {queryStart = high})
+  assert (map transportLabel landingTransports == ["Portal A"])
+  assert (routeCost positiveRoute == 7 && routeCost referenceRoute == 7)
+  assert (routeSteps positiveRoute == [UseTransport "POH_INGRESS" pohLanding, UseTransport "Portal A" (packTile 110 110 0)])
+  assert (routeCost negativeRoute == maxBound)
+  assert (routeCost literalRoute == 4 && routeSteps literalRoute == [UseTransport "Portal A" (packTile 110 110 0)])
+
+localWithDisplay :: String -> Tile -> Tile -> Int -> String -> Transport
+localWithDisplay kind from to cost info = (local kind from to cost) {displayInfo = info}
 
 concreteCost :: World -> Query -> [RouteStep] -> Int
 concreteCost world q = snd . foldl step (queryStart q, 0)

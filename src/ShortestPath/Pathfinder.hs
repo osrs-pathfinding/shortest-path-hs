@@ -28,7 +28,7 @@ import qualified Data.Set as Set
 
 import ShortestPath.Account
 import ShortestPath.Tile
-import ShortestPath.Transport (Transport(..), TransportType(..), transportTypes)
+import ShortestPath.Transport (Transport(..), TransportType(..), addPohOriginAliases, transportTypes)
 import ShortestPath.World (World(..))
 
 data Query = Query
@@ -156,7 +156,13 @@ prepareRoutingTransports world options =
   carriedGlobals = filterAvailable False (worldGlobalTeleports world)
   bankedGlobals = filterAvailable True (worldGlobalTeleports world)
   wildernessCapable transport = maxWildernessLevel transport >= Just 30
-  filterLocals banked = Map.map (filterAvailable banked) (worldTransports world)
+  filterLocals banked = Map.fromListWith (<>)
+    [ (originTile, [transport])
+    | transport <- addPohOriginAliases (concat (Map.elems filtered))
+    , Just originTile <- [origin transport]
+    ]
+   where
+    filtered = Map.map (filterAvailable banked) (worldTransports world)
   filterAvailable banked = filter (transportAvailableWithOptions options banked)
 
 preparedLocalTransportsAt :: QueryTransportAvailability -> Bool -> Tile -> [Transport]

@@ -4,7 +4,7 @@ import Data.Char (isDigit)
 import Data.Either (isLeft, isRight)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Data.List (find)
+import Data.List (find, isInfixOf)
 
 import ShortestPath.Requirements
 import ShortestPath.Items
@@ -19,6 +19,7 @@ import ShortestPath.Transport
 import ShortestPath.World
 import ShortestPath.Pathfinder
 import ShortestPath.Exact.ReferenceDijkstra
+import ShortestPath.Exact.TileAStar
 
 main :: IO ()
 main = do
@@ -365,6 +366,9 @@ semanticProfileChecks = do
       ordinaryNeighbors tile = filter (isWalkable (worldCollision world)) (walkingNeighborsRaw world tile)
   assert (all (\tile -> not (isWalkable (worldCollision world) tile) || maskNeighbors tile == ordinaryNeighbors tile) walkingSamples)
   topology <- buildWorldTopology world
+  astar <- buildTileAStarFromTopology topology
+  let transportData = concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
+  pohRealChecks astar transportData
   let wallTiles =
         [ packTile x y 0
         | wall <- virtualWalls
@@ -395,6 +399,55 @@ semanticProfileChecks = do
   bankAccessMonotonic account transport =
     transportAvailability (RequirementContext account CarriedOnly benchmarkNowMinutes) transport /= Available
       || transportAvailability (RequirementContext account CarriedAndBank benchmarkNowMinutes) transport == Available
+
+pohRealChecks :: TileAStar -> [Transport] -> IO ()
+pohRealChecks astar transports = do
+  let maxed = mustProfile "maxed" (benchmarkAccount "maxed" transports)
+      early = mustProfile "early" (benchmarkAccount "early" transports)
+  let inbound kind file = find
+        (\transport -> transportType transport == kind
+          && file `isInfixOf` source transport
+          && destination transport == Just pohLanding
+          && maybe False (not . isInsidePoh) (origin transport)
+          && transportAvailability (RequirementContext maxed CarriedOnly benchmarkNowMinutes) transport == Available)
+        transports
+      fairyIngress = must "real fairy-ring POH ingress" (inbound "FAIRY_RING" "fairy_rings.tsv:")
+      spiritIngress = must "real spirit-tree POH ingress" (inbound "SPIRIT_TREE" "spirit_trees.tsv:")
+      portals = filter (available maxed) [transport | transport <- transports, transportType transport == "TELEPORTATION_PORTAL_POH", isPohOrigin transport]
+      portalA = must "real POH portal exit" (find (const True) portals)
+      portalB = must "second real POH portal exit" (find ((/= destination portalA) . destination) portals)
+      options = Set.fromList ["FAIRY_RING", "SPIRIT_TREE", "TELEPORTATION_PORTAL_POH"]
+      queryFor ingress exit = (defaultQuery (must "ingress origin" (origin ingress)) (must "exit destination" (destination exit)))
+        { enabledTransportTypes = options
+        , bankPathEnabled = False
+        , requirementMode = ConfiguredRequirements maxed
+        }
+      route1 = findRouteTileAStar astar (queryFor fairyIngress portalA)
+      route2 = findRouteTileAStar astar (queryFor spiritIngress portalB)
+      expected ingress exit = [UseTransport (transportLabel ingress) pohLanding, UseTransport (transportLabel exit) (must "exit destination" (destination exit))]
+      atLanding = preparedLocalTransportsAt
+        (compiledTransportAvailability (compileRoutingAccount astar (routingOptionsFromQuery (queryFor fairyIngress portalA)))) False pohLanding
+      sameEdge left right = origin right == Just pohLanding
+        && destination right == destination left
+        && duration right == duration left
+        && transportType right == transportType left
+        && displayInfo right == displayInfo left
+      available account transport = transportAvailability (RequirementContext account CarriedOnly benchmarkNowMinutes) transport == Available
+      isPohOrigin transport = case origin transport of
+        Just tile -> isInsidePoh tile && tile /= pohLanding
+        Nothing -> False
+  assertPoh "fairy ingress destination" (destination fairyIngress == Just pohLanding)
+  assertPoh "spirit ingress destination" (destination spiritIngress == Just pohLanding)
+  assertPoh "maxed landing exposes both exits" (all (\exit -> any (sameEdge exit) atLanding) [portalA, portalB])
+  assertPoh "early landing does not expose portal A" (not (any (sameEdge portalA) (preparedLocalTransportsAt
+    (compiledTransportAvailability (compileRoutingAccount astar (routingOptionsFromQuery (queryFor fairyIngress portalA) {requirementMode = ConfiguredRequirements early}))) False pohLanding)))
+  assertPoh "fairy to POH portal route" (routeCost route1 == duration fairyIngress + duration portalA && routeSteps route1 == expected fairyIngress portalA)
+  assertPoh "spirit tree to POH portal route" (routeCost route2 == duration spiritIngress + duration portalB && routeSteps route2 == expected spiritIngress portalB)
+ where
+  assertPoh _ True = pure ()
+  assertPoh message False = fail ("POH assertion failed: " <> message)
+  must _ (Just value) = value
+  must message Nothing = error message
 
 compilerChecks :: AccountSpec -> IO ()
 compilerChecks base = do
