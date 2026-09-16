@@ -11,6 +11,13 @@ in `excluded-routes-v1.json` are unresolved world-model gaps and are not run.
 `oracle-v1.json` records the exact Dijkstra reachability and cost for every
 included route/profile pair.
 
+Keep both corpus files pretty-printed for readable diffs. After regenerating
+either file, run this from `shortest-path-model`:
+
+```sh
+nix-shell --run 'for file in benchmarks/corpus/oracle-v1.json benchmarks/corpus/routes-v1.json; do tmp="$file.tmp"; jq --indent 2 . "$file" > "$tmp" && mv "$tmp" "$file"; done'
+```
+
 `sentinels-v1.json` contains the individually tracked route/profile pairs.
 
 `account-profiles-v1.json` is a language-neutral serialization of the four
