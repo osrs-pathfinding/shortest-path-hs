@@ -4,6 +4,7 @@ pkgs.mkShell {
   packages = [
     pkgs.duckdb
     pkgs.metis
+    pkgs.jdk11
     pkgs.nodejs
     pkgs.kahip
     pkgs.cabal-install
