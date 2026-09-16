@@ -15896,12 +15896,7 @@
           0
         ]
       ]
-    },
-    "negativeProfiles": [
-      "early",
-      "mid",
-      "end"
-    ]
+    }
   },
   {
     "id": "gps-natural-0184",
@@ -51796,12 +51791,7 @@
           0
         ]
       ]
-    },
-    "negativeProfiles": [
-      "early",
-      "mid",
-      "end"
-    ]
+    }
   },
   {
     "id": "wilderness-0003",
@@ -51971,12 +51961,7 @@
           0
         ]
       ]
-    },
-    "negativeProfiles": [
-      "early",
-      "mid",
-      "end"
-    ]
+    }
   },
   {
     "id": "wilderness-0005",
@@ -52237,12 +52222,7 @@
           0
         ]
       ]
-    },
-    "negativeProfiles": [
-      "early",
-      "mid",
-      "end"
-    ]
+    }
   },
   {
     "id": "wilderness-0008",
@@ -52527,12 +52507,7 @@
           0
         ]
       ]
-    },
-    "negativeProfiles": [
-      "early",
-      "mid",
-      "end"
-    ]
+    }
   },
   {
     "id": "wilderness-0011",
@@ -55637,12 +55612,7 @@
           0
         ]
       ]
-    },
-    "negativeProfiles": [
-      "early",
-      "mid",
-      "end"
-    ]
+    }
   },
   {
     "id": "wilderness-0044",
