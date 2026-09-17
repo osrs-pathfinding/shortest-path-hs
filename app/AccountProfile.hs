@@ -79,6 +79,7 @@ accountValue account = Aeson.object
   , "diaries" Aeson..= Map.fromList
       [(show diary, show tier) | (diary, tier) <- Map.toAscList (accountDiaries account)]
   , "poh" Aeson..= pohValue (accountPoh account)
+  , "plantedSpiritTrees" Aeson..= map plantedSpiritTreeCode (Set.toAscList (accountPlantedSpiritTrees account))
   , "fairyRingsUnlocked" Aeson..= accountFairyRingsUnlocked account
   , "runtime" Aeson..= runtimeValue (accountRuntime account)
   ]
@@ -96,6 +97,13 @@ pohValue poh = Aeson.object
   , "mountedDigsite" Aeson..= pohMountedDigsite poh
   , "mountedMythical" Aeson..= pohMountedMythical poh
   ]
+
+plantedSpiritTreeCode :: PlantedSpiritTree -> String
+plantedSpiritTreeCode FarmingGuildTree = "FARMING_GUILD"
+plantedSpiritTreeCode PortSarimTree = "PORT_SARIM"
+plantedSpiritTreeCode EtceteriaTree = "ETCETERIA"
+plantedSpiritTreeCode BrimhavenTree = "BRIMHAVEN"
+plantedSpiritTreeCode HosidiusTree = "HOSIDIUS"
 
 portalValue :: PohPortalAccess -> Aeson.Value
 portalValue AllPohPortals = Aeson.object

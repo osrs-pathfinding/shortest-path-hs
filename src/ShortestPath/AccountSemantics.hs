@@ -7,6 +7,7 @@ module ShortestPath.AccountSemantics
   , QuetzalPlatform(..)
   , HotAirBalloonDestination(..)
   , CatacombsEntrance(..)
+  , PlantedSpiritTree(..)
   , PermanentUnlock(..)
   , UnmodelledVarClass(..)
   , CompiledVars(..)
@@ -98,6 +99,7 @@ data Progression = Progression
   , progressionMilestones :: Set.Set QuestMilestone
   , progressionDiaries :: Map.Map Diary DiaryTier
   , progressionFairyRings :: Bool
+  , progressionPlantedSpiritTrees :: Set.Set PlantedSpiritTree
   , progressionQuetzalPlatforms :: Set.Set QuetzalPlatform
   , progressionHotAirBalloonDestinations :: Set.Set HotAirBalloonDestination
   , progressionCatacombsEntrances :: Set.Set CatacombsEntrance
@@ -178,6 +180,7 @@ compileAccount now spec = do
     , accountBank = bank
     , accountDiaries = progressionDiaries progress
     , accountPoh = accountSpecPoh spec
+    , accountPlantedSpiritTrees = progressionPlantedSpiritTrees progress
     , accountFairyRingsUnlocked = progressionFairyRings progress
     , accountRuntime = accountSpecRuntime spec
     }

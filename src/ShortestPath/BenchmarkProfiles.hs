@@ -54,9 +54,9 @@ benchmarkNowMinutes :: Int
 benchmarkNowMinutes = 100000000
 
 earlySpec, midSpec, endSpec :: AccountSpec
-earlySpec = spec (progression earlyLevels earlyQuests (allDiaries Medium) Set.empty Set.empty Set.empty earlyPermanentUnlocks) basicPoh earlyLoadout earlyBank
-midSpec = spec (progression midLevels canonicalQuestUniverse (allDiaries Hard) allPlatforms allBalloonDestinations allCatacombsEntrances allPermanentUnlocks) midPoh midLoadout midBank
-endSpec = spec (progression (Map.insert "Quest" 327 endLevels) canonicalQuestUniverse endDiaries allPlatforms allBalloonDestinations allCatacombsEntrances allPermanentUnlocks) maxedPoh endLoadout endBank
+earlySpec = spec (progression earlyLevels earlyQuests (allDiaries Medium) Set.empty Set.empty Set.empty earlyPlantedSpiritTrees earlyPermanentUnlocks) basicPoh earlyLoadout earlyBank
+midSpec = spec (progression midLevels canonicalQuestUniverse (allDiaries Hard) allPlatforms allBalloonDestinations allCatacombsEntrances midPlantedSpiritTrees allPermanentUnlocks) midPoh midLoadout midBank
+endSpec = spec (progression (Map.insert "Quest" 327 endLevels) canonicalQuestUniverse endDiaries allPlatforms allBalloonDestinations allCatacombsEntrances endPlantedSpiritTrees allPermanentUnlocks) maxedPoh endLoadout endBank
 
 maxedSpec :: ItemReferences -> AccountSpec
 maxedSpec allItems =
@@ -68,6 +68,7 @@ maxedSpec allItems =
       allPlatforms
       allBalloonDestinations
       allCatacombsEntrances
+      maxedPlantedSpiritTrees
       allPermanentUnlocks)
     maxedPoh
     maxedLoadout
@@ -77,9 +78,9 @@ spec :: Progression -> PohBuild -> ItemLoadout -> ItemReferences -> AccountSpec
 spec progress poh carried bank =
   AccountSpec progress emptyRawGameState poh carried bank standardRuntime
 
-progression :: SkillLevels -> Set.Set String -> Map.Map Diary DiaryTier -> Set.Set QuetzalPlatform -> Set.Set HotAirBalloonDestination -> Set.Set CatacombsEntrance -> Set.Set PermanentUnlock -> Progression
-progression skillLevels quests diaries platforms balloons catacombs unlocks =
-  Progression skillLevels (Set.insert "Dragon Slayer I" quests) Set.empty diaries True platforms balloons catacombs unlocks
+progression :: SkillLevels -> Set.Set String -> Map.Map Diary DiaryTier -> Set.Set QuetzalPlatform -> Set.Set HotAirBalloonDestination -> Set.Set CatacombsEntrance -> Set.Set PlantedSpiritTree -> Set.Set PermanentUnlock -> Progression
+progression skillLevels quests diaries platforms balloons catacombs plantedSpiritTrees unlocks =
+  Progression skillLevels (Set.insert "Dragon Slayer I" quests) Set.empty diaries True plantedSpiritTrees platforms balloons catacombs unlocks
 
 emptyRawGameState :: RawGameState
 emptyRawGameState = RawGameState Map.empty Map.empty
@@ -104,6 +105,12 @@ allPermanentUnlocks = Set.fromList [minBound .. maxBound]
 
 earlyPermanentUnlocks :: Set.Set PermanentUnlock
 earlyPermanentUnlocks = Set.singleton CorsairCoveResourceArea
+
+earlyPlantedSpiritTrees, midPlantedSpiritTrees, endPlantedSpiritTrees, maxedPlantedSpiritTrees :: Set.Set PlantedSpiritTree
+earlyPlantedSpiritTrees = Set.empty
+midPlantedSpiritTrees = Set.singleton FarmingGuildTree
+endPlantedSpiritTrees = Set.fromList [FarmingGuildTree, PortSarimTree]
+maxedPlantedSpiritTrees = allPlayerPlantedSpiritTrees
 
 canonicalQuestUniverse :: Set.Set String
 canonicalQuestUniverse = earlyQuests <> Set.fromList

@@ -6,6 +6,8 @@ module ShortestPath.Account
   , Diary(..)
   , DiaryTier(..)
   , PohLocation(..)
+  , PlantedSpiritTree(..)
+  , allPlayerPlantedSpiritTrees
   , JewelleryBoxTier(..)
   , PohBuild(..)
   , PohPortalAccess(..)
@@ -32,6 +34,7 @@ import qualified Data.Set as Set
 import ShortestPath.Items
 import ShortestPath.Requirements
 import ShortestPath.Transport (Transport(..), isInsidePoh)
+import ShortestPath.Tile (Tile, unpackTile)
 
 type ItemCounts = Map.Map ItemId Int
 type ItemReferences = Map.Map String Int
@@ -48,6 +51,7 @@ data AccountState = AccountState
   , accountBank :: ItemCounts
   , accountDiaries :: Map.Map Diary DiaryTier
   , accountPoh :: PohBuild
+  , accountPlantedSpiritTrees :: Set.Set PlantedSpiritTree
   , accountFairyRingsUnlocked :: Bool
   , accountRuntime :: RuntimeState
   }
@@ -68,6 +72,17 @@ data PohLocation
   = Rimmington | Taverley | Pollnivneach | Rellekka | Brimhaven
   | Yanille | Prifddinas | Hosidius | Aldarin
   deriving stock (Eq, Ord, Show)
+
+data PlantedSpiritTree
+  = FarmingGuildTree
+  | PortSarimTree
+  | EtceteriaTree
+  | BrimhavenTree
+  | HosidiusTree
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
+
+allPlayerPlantedSpiritTrees :: Set.Set PlantedSpiritTree
+allPlayerPlantedSpiritTrees = Set.fromList [FarmingGuildTree, PortSarimTree, EtceteriaTree, BrimhavenTree, HosidiusTree]
 
 data PohPortalAccess = SelectedPohPortals (Set.Set String) | AllPohPortals
   deriving stock (Eq, Show)
@@ -126,7 +141,7 @@ data TransportAvailability = Available | TransportTypeDisabled String | Unavaila
 
 emptyAccountState :: AccountState
 emptyAccountState =
-  AccountState Map.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty emptyPoh False (RuntimeState Standard CooldownReady True)
+  AccountState Map.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty emptyPoh Set.empty False (RuntimeState Standard CooldownReady True)
 
 emptyPoh :: PohBuild
 emptyPoh = PohBuild Rimmington NoJewelleryBox (SelectedPohPortals Set.empty) False False False False False False False
@@ -161,7 +176,7 @@ specialFailures :: RequirementContext -> Transport -> [RequirementFailure]
 -- GPS does not encode these POH/fairy-ring capabilities as ordinary
 -- transport requirements, so the authoritative evaluator handles them here.
 specialFailures context transport =
-  pohFailures <> case transportType transport of
+  plantedFailures <> pohFailures <> case transportType transport of
     "FAIRY_RING"
       | not (accountFairyRingsUnlocked account) -> [MissingCapability "Fairy rings are not unlocked"]
       | hasLumbridgeElite || hasItem 772 -> []
@@ -182,6 +197,15 @@ specialFailures context transport =
  where
   account = requirementAccount context
   poh = accountPoh account
+  plantedFailures = case transportType transport of
+    "SPIRIT_TREE" ->
+      [ MissingCapability ("Player-planted spirit tree is not available: " <> show tree)
+      | tree <- Set.toList (Set.fromList (concatMap plantedTreeAt [origin transport, destination transport]))
+      , tree `Set.notMember` accountPlantedSpiritTrees account
+      ]
+    _ -> []
+  plantedTreeAt Nothing = []
+  plantedTreeAt (Just tile) = maybe [] pure (playerPlantedSpiritTreeAt tile)
   pohFailures
     | not (any (maybe False isInsidePoh) [origin transport, destination transport]) = []
     | otherwise = case transportType transport of
@@ -191,6 +215,17 @@ specialFailures context transport =
         _ -> []
   hasLumbridgeElite = Map.findWithDefault NoDiary LumbridgeDraynor (accountDiaries account) >= Elite
   hasItem item = Map.findWithDefault 0 item (availableItems account (requirementItemAccess context)) > 0
+
+playerPlantedSpiritTreeAt :: Tile -> Maybe PlantedSpiritTree
+playerPlantedSpiritTreeAt tile =
+  case unpackTile tile of
+    (x, y, _)
+      | x >= 3058 && x <= 3062 && y >= 3256 && y <= 3260 -> Just PortSarimTree
+      | x >= 2611 && x <= 2615 && y >= 3855 && y <= 3860 -> Just EtceteriaTree
+      | x >= 2800 && x <= 2804 && y >= 3201 && y <= 3205 -> Just BrimhavenTree
+      | x >= 1691 && x <= 1695 && y >= 3540 && y <= 3544 -> Just HosidiusTree
+      | x >= 1251 && x <= 1255 && y >= 3748 && y <= 3752 -> Just FarmingGuildTree
+      | otherwise -> Nothing
 
 hasPohPortal :: String -> PohPortalAccess -> Bool
 hasPohPortal _ AllPohPortals = True
