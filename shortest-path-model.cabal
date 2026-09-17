@@ -226,6 +226,17 @@ test-suite smoke
     shortest-path-model
   default-language: GHC2024
 
+test-suite account-mounted-poh
+  import: warnings
+  type: exitcode-stdio-1.0
+  main-is: AccountMountedPoh.hs
+  hs-source-dirs: test
+  build-depends:
+    base,
+    containers,
+    shortest-path-model
+  default-language: GHC2024
+
 test-suite pathfinder-synthetic
   import: warnings
   type: exitcode-stdio-1.0

@@ -158,7 +158,7 @@ transportAvailability context transport =
   unknownVars = [requirement | requirement <- variableRequirements, varRequirementResult context requirement == VarUnknown]
 
 specialFailures :: RequirementContext -> Transport -> [RequirementFailure]
--- GPS does not encode these three POH/fairy-ring capabilities as ordinary
+-- GPS does not encode these POH/fairy-ring capabilities as ordinary
 -- transport requirements, so the authoritative evaluator handles them here.
 specialFailures context transport =
   pohFailures <> case transportType transport of
@@ -167,6 +167,10 @@ specialFailures context transport =
       | hasLumbridgeElite || hasItem 772 -> []
       | otherwise -> [MissingCapability "Fairy rings require a Dramen or Lunar staff"]
     "TELEPORTATION_BOX"
+      | "Amulet of Glory" `isInfixOf` objectInfo transport && not (pohMountedGlory poh) -> [MissingCapability "Mounted amulet of glory is not built"]
+      | "Xeric's Talisman" `isInfixOf` objectInfo transport && not (pohMountedXerics poh) -> [MissingCapability "Mounted Xeric's talisman is not built"]
+      | "Digsite Pendant" `isInfixOf` objectInfo transport && not (pohMountedDigsite poh) -> [MissingCapability "Mounted Digsite pendant is not built"]
+      | "Mythical cape" `isInfixOf` objectInfo transport && not (pohMountedMythical poh) -> [MissingCapability "Mounted mythical cape is not built"]
       | "Basic" `isInfixOf` displayInfo transport && pohJewelleryBox poh == NoJewelleryBox -> [MissingCapability "Basic jewellery box is not built"]
       | "Ornate" `isInfixOf` displayInfo transport && pohJewelleryBox poh < OrnateJewelleryBox -> [MissingCapability "Ornate jewellery box is not built"]
       | "Fancy" `isInfixOf` displayInfo transport && pohJewelleryBox poh < FancyJewelleryBox -> [MissingCapability "Fancy jewellery box is not built"]
