@@ -64,7 +64,7 @@
     "reachable": true
   },
   "clue-natural-0006/early": {
-    "cost": 123,
+    "cost": 147,
     "reachable": true
   },
   "clue-natural-0006/end": {
@@ -480,7 +480,7 @@
     "reachable": true
   },
   "clue-natural-0032/early": {
-    "cost": 104,
+    "cost": 207,
     "reachable": true
   },
   "clue-natural-0032/end": {
@@ -576,7 +576,7 @@
     "reachable": true
   },
   "clue-natural-0038/early": {
-    "cost": 104,
+    "cost": 207,
     "reachable": true
   },
   "clue-natural-0038/end": {
@@ -848,7 +848,7 @@
     "reachable": true
   },
   "geographic-0005/early": {
-    "cost": 12,
+    "cost": 127,
     "reachable": true
   },
   "geographic-0005/end": {
@@ -960,7 +960,7 @@
     "reachable": true
   },
   "geographic-0013/early": {
-    "cost": 12,
+    "cost": 79,
     "reachable": true
   },
   "geographic-0013/end": {
@@ -1264,7 +1264,7 @@
     "reachable": true
   },
   "geographic-0035/early": {
-    "cost": 52,
+    "cost": 142,
     "reachable": true
   },
   "geographic-0035/end": {
@@ -1456,7 +1456,7 @@
     "reachable": true
   },
   "geographic-0048/early": {
-    "cost": 123,
+    "cost": 147,
     "reachable": true
   },
   "geographic-0048/end": {
@@ -1872,7 +1872,7 @@
     "reachable": true
   },
   "gps-natural-0004/early": {
-    "cost": 41,
+    "cost": 161,
     "reachable": true
   },
   "gps-natural-0004/end": {
@@ -2208,7 +2208,7 @@
     "reachable": true
   },
   "gps-natural-0026/early": {
-    "cost": 41,
+    "cost": 161,
     "reachable": true
   },
   "gps-natural-0026/end": {
@@ -2752,7 +2752,7 @@
     "reachable": true
   },
   "gps-natural-0062/early": {
-    "cost": 185,
+    "cost": 257,
     "reachable": true
   },
   "gps-natural-0062/end": {
@@ -2944,7 +2944,7 @@
     "reachable": true
   },
   "gps-natural-0074/early": {
-    "cost": 108,
+    "cost": 211,
     "reachable": true
   },
   "gps-natural-0074/end": {
@@ -3600,7 +3600,7 @@
     "reachable": true
   },
   "gps-natural-0116/early": {
-    "cost": 42,
+    "cost": 112,
     "reachable": true
   },
   "gps-natural-0116/end": {
@@ -3632,7 +3632,7 @@
     "reachable": true
   },
   "gps-natural-0118/early": {
-    "cost": 85,
+    "cost": 123,
     "reachable": true
   },
   "gps-natural-0118/end": {
@@ -4080,7 +4080,7 @@
     "reachable": true
   },
   "gps-natural-0148/early": {
-    "cost": 101,
+    "cost": 163,
     "reachable": true
   },
   "gps-natural-0148/end": {
@@ -4112,7 +4112,7 @@
     "reachable": true
   },
   "gps-natural-0150/early": {
-    "cost": 16,
+    "cost": 123,
     "reachable": true
   },
   "gps-natural-0150/end": {
@@ -4256,7 +4256,7 @@
     "reachable": true
   },
   "gps-natural-0160/early": {
-    "cost": 20,
+    "cost": 90,
     "reachable": true
   },
   "gps-natural-0160/end": {
@@ -6048,7 +6048,7 @@
     "reachable": true
   },
   "quest-natural-0076/early": {
-    "cost": 92,
+    "cost": 139,
     "reachable": true
   },
   "quest-natural-0076/end": {
@@ -6080,7 +6080,7 @@
     "reachable": true
   },
   "quest-natural-0078/early": {
-    "cost": 198,
+    "cost": 211,
     "reachable": true
   },
   "quest-natural-0078/end": {
@@ -6272,7 +6272,7 @@
     "reachable": true
   },
   "quest-natural-0091/early": {
-    "cost": 46,
+    "cost": 108,
     "reachable": true
   },
   "quest-natural-0091/end": {
@@ -6544,7 +6544,7 @@
     "reachable": true
   },
   "quest-natural-0108/early": {
-    "cost": 62,
+    "cost": 100,
     "reachable": true
   },
   "quest-natural-0108/end": {
@@ -6672,7 +6672,7 @@
     "reachable": true
   },
   "quest-natural-0116/early": {
-    "cost": 46,
+    "cost": 108,
     "reachable": true
   },
   "quest-natural-0116/end": {
@@ -6880,7 +6880,7 @@
     "reachable": true
   },
   "quest-natural-0129/early": {
-    "cost": 62,
+    "cost": 69,
     "reachable": true
   },
   "quest-natural-0129/end": {
@@ -7376,7 +7376,7 @@
     "reachable": true
   },
   "regression-0010/early": {
-    "cost": 91,
+    "cost": 135,
     "reachable": true
   },
   "regression-0010/end": {
@@ -7392,7 +7392,7 @@
     "reachable": true
   },
   "regression-0011/early": {
-    "cost": 37,
+    "cost": 70,
     "reachable": true
   },
   "regression-0011/end": {
@@ -7584,7 +7584,7 @@
     "reachable": true
   },
   "regression-0023/early": {
-    "cost": 63,
+    "cost": 110,
     "reachable": true
   },
   "regression-0023/end": {
@@ -7904,7 +7904,7 @@
     "reachable": true
   },
   "regression-0043/early": {
-    "cost": 91,
+    "cost": 135,
     "reachable": true
   },
   "regression-0043/end": {
@@ -9104,7 +9104,7 @@
     "reachable": true
   },
   "transport-heavy-0068/early": {
-    "cost": 66,
+    "cost": 73,
     "reachable": true
   },
   "transport-heavy-0068/end": {
@@ -9632,7 +9632,7 @@
     "reachable": true
   },
   "walking-0026/early": {
-    "cost": 96,
+    "cost": 168,
     "reachable": true
   },
   "walking-0026/end": {
@@ -9824,7 +9824,7 @@
     "reachable": true
   },
   "walking-0038/early": {
-    "cost": 115,
+    "cost": 132,
     "reachable": true
   },
   "walking-0038/end": {
@@ -10224,8 +10224,8 @@
     "reachable": true
   },
   "walking-0064/early": {
-    "cost": 9,
-    "reachable": true
+    "cost": null,
+    "reachable": false
   },
   "walking-0064/end": {
     "cost": 9,
@@ -10624,7 +10624,7 @@
     "reachable": true
   },
   "walking-0091/early": {
-    "cost": 58,
+    "cost": 120,
     "reachable": true
   },
   "walking-0091/end": {
@@ -10672,7 +10672,7 @@
     "reachable": true
   },
   "walking-0094/early": {
-    "cost": 142,
+    "cost": 204,
     "reachable": true
   },
   "walking-0094/end": {
@@ -11488,7 +11488,7 @@
     "reachable": true
   },
   "wilderness-0045/early": {
-    "cost": 73,
+    "cost": 122,
     "reachable": true
   },
   "wilderness-0045/end": {
@@ -11536,7 +11536,7 @@
     "reachable": true
   },
   "wilderness-0048/early": {
-    "cost": 57,
+    "cost": 162,
     "reachable": true
   },
   "wilderness-0048/end": {
