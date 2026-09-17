@@ -1,5 +1,9 @@
 # shortest-path-model
 
+> Partition artifact configuration: maximum component size `20000`, minimum
+> child size `500`, maximum separator size `32`, imbalance `40`, random seed
+> `42`.
+
 The maintained routing implementations are direct Tile A* for current routing
 and `ReferenceDijkstra` as a deliberately simple correctness reference. Hierarchical
 routing is retained only as archived research and possible future work.
@@ -24,7 +28,7 @@ Query it directly with `duckdb data/world-facts.duckdb`.
 The distributed `routing-separators-v1.json` is generated offline with KaHIP:
 
 ```sh
-nix-shell --run 'cabal run metis-partition -- generate-artifact /home/matt/shortest-path/src/main/resources/routing-separators-v1.json 20000 500 10 40 42'
+nix-shell --run 'cabal run metis-partition -- generate-artifact /home/matt/osrs-pathfinding/shortest-path/src/main/resources/routing-separators-v1.json 20000 500 32 40 42'
 ```
 
 Each KaHIP vertex is one collision-walkable tile. Each undirected graph edge is
@@ -35,7 +39,7 @@ JSON stores only canonical cut tile pairs, the walking-topology identity, the
 settings, and the format version. Only structurally reachable natural
 components above the size threshold are candidates. The threshold triggers an
 attempt rather than requiring a split: branches remain intact when either
-child is below 500 tiles or the separator exceeds 10 tiles. Generation metrics
+child is below 500 tiles or the separator exceeds 32 tiles. Generation metrics
 and the attempted component IDs/sizes are written beside the artifact as
 `.diagnostics.json`. Runtime never invokes KaHIP and rejects a missing,
 mismatched, or invalid artifact.

@@ -93,10 +93,10 @@ data SourcePaths = SourcePaths
 defaultSourcePaths :: SourcePaths
 defaultSourcePaths =
   SourcePaths
-    { resourcesDir = "/home/matt/shortest-path/src/main/resources"
-    , collisionZip = "/home/matt/shortest-path/src/main/resources/collision-map.zip"
-    , bankFile = "/home/matt/shortest-path/src/main/resources/destinations/game_features/bank.tsv"
-    , separatorFile = "/home/matt/shortest-path/src/main/resources/routing-separators-v1.json"
+    { resourcesDir = "/home/matt/osrs-pathfinding/shortest-path/src/main/resources"
+    , collisionZip = "/home/matt/osrs-pathfinding/shortest-path/src/main/resources/collision-map.zip"
+    , bankFile = "/home/matt/osrs-pathfinding/shortest-path/src/main/resources/destinations/game_features/bank.tsv"
+    , separatorFile = "/home/matt/osrs-pathfinding/shortest-path/src/main/resources/routing-separators-v1.json"
     }
 
 transportTypes :: [TransportType]
