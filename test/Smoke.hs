@@ -133,7 +133,7 @@ itemNormalizationChecks = do
 profileChecks :: IO ()
 profileChecks = do
   let fairyRing = Transport "FAIRY_RING" Nothing Nothing 0 "" "" False Nothing [] Nothing [] [] [] "test"
-      basicBox = Transport "TELEPORTATION_BOX" Nothing Nothing 0 "Basic Jewellery Box" "" False Nothing [] Nothing [] [] [] "test"
+      basicBox = Transport "TELEPORTATION_BOX" Nothing Nothing 0 "" "Basic Jewellery Box" False Nothing [] Nothing [] [] [] "test"
       varrockPortal = Transport "TELEPORTATION_PORTAL_POH" Nothing Nothing 0 "Varrock Portal" "" False Nothing [] Nothing [] [] [] "test"
       profile name = mustProfile name (benchmarkAccount name [])
       early = profile "early"

@@ -13,6 +13,8 @@ main = do
   let context account = RequirementContext account CarriedOnly benchmarkNowMinutes
       available account = requirementsSatisfied (context account)
       mounted name = must name (find (\transport -> transportType transport == "TELEPORTATION_BOX" && name `isInfixOf` objectInfo transport) transports)
+      basicBox = mounted "Basic Jewellery Box"
+      ornateBox = mounted "Ornate Jewellery Box"
       xerics = mounted "Xeric's Talisman"
       carriedXerics = must "carried Xeric's talisman" (find (\transport -> transportType transport == "TELEPORTATION_ITEM" && "Xeric's talisman:" `isInfixOf` displayInfo transport) transports)
       gates =
@@ -25,9 +27,16 @@ main = do
       enable gate = base {accountPoh = gate True (accountPoh base)}
       mixed = enable (\value poh -> poh {pohMountedXerics = value})
       early = mustAccount "early profile" (benchmarkAccount "early" transports)
+      mid = mustAccount "mid profile" (benchmarkAccount "mid" transports)
+      maxed = mustAccount "maxed profile" (benchmarkAccount "maxed" transports)
   assert (not (pohMountedXerics (accountPoh early)))
   assert (not (Map.member 13393 (accountInventory early) || Map.member 13393 (accountBank early)))
   assert (not (available early xerics))
+  assert (not (available early basicBox))
+  assert (not (available early ornateBox))
+  assert (available mid basicBox)
+  assert (not (available mid ornateBox))
+  assert (available maxed ornateBox)
   assert (all (not . available base . fst) gates)
   assert (all (\(transport, gate) -> available (enable gate) transport) gates)
   assert (available mixed xerics)

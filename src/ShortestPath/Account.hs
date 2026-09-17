@@ -171,9 +171,9 @@ specialFailures context transport =
       | "Xeric's Talisman" `isInfixOf` objectInfo transport && not (pohMountedXerics poh) -> [MissingCapability "Mounted Xeric's talisman is not built"]
       | "Digsite Pendant" `isInfixOf` objectInfo transport && not (pohMountedDigsite poh) -> [MissingCapability "Mounted Digsite pendant is not built"]
       | "Mythical cape" `isInfixOf` objectInfo transport && not (pohMountedMythical poh) -> [MissingCapability "Mounted mythical cape is not built"]
-      | "Basic" `isInfixOf` displayInfo transport && pohJewelleryBox poh == NoJewelleryBox -> [MissingCapability "Basic jewellery box is not built"]
-      | "Ornate" `isInfixOf` displayInfo transport && pohJewelleryBox poh < OrnateJewelleryBox -> [MissingCapability "Ornate jewellery box is not built"]
-      | "Fancy" `isInfixOf` displayInfo transport && pohJewelleryBox poh < FancyJewelleryBox -> [MissingCapability "Fancy jewellery box is not built"]
+      | "Basic" `isInfixOf` objectInfo transport && pohJewelleryBox poh == NoJewelleryBox -> [MissingCapability "Basic jewellery box is not built"]
+      | "Ornate" `isInfixOf` objectInfo transport && pohJewelleryBox poh < OrnateJewelleryBox -> [MissingCapability "Ornate jewellery box is not built"]
+      | "Fancy" `isInfixOf` objectInfo transport && pohJewelleryBox poh < FancyJewelleryBox -> [MissingCapability "Fancy jewellery box is not built"]
       | otherwise -> []
     "TELEPORTATION_PORTAL_POH"
       | hasPohPortal (displayInfo transport) (pohPortalDestinations poh) -> []
