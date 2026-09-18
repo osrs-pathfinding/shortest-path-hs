@@ -8,7 +8,7 @@ This project aims to become a production-quality OSRS pathfinder with a reproduc
 * The heuristic is transport-aware and based on a relaxed component/transport graph.
 * Natural walking components, transport topology, bank/global lifecycle, and unreachable-state pruning are implemented.
 * Canonical Early/Mid/End/Maxed account profiles exist for testing.
-* The benchmark corpus contains roughly:
+* The sibling benchmark corpus contains roughly:
 
   * 750 routes
   * 4 account profiles

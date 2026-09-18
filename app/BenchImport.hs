@@ -138,6 +138,7 @@ metrics raw = Map.fromList
   scalarDouble name key = case numberDoubleMaybe raw key of Just n -> [(name, n)]; Nothing -> []
   booleanMetric name key = case boolMaybe raw key of Just value -> [(name, if value then 1 else 0)]; Nothing -> []
 
+metricName :: String -> String
 metricName "setupMs" = "heuristic_setup_ms"
 metricName "accountPrepareMs" = "account_prepare_ms"
 metricName "targetPrepareMs" = "heuristic_prepare_ms"
@@ -148,7 +149,9 @@ metricName "searchMs" = "search_ms"
 metricName "totalMs" = "total_ms"
 metricName name = camelToSnake name
 
+camelToSnake :: String -> String
 camelToSnake = concatMap (\c -> if c >= 'A' && c <= 'Z' then ['_', toLowerAscii c] else [c])
+toLowerAscii :: Char -> Char
 toLowerAscii c = toEnum (fromEnum c + fromEnum 'a' - fromEnum 'A')
 
 dimensions :: Value -> Map.Map String String
@@ -160,11 +163,14 @@ dimensions raw = Map.fromList
 status :: Value -> String
 status raw = if bool raw "correct" True then "ok" else "incorrect"
 
+validResult :: (Value, a) -> Bool
 validResult (raw, _) = text raw "expectation" "" `elem` ["positive", "negative"] && boolMaybe raw "reachable" /= Nothing && boolMaybe raw "oracleReachable" /= Nothing
 
+text :: Value -> String -> String -> String
 text (Object o) key fallback = case KeyMap.lookup (Key.fromString key) o of Just (String v) -> Text.unpack v; _ -> fallback
 text _ _ fallback = fallback
 
+bool :: Value -> String -> Bool -> Bool
 bool (Object o) key fallback = case KeyMap.lookup (Key.fromString key) o of Just (Bool v) -> v; _ -> fallback
 bool _ _ fallback = fallback
 boolMaybe :: Value -> String -> Maybe Bool
@@ -175,6 +181,7 @@ number raw key fallback = fromMaybe fallback (numberMaybe raw key)
 numberMaybe :: Value -> String -> Maybe Int
 numberMaybe (Object o) key = case KeyMap.lookup (Key.fromString key) o of Just (Number n) -> Just (round n); _ -> Nothing
 numberMaybe _ _ = Nothing
+firstNumberMaybe :: Value -> [String] -> Maybe Int
 firstNumberMaybe _ [] = Nothing
 firstNumberMaybe raw (key:keys) = case numberMaybe raw key of Just n -> Just n; Nothing -> firstNumberMaybe raw keys
 numberDouble :: Value -> String -> Double -> Double
@@ -183,12 +190,17 @@ numberDoubleMaybe :: Value -> String -> Maybe Double
 numberDoubleMaybe (Object o) key = case KeyMap.lookup (Key.fromString key) o of Just (Number n) -> Just (toRealFloat n); _ -> Nothing
 numberDoubleMaybe _ _ = Nothing
 
+routeCount :: [(Value, a)] -> Int
 routeCount rows = length (Map.keys (Map.fromList [((text (fst r) "routeId" "", text (fst r) "category" ""), ()) | r <- rows]))
+caseCount :: [(Value, a)] -> Int
 caseCount rows = length (Map.keys (Map.fromList [((text (fst r) "routeId" "", text (fst r) "accountProfile" ""), ()) | r <- rows]))
+caseCountFor :: String -> [(Value, a)] -> Int
 caseCountFor expectation rows = length (Map.keys (Map.fromList [((text raw "routeId" "", text raw "accountProfile" ""), ()) | (raw, _) <- rows, text raw "expectation" "" == expectation]))
+generatedRunId :: Value -> String
 generatedRunId first = map clean (text first "generatedAt" "run") <> "-" <> take 8 (text first "gitCommit" "unknown")
  where clean ' ' = 'T'; clean ':' = '-'; clean c = c
 
+gitHash :: BSC.ByteString -> IO String
 gitHash input = takeWhile (/= '\n') <$> readProcess "git" ["hash-object", "--stdin"] (map (toEnum . fromEnum) (BS.unpack input))
 
 clickhouse :: Options -> String -> LBS.ByteString -> IO String
@@ -198,8 +210,10 @@ clickhouse o query body = bracket (openBinaryTempFile "/tmp" "bench-import-") cl
   readProcess "curl" ["-sS", "--fail", "-X", "POST", "--data-binary", "@" <> path, clickhouseUrl o <> "/?query=" <> urlEncode query] ""
  where cleanup (path, handle) = hClose handle >> removeFile path
 
+sqlString :: String -> String
 sqlString = concatMap (\c -> if c == '\'' then "''" else [c])
 
+urlEncode :: String -> String
 urlEncode = concatMap encodeChar
  where
   encodeChar ' ' = "%20"
@@ -209,7 +223,10 @@ urlEncode = concatMap encodeChar
   encodeChar ',' = "%2C"
   encodeChar c = [c]
 
+trim :: String -> String
 trim = reverse . dropWhile (== '\n') . reverse . dropWhile (== '\n')
 
+dieUsage :: IO a
 dieUsage = die "usage: bench-import [--corpus-dir DIR] [--run-id ID] [--notes TEXT] [--testbed ID] [--clickhouse-url URL] [--corpus PATH] [--exclusions PATH] [--profile-source PATH] [--sweep ID] results.jsonl"
+die :: String -> IO a
 die message = putStrLn message >> exitFailure

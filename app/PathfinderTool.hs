@@ -437,8 +437,6 @@ serveRequest cache tileConfig useCTransform world tileAStar line =
       , "path" .= routeStepsJson (routeSteps route)
       , "expandedTiles" .= map coordinateText expandedTiles
       , "expandedStates" .= map expandedStateJson expandedStates
-      , "heuristicRegions" .= ([] :: [Value])
-      , "heuristicTiles" .= ([] :: [Value])
       , "timings" .= timings
       ]
 

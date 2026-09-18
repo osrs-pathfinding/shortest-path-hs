@@ -1,10 +1,20 @@
 cabal-version: 3.4
 name: shortest-path-model
-version: 0.1.0.0
+version: 1.0.0.0
+synopsis: Exact transport-aware OSRS tile pathfinding
+description: Exact and near-exact Old School RuneScape tile pathfinding with account-aware transports and reproducible benchmarks.
+category: Algorithms
+maintainer: Matthew Pickering <matthewtpickering@gmail.com>
+license: BSD-3-Clause
+license-file: LICENSE
 build-type: Simple
 
+source-repository head
+  type: git
+  location: https://github.com/mpickering/shortest-path-model.git
+
 common warnings
-  ghc-options: -O2 -fspecialise-aggressively -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -rtsopts
+  ghc-options: -O2 -fspecialise-aggressively -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns
 
 library
   import: warnings
@@ -63,38 +73,6 @@ library
     zip-archive
   default-language: GHC2024
 
-executable shortest-path-model
-  import: warnings
-  main-is: Main.hs
-  hs-source-dirs: app
-  build-depends:
-    aeson,
-    base,
-    bytestring,
-    containers,
-    filepath,
-    hashable,
-    shortest-path-model,
-    text
-  default-language: GHC2024
-
-executable graph-census
-  import: warnings
-  main-is: GraphCensus.hs
-  hs-source-dirs: app
-  build-depends:
-    aeson,
-    base,
-    bytestring,
-    containers,
-    directory,
-    filepath,
-    shortest-path-model,
-    text,
-    time,
-    vector
-  default-language: GHC2024
-
 executable account-profile
   import: warnings
   main-is: AccountProfile.hs
@@ -117,9 +95,9 @@ executable unreachable-diagnostic
     shortest-path-model
   default-language: GHC2024
 
-executable metis-partition
+executable separator-artifact
   import: warnings
-  main-is: MetisPartition.hs
+  main-is: SeparatorArtifact.hs
   hs-source-dirs: app
   build-depends:
     aeson,
@@ -127,7 +105,6 @@ executable metis-partition
     bytestring,
     containers,
     directory,
-    filepath,
     shortest-path-model,
     vector,
     process
@@ -165,15 +142,6 @@ executable route-bench
     shortest-path-model,
     text,
     time
-
-executable heuristic-scan-bench
-  import: warnings
-  main-is: HeuristicScanBench.hs
-  hs-source-dirs: app
-  build-depends:
-    base,
-    shortest-path-model,
-    vector
   default-language: GHC2024
 
 executable bench-import

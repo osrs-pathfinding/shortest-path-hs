@@ -28,7 +28,7 @@ benchmark profile / future account importer
                   v
        prepareQueryTransports
             /             \
-   Raw Dijkstra         Tile A*
+Reference Dijkstra      Tile A*
 ```
 
 `ShortestPath.AccountSemantics` owns semantic progression types and the

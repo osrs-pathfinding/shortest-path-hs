@@ -1,6 +1,14 @@
 .cabal/
+cabal.config.user
 dist-newstyle/
 out/
 data/
 *.o
 *.hi
+*.duckdb
+/generator-commit
+/out-corpus
+/out2
+/snapshots/
+/tags
+/tmp

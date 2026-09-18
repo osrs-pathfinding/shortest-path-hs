@@ -3,7 +3,6 @@
 pkgs.mkShell {
   packages = [
     pkgs.duckdb
-    pkgs.metis
     pkgs.jdk11
     pkgs.nodejs
     pkgs.jq
@@ -18,6 +17,6 @@ pkgs.mkShell {
     pkgs.pkg-config
   ];
   shellHook = ''
-    export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.metis pkgs.kahip ]}:$LD_LIBRARY_PATH"
+    export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.kahip ]}:$LD_LIBRARY_PATH"
   '';
 }

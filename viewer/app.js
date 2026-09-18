@@ -33,11 +33,8 @@ let comparisonRouteLayer;
 let expandedLayer;
 let expandedStateLayers = [];
 let expandedLayerControl;
-let regionLayer;
 let heuristicImageLayers = [];
 let heuristicLayerControl;
-let cutLayer;
-let separatorLayer;
 let doorLayer;
 let transportLayer;
 let selectedTransportLayer;
@@ -55,14 +52,11 @@ let heuristicRequestKey = "";
 let heuristicVisibleKeys = new Set(["no-bank", "no-bank-seeds", "bank-seeds"]);
 let componentRender = null;
 let removingLayers = false;
-let partitions = [];
-let kahipPartitions = [];
-let cutEdges = [];
 let doorTransports = [];
 let transports = [];
 let transportEndpointIndex = new Map();
 let selectedTransport = null;
-const loadState = { metis: "loading", kahip: "loading", cuts: "loading", doors: "loading", transports: "loading" };
+const loadState = { doors: "loading", transports: "loading" };
 const routeCasePicker = new TomSelect(routeCaseSelect, {
   create: false,
   maxOptions: 50,
@@ -138,11 +132,9 @@ function normaliseRoute(value, name = "") {
     , heuristicWeight: value.heuristicWeight, accountProfile: value.accountProfile
   };
   const normalised = {
-    name: value.name || name, cost: value.cost ?? value.hierarchicalCost ?? value.rawCost, expandedNodes: value.expandedNodes,
+    name: value.name || name, cost: value.cost, expandedNodes: value.expandedNodes,
     expandedTiles: (value.expandedTiles || []).map(coordinate), timings: value.timings,
     expandedStates: (value.expandedStates || []).map(point => ({ ...coordinate(point), banked: point.banked === true })),
-    heuristicRegions: value.heuristicRegions || [],
-    heuristicTiles: (value.heuristicTiles || []).map(point => ({ ...coordinate(point), value: Number(point.value) })),
     path, start: coordinate(value.start || value.source || path[0]?.coordinate),
     target: coordinate(value.target || path[path.length - 1]?.coordinate),
     config
@@ -273,7 +265,6 @@ shapeSourceSelect.addEventListener("change", () => {
 });
 fetchJson("../out/leak-route.json", json => { route = normaliseRoute(json, "leak route"); render(); }, message => { routeStatus.textContent = message; });
 fetchJson("../out/length-mismatch-routes.json", json => addFixtureRoutes("Mismatch", json), () => {});
-fetchJson("../out/hierarchy-test-routes.json", json => addFixtureRoutes("Fixture", json), () => {});
 fetchJson("../benchmarks/routes.json", json => addFixtureRoutes("Seed", json), message => { routeStatus.textContent = message; });
 fetchJson("/api/corpus-routes", json => {
   benchmarkRoutes = Array.isArray(json) ? json : (json.routes || []);
@@ -294,15 +285,6 @@ fetch("../out/route-benchmark.jsonl").then(response => {
   }));
   addFixtureRoutes("Benchmark result", results);
 }, () => {});
-fetchCsv("../out/metis/partitions.csv", "metis", rows => { partitions = rows.map(tile); });
-fetchCsv("../out/metis/kahip-partitions.csv", "kahip", rows => { kahipPartitions = rows.map(tile); });
-fetchCsv("../out/metis/cut-edges.csv", "cuts", rows => {
-  cutEdges = rows.map(row => ({
-    component: number(row.component),
-    a: [number(row.ax), number(row.ay), number(row.ap)],
-    b: [number(row.bx), number(row.by), number(row.bp)]
-  }));
-});
 fetch("/door_transports.tsv").then(response => {
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
@@ -367,15 +349,6 @@ function selectedComponent() {
   return data.components.find(component => component.id === Number(componentSelect.value));
 }
 
-function inBounds(point, component) {
-  return point.plane === Number(planeSelect.value) && point.x >= component.minX && point.x <= component.maxX &&
-    point.y >= component.minY && point.y <= component.maxY;
-}
-
-function selectedTiles(rows, component) {
-  return rows.filter(point => inBounds(point, component));
-}
-
 function componentColor(id) {
   const colors = ["#ef4444", "#f59e0b", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#84cc16", "#14b8a6", "#f97316", "#6366f1", "#64748b"];
   return colors[Math.abs(Number(id)) % colors.length];
@@ -383,7 +356,7 @@ function componentColor(id) {
 
 function removeLayers() {
   removingLayers = true;
-  [shapeLayer, bboxLayer, routeLayer, comparisonRouteLayer, expandedLayer, regionLayer, cutLayer, separatorLayer, doorLayer, transportLayer, selectedTransportLayer, benchmarkCoverageLayer, endpointRefinementLayer, ...expandedStateLayers, ...heuristicImageLayers, ...routeMarkers].forEach(layer => {
+  [shapeLayer, bboxLayer, routeLayer, comparisonRouteLayer, expandedLayer, doorLayer, transportLayer, selectedTransportLayer, benchmarkCoverageLayer, endpointRefinementLayer, ...expandedStateLayers, ...heuristicImageLayers, ...routeMarkers].forEach(layer => {
     if (layer) map.removeLayer(layer);
   });
   if (heuristicLayerControl) {
@@ -442,16 +415,8 @@ function render() {
       }).addTo(map);
     }
   }
-  if (mode === "metis" || mode === "kahip") {
-    const source = mode === "metis" ? partitions : kahipPartitions.filter(point => point.kind === "leaf");
-    drawRegions(selectedTiles(source, component), fillOpacity);
-  }
   const heuristicSummary = mode === "heuristic" ? drawHeuristic(fillOpacity) : null;
   const componentSummary = mode === "component-bitmap" ? drawComponentBitmap(fillOpacity) : null;
-  if (mode === "difference") {
-    drawCuts(component);
-    drawSeparators(selectedTiles(kahipPartitions.filter(point => point.kind === "separator"), component));
-  }
   drawDoors();
   drawBenchmarkCoverage();
   drawEndpointRefinement();
@@ -651,61 +616,6 @@ async function fetchHeuristic(body, key) {
   } catch (error) {
     if (key === heuristicRequestKey) status.textContent = `Heuristic error: ${error.message}`;
   }
-}
-
-function drawLegacyHeuristic(fillOpacity) {
-  if (!route?.heuristicRegions?.length && !route?.heuristicTiles?.length) return null;
-  const values = new Map(route.heuristicRegions.map(row => [`${row.component}:${row.region}`, Number(row.value)]));
-  const samples = route.heuristicTiles.filter(point => point.plane === currentPlane && Number.isFinite(point.value));
-  const points = kahipPartitions.filter(point => point.kind === "leaf" && point.plane === currentPlane);
-  const partitionedComponents = new Set(points.map(point => point.component));
-  const bins = new Map();
-  const regions = new Set();
-  for (const point of points) {
-    const key = `${point.component}:${point.region}`;
-    const value = values.get(key);
-    if (!Number.isFinite(value)) continue;
-    const x = Math.floor(point.x / data.binSize) * data.binSize;
-    const y = Math.floor(point.y / data.binSize) * data.binSize;
-    bins.set(`${key}:${x}:${y}`, { component: point.component, x, y, region: point.region, value });
-    regions.add(key);
-  }
-  for (const bin of data.bins) {
-    if (bin.plane !== currentPlane || partitionedComponents.has(bin.component)) continue;
-    const region = `raw-${bin.component}`;
-    const value = values.get(`${bin.component}:${region}`);
-    if (!Number.isFinite(value)) continue;
-    bins.set(`${bin.component}:${region}:${bin.x}:${bin.y}`, { component: bin.component, x: bin.x, y: bin.y, region, value });
-    regions.add(`${bin.component}:${region}`);
-  }
-  const visibleValues = [...bins.values()].map(bin => bin.value).concat(samples.map(point => point.value));
-  if (!visibleValues.length) return { bins: 0, regions: 0, samples: 0, minimum: 0, maximum: 0 };
-  const minimum = Math.min(...visibleValues);
-  const maximum = Math.max(1, ...visibleValues);
-  const range = Math.max(1, maximum - minimum);
-  const color = value => {
-    const hue = 120 * (1 - Math.min(1, (value - minimum) / range));
-    return `hsl(${hue} 78% 42%)`;
-  };
-  const layers = [...bins.values()].map(bin => {
-    return L.rectangle([[bin.y, bin.x], [bin.y + data.binSize, bin.x + data.binSize]], {
-      color: color(bin.value), fillColor: color(bin.value),
-      fillOpacity: Math.min(fillOpacity, 0.68), weight: 1, opacity: 0.9
-    }).bindTooltip(`#${bin.component}/${bin.region}: h=${bin.value}`);
-  });
-  layers.push(...samples.map(point => L.circleMarker([point.y + 0.5, point.x + 0.5], {
-    renderer, color: "#111827", fillColor: color(point.value),
-    fillOpacity: 0.95, radius: 4, weight: 1, opacity: 0.8
-  }).bindTooltip(`${point.x}/${point.y}/${point.plane}: h=${point.value}`)));
-  regionLayer = L.layerGroup(layers).addTo(map);
-  if (bins.size || samples.length) {
-    const west = [...bins.values()].map(bin => bin.x).concat(samples.map(point => point.x));
-    const south = [...bins.values()].map(bin => bin.y).concat(samples.map(point => point.y));
-    const east = [...bins.values()].map(bin => bin.x + data.binSize).concat(samples.map(point => point.x + 1));
-    const north = [...bins.values()].map(bin => bin.y + data.binSize).concat(samples.map(point => point.y + 1));
-    heuristicBounds = [[Math.min(...south), Math.min(...west)], [Math.max(...north), Math.max(...east)]];
-  }
-  return { bins: bins.size, regions: regions.size, samples: samples.length, minimum, maximum };
 }
 
 function drawBenchmarkCoverage() {
@@ -1146,48 +1056,6 @@ function fitRoute() {
   if (points.length) map.fitBounds(points, { padding: [30, 30], maxZoom: 4 });
 }
 
-function regionColor(region) {
-  let hash = 2166136261;
-  for (const char of String(region)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
-  return `hsl(${(hash >>> 0) % 360} 78% 45%)`;
-}
-
-function drawRegions(points, fillOpacity) {
-  const bins = new Map();
-  for (const point of points) {
-    const x = Math.floor(point.x / 16) * 16;
-    const y = Math.floor(point.y / 16) * 16;
-    const key = `${point.region}:${x}:${y}`;
-    const bin = bins.get(key) || { region: point.region, x, y };
-    bins.set(key, bin);
-  }
-  regionLayer = L.layerGroup([...bins.values()].map(bin => L.rectangle(
-    [[bin.y, bin.x], [bin.y + 16, bin.x + 16]], {
-      color: regionColor(bin.region), fillColor: regionColor(bin.region),
-      fillOpacity: Math.min(fillOpacity, 0.62), weight: 1, opacity: 0.9, interactive: false
-    }
-  ))).addTo(map);
-}
-
-function drawCuts(component) {
-  const edges = cutEdges.filter(edge => edge.a[2] === currentPlane && edge.b[2] === currentPlane &&
-    [edge.a, edge.b].every(point => point[0] >= component.minX && point[0] <= component.maxX &&
-      point[1] >= component.minY && point[1] <= component.maxY));
-  cutLayer = L.layerGroup(edges.map(edge => L.polyline(
-    [[edge.a[1] + 0.5, edge.a[0] + 0.5], [edge.b[1] + 0.5, edge.b[0] + 0.5]],
-    { color: "#00e5ff", weight: 4, opacity: 1, interactive: false }
-  ))).addTo(map);
-}
-
-function drawSeparators(points) {
-  separatorLayer = L.layerGroup(points.map(point => L.circleMarker(
-    [point.y + 0.5, point.x + 0.5], {
-      color: "#ff1493", fillColor: "#ff1493", fillOpacity: 1,
-      radius: 7, weight: 2, opacity: 1, interactive: false
-    }
-  ))).addTo(map);
-}
-
 function drawDoors(component) {
   if (!showDoorsInput.checked || loadState.doors !== "ready") return;
   const visible = doorTransports.filter(door =>
@@ -1213,14 +1081,9 @@ function visibleDoorCount() {
 }
 
 function renderLegend(mode, heuristicSummary) {
-  const items = mode === "difference" ? [
-    ["#00e5ff", "METIS cut edges", "legend-line"],
-    ["#ff1493", "KaHIP separator tiles", ""]
-  ] : mode === "heuristic" ? [["#16a34a", "Low heuristic", ""], ["#dc2626", "High heuristic", ""]] :
+  const items = mode === "heuristic" ? [["#16a34a", "Low heuristic", ""], ["#dc2626", "High heuristic", ""]] :
     mode === "component-bitmap" ? [["#2563eb", "Reachable components", ""]] :
     mode === "all-components" ? [["#3b82f6", "Contiguous components", ""]] :
-    mode === "metis" ? [["#38bdf8", "METIS leaf regions", ""]] :
-    mode === "kahip" ? [["#fb923c", "KaHIP leaf regions", ""]] :
     [["#2563eb", "Manual walking components", ""]];
   if (route?.expandedTiles?.length) items.push(["#fde047", "Expanded abstract tiles", ""]);
   if (route?.expandedStates?.length) items.push(["#fde047", "A* explored", ""], ["#06b6d4", "A* explored (banked)", ""]);
@@ -1258,13 +1121,6 @@ function renderLegend(mode, heuristicSummary) {
 }
 
 function renderStats(component, visibleBins, mode, heuristicSummary, componentSummary) {
-  const source = mode === "metis" ? selectedTiles(partitions, component) :
-    mode === "kahip" ? selectedTiles(kahipPartitions.filter(point => point.kind === "leaf"), component) : [];
-  const regions = new Set(source.map(point => point.region));
-  const selectedCuts = cutEdges.filter(edge => [edge.a, edge.b].every(point =>
-    point[2] === currentPlane && point[0] >= component.minX && point[0] <= component.maxX &&
-    point[1] >= component.minY && point[1] <= component.maxY));
-  const selectedSeparators = selectedTiles(kahipPartitions.filter(point => point.kind === "separator"), component);
   const rows = mode === "heuristic" ? [
     ["mode", "A* heuristic"], ["plane", currentPlane],
     ["heuristic layers", heuristicSummary?.layers.toLocaleString() || "0"],
@@ -1277,17 +1133,15 @@ function renderStats(component, visibleBins, mode, heuristicSummary, componentSu
     ["image tiles", componentSummary?.tiles.toLocaleString() || "0"],
     ["layers", componentSummary?.layers.toLocaleString() || "0"]
   ] : [
-    ["mode", { "all-components": "All components", manual: "Manual", metis: "METIS", kahip: "KaHIP", heuristic: "A* heuristic", "component-bitmap": "Detailed components", difference: "Difference" }[mode]],
+    ["mode", { "all-components": "All components", manual: "Manual", heuristic: "A* heuristic", "component-bitmap": "Detailed components" }[mode]],
     ["tiles", mode === "all-components" ? data.components.reduce((total, item) => total + item.tiles, 0).toLocaleString() : component.tiles.toLocaleString()], ["bbox", mode === "all-components" ? "all visible components" : `${component.minX},${component.minY}..${component.maxX},${component.maxY}`],
     ["plane", currentPlane], ["visible bins", visibleBins.toLocaleString()]
   ];
   if (mode === "all-components") rows.push(["components shown", new Set(data.bins.filter(bin => bin.plane === currentPlane).map(bin => bin.component)).size.toLocaleString()]);
   if (mode === "manual") rows.push(["banks", component.banks.toLocaleString()], ["interesting", component.interestingTiles.toLocaleString()]);
-  if (mode === "metis" || mode === "kahip") rows.push(["assigned tiles", source.length.toLocaleString()], ["leaf regions", regions.size.toLocaleString()]);
   if (mode === "heuristic") {
     if (heuristicSummary) rows.push(["heuristic range", `${heuristicSummary.minimum}..${heuristicSummary.maximum}`]);
   }
-  if (mode === "difference") rows.push(["METIS cut edges", selectedCuts.length.toLocaleString()], ["KaHIP separators", selectedSeparators.length.toLocaleString()]);
   if (showDoorsInput.checked) rows.push(["visible doors", visibleDoorCount().toLocaleString()]);
   if (showTransportsInput.checked) rows.push(["visible transport endpoints", visibleTransportEndpointCount().toLocaleString()]);
   if (showBenchmarkCoverageInput.checked) rows.push(["benchmark endpoints", benchmarkRoutes.reduce((count, item) => count + [item.start, item.target].filter(value => coordinate(value).plane === currentPlane).length, 0).toLocaleString()]);
@@ -1297,10 +1151,7 @@ function renderStats(component, visibleBins, mode, heuristicSummary, componentSu
   }));
   const missing = Object.entries(loadState).filter(([, state]) => state === "missing").map(([name]) => name);
   const loading = Object.entries(loadState).filter(([, state]) => state === "loading").map(([name]) => name);
-  const modeMissing = mode === "metis" && loadState.metis === "missing" ? "METIS assignments are unavailable." :
-    mode === "kahip" && loadState.kahip === "missing" ? "KaHIP assignments are unavailable." :
-    mode === "difference" && (loadState.cuts === "missing" || loadState.kahip === "missing") ? "One or more difference inputs are unavailable." : "";
-  status.textContent = [mode === "manual" ? "Manual data loaded." : "", modeMissing,
+  status.textContent = [mode === "manual" ? "Manual data loaded." : "",
     missing.length ? `Missing optional files: ${missing.join(", ")}.` : "",
     loading.length ? `Loading optional data: ${loading.join(", ")}.` : ""].filter(Boolean).join(" ");
 }

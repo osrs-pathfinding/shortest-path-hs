@@ -17,7 +17,7 @@ mkdir -p "$output"
 cd "$root"
 node "$corpus_dir/tools/validate.js"
 
-echo "[1/3] Raw Dijkstra oracle/benchmark"
+echo "[1/3] Reference Dijkstra oracle/benchmark"
 nix-shell --run \
   "cabal run route-bench -- --corpus-dir '$corpus_dir' --corpus '$corpus' --oracle '$oracle' --tier '$tier' --jobs '$jobs' --write-oracle" \
   2>&1 | tee "$dijkstraLog"

@@ -16,7 +16,7 @@ Use this read-only workflow for correctness results in the shortest-path-model c
    nix-shell --run 'cabal run route-bench -- --tier full --runs 1 --output /tmp/full-benchmark.jsonl'
    ```
 
-   `--runs 1` is sufficient for correctness. Do not add `--diagnostic` to the full pass: it reruns Raw Dijkstra for every query.
+   `--runs 1` is sufficient for correctness. Do not add `--diagnostic` to the full pass: it reruns Reference Dijkstra for every query.
 3. Extract only incorrect rows from the fresh JSONL. Prefer `jq`:
 
    ```sh

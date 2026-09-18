@@ -102,7 +102,7 @@ main = do
     when (not (null gaps)) $ die (unlines ("unmodelled benchmark profile variables:" : [name <> ": " <> show (length requirements) | (name, requirements) <- gaps]))
   if writeOracle options
     then writeOracles profiles options topology cases
-    else buildTileAStarFromTopology topology >>= forceTileAStar >>= \astar -> runBench profiles tileConfig options world astar cases
+    else buildTileAStarFromTopology topology >>= forceTileAStar >>= \astar -> runBench profiles tileConfig options astar cases
 
 parseOptions :: [String] -> IO Options
 parseOptions = go defaultOptions
@@ -203,10 +203,9 @@ writeOracles benchmarkProfiles options topology cases = do
     let reachable = resolvedCost /= maxBound
         oracle = Oracle reachable (if reachable then Just resolvedCost else Nothing)
     pure (oracle, milliseconds started finished)
-  world = topologyWorld topology
 
-runBench :: BenchmarkProfiles -> TileAStarConfig -> Options -> World -> TileAStar -> [RouteCase] -> IO ()
-runBench benchmarkProfiles tileConfig options world astar cases = do
+runBench :: BenchmarkProfiles -> TileAStarConfig -> Options -> TileAStar -> [RouteCase] -> IO ()
+runBench benchmarkProfiles tileConfig options astar cases = do
   oracles <- loadOracle options
   failedKeys <- maybe (pure Nothing) (fmap Just . loadFailedKeys) (rerunFailures options)
   commit <- gitCommit
@@ -272,7 +271,7 @@ runBench benchmarkProfiles tileConfig options world astar cases = do
         let raw = findRouteReferenceDijkstra (ReferenceDijkstra (tileTopology astar)) (query (benchmarkNowMinutesFrom benchmarkProfiles) route profile 1)
         voidRoute raw
         finished <- getMonotonicTimeNSec
-        when (routeCost raw /= routeCost result) (die ("raw Dijkstra mismatch for " <> key route profileName))
+        when (routeCost raw /= routeCost result) (die ("reference Dijkstra mismatch for " <> key route profileName))
         append (outputPath options) options $ object ["routeId" .= stableId route, "accountProfile" .= profileName, "repetition" .= repetition, "diagnosticRawMs" .= milliseconds started finished]
   putStrLn ("wrote " <> outputPath options)
 

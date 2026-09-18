@@ -8,7 +8,7 @@ Use these broad classifications:
 
 1. `profile_requirement` — the implemented graph has a route when requirements are ignored, but the named profile does not.
 2. `topology_or_endpoint` — the route is unreachable even when requirements are ignored.
-3. `tile_astar_correctness` — Raw Dijkstra can reach the target with the same settings, but Tile A* cannot.
+3. `tile_astar_correctness` — Reference Dijkstra can reach the target with the same settings, but Tile A* cannot.
 4. `expected_unreachable` — the route is intentionally unreachable, such as an explicit negative regression or a disabled movement system.
 5. `needs_manual_review` — evidence is insufficient or contradictory.
 
@@ -109,10 +109,10 @@ Relevant tables/views are `point_access`, `place_facts`, and `transport_facts`. 
 
 Use the existing direct server. Omitting `accountProfile` means everything enabled; adding `"accountProfile":"maxed"` selects a named profile.
 
-Do not start the server once per route. `serve-direct` loads the world and Tile A* cache once, then accepts newline-delimited JSON requests until stdin closes. Generate a batch request file with a unique `id` for every route/profile pair and process it in one invocation:
+Do not start the server once per route. `serve` loads the world and Tile A* cache once, then accepts newline-delimited JSON requests until stdin closes. Generate a batch request file with a unique `id` for every route/profile pair and process it in one invocation:
 
 ```sh
-nix-shell --run 'cabal run hierarchy-differential -- serve-direct \
+nix-shell --run 'cabal run pathfinder-tool -- serve \
   < out/unreachable-diagnostic-requests.jsonl \
   > out/unreachable-diagnostic-responses.jsonl'
 ```
@@ -122,9 +122,9 @@ The output also contains startup messages and one `{"ready":true}` record. When 
 Use at most two server starts for the diagnostic pass:
 
 1. One batched Tile A* run containing every required named-profile and everything-enabled query.
-2. One batched Raw Dijkstra run containing only the everything-enabled cases that Tile A* could not reach.
+2. One batched Reference Dijkstra run containing only the everything-enabled cases that Tile A* could not reach.
 
-Do not run Raw Dijkstra speculatively for every case; some routes are expensive and it is only needed to distinguish topology failures from Tile A* correctness failures.
+Do not run Reference Dijkstra speculatively for every case; some routes are expensive and it is only needed to distinguish topology failures from Tile A* correctness failures.
 
 ```sh
 printf '%s\n' '{
@@ -135,7 +135,7 @@ printf '%s\n' '{
   "includeExpandedTiles":false,
   "useHeuristic":true,
   "finder":"tile-full"
-}' | nix-shell --run 'cabal run hierarchy-differential -- serve-direct'
+}' | nix-shell --run 'cabal run pathfinder-tool -- serve'
 ```
 
 For unreachable direct-server responses, `cost` is currently encoded as Haskell `maxBound` (approximately `9.22e18`), not `null`. Treat `cost >= 9e18` as unreachable when parsing this diagnostic output.
@@ -149,7 +149,7 @@ route ID
 route name
 unreachable named profiles
 everything reachable: yes/no
-Raw Dijkstra reachable: yes/no/not run
+Reference Dijkstra reachable: yes/no/not run
 classification
 successful path transport labels
 exact or candidate failed requirements

@@ -51,18 +51,7 @@ data Profile = Profile
   , profileRuntime :: RuntimeProfile
   }
 
-data PohProfile = PohProfile
-  { pohProfileLocation :: String
-  , pohProfileJewelleryBox :: String
-  , pohProfilePortals :: PortalProfile
-  , pohProfileFairyRing :: Bool
-  , pohProfileSpiritTree :: Bool
-  , pohProfileObelisk :: Bool
-  , pohProfileMountedGlory :: Bool
-  , pohProfileMountedXerics :: Bool
-  , pohProfileMountedDigsite :: Bool
-  , pohProfileMountedMythical :: Bool
-  }
+data PohProfile = PohProfile String String PortalProfile Bool Bool Bool Bool Bool Bool Bool
 
 data PortalProfile = PortalProfile String [String]
 data RuntimeProfile = RuntimeProfile String CooldownProfile Bool
@@ -110,17 +99,17 @@ benchmarkNowMinutes :: Int
 benchmarkNowMinutes = benchmarkNowMinutesFrom defaultBenchmarkProfiles
 
 benchmarkProfileNamesFrom :: BenchmarkProfiles -> [String]
-benchmarkProfileNamesFrom profiles = filter (`Map.member` benchmarkAccounts profiles) ["early", "mid", "end", "maxed"]
+benchmarkProfileNamesFrom loaded = filter (`Map.member` benchmarkAccounts loaded) ["early", "mid", "end", "maxed"]
 
 benchmarkAccountFrom :: BenchmarkProfiles -> String -> Maybe AccountState
-benchmarkAccountFrom profiles name = Map.lookup name (benchmarkAccounts profiles)
+benchmarkAccountFrom loaded name = Map.lookup name (benchmarkAccounts loaded)
 
 benchmarkProfileVariableGapsFrom :: BenchmarkProfiles -> [Transport] -> [(String, [VarReq])]
-benchmarkProfileVariableGapsFrom profiles transports =
+benchmarkProfileVariableGapsFrom loaded transports =
   [ (name, Set.toList (Set.fromList unknown))
-  | name <- benchmarkProfileNamesFrom profiles
-  , Just account <- [benchmarkAccountFrom profiles name]
-  , let context = RequirementContext account CarriedAndBank (benchmarkNowMinutesFrom profiles)
+  | name <- benchmarkProfileNamesFrom loaded
+  , Just account <- [benchmarkAccountFrom loaded name]
+  , let context = RequirementContext account CarriedAndBank (benchmarkNowMinutesFrom loaded)
         unknown = concat
           [ requirements
           | transport <- transports

@@ -1,12 +1,19 @@
 # shortest-path-model
 
+An exact, account-aware Old School RuneScape pathfinder. The maintained solver
+is direct Tile A*; `ReferenceDijkstra` is the deliberately simple correctness
+oracle.
+
 > Partition artifact configuration: maximum component size `20000`, minimum
 > child size `500`, maximum separator size `32`, imbalance `40`, random seed
 > `42`.
 
-The maintained routing implementations are direct Tile A* for current routing
-and `ReferenceDijkstra` as a deliberately simple correctness reference. Hierarchical
-routing is retained only as archived research and possible future work.
+## Requirements
+
+Enter `nix-shell` for the pinned development tools. Runtime world data is read
+from the sibling `../shortest-path` checkout, and benchmarks use the sibling
+`../shortest-path-corpus` checkout. Override the corpus location with
+`SHORTEST_PATH_CORPUS_DIR`.
 
 ## World facts inspector
 
@@ -28,7 +35,7 @@ Query it directly with `duckdb data/world-facts.duckdb`.
 The distributed `routing-separators-v1.json` is generated offline with KaHIP:
 
 ```sh
-nix-shell --run 'cabal run metis-partition -- generate-artifact ../shortest-path/src/main/resources/routing-separators-v1.json 20000 500 32 40 42'
+nix-shell --run 'cabal run separator-artifact -- generate ../shortest-path/src/main/resources/routing-separators-v1.json 20000 500 32 40 42'
 ```
 
 Each KaHIP vertex is one collision-walkable tile. Each undirected graph edge is
@@ -80,7 +87,7 @@ six runs under one sweep ID.
 measure viewer or HTTP overhead), applies all four account profiles, and writes
 one JSON object per route/profile/repetition to a JSONL file.
 
-The checked-in v1 corpus contains 724 fixed routes and 2,896 route/profile
+The sibling v1 corpus contains 724 fixed routes and 2,896 route/profile
 cases: 2,809 positive and 87 expected-unreachable negatives. It includes GPS, quest, clue, walking,
 transport, Wilderness, geographic, and regression cases.
 The 26 unresolved all-profile failures live in

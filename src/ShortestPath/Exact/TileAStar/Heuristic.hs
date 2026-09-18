@@ -39,7 +39,6 @@ import ShortestPath.Exact.TileAStar.HeuristicScan
 import ShortestPath.Exact.TileAStar.ReverseSearch
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Internal.Timing
-import ShortestPath.Pathfinder
 import ShortestPath.Tile
 import ShortestPath.Topology
 

@@ -2,7 +2,7 @@
 
 This system is Nixos, and there is a nix shell which provides the necessary dependencies to build and run the project.
 
-This repository is an experimental/production-oriented OSRS pathfinding implementation. The main focus is **exact or near-exact tile pathfinding with transports and strong transport-aware heuristics**, backed by a broad reproducible benchmark corpus.
+This repository is an experimental/production-oriented OSRS pathfinding implementation. The main focus is **exact or near-exact tile pathfinding with transports and strong transport-aware heuristics**. The reproducible benchmark corpus lives in the sibling `shortest-path-corpus` repository.
 
 ## Project map
 
@@ -23,7 +23,7 @@ Key Haskell modules:
 
 Other important areas:
 
-* benchmark runner/corpus — fixed route corpus, account profiles, correctness oracle and JSONL performance output.
+* benchmark runner — consumes the sibling corpus and produces JSONL performance output.
 * viewer — spatial inspection of individual routes/search behaviour.
 * world inspection data — derived/queryable facts about components, places and structural reachability.
 * benchmark analysis — JSONL is canonical; databases/Grafana are derived analysis infrastructure.
