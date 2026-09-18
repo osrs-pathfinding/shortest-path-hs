@@ -53,35 +53,10 @@ mismatched, or invalid artifact.
 
 ## Route benchmarks
 
-### Import benchmark history
-
-Initialize the configured ClickHouse instance with `benchmark-analysis/clickhouse/schema.sql`, then import a JSONL run in one bulk request:
-
-```sh
-nix-shell --run 'cabal run bench-import -- --testbed cedric --notes "baseline" out/route-benchmark.jsonl'
-```
-
-The importer derives `corpus_id`, `profile_set_id`, and `suite_id`, refuses an existing complete `run_id`, keeps the original JSONL untouched, and stores each original JSON object in `raw_json`. ClickHouse is disposable; archived JSONL files remain the source of truth.
-
-Grafana resources live in `benchmark-analysis/grafana/`. Push them after the
-`OSRS Benchmarks` folder exists:
-
-```sh
-gcx resources push -p benchmark-analysis/grafana
-```
-
-The dashboards require Grafana's image-renderer plugin for `gcx dashboards
-snapshot`; the ClickHouse datasource alone is sufficient for normal browsing.
-
-Run the standard weighted-A* sweep (six weights, three repetitions) with:
-
-```sh
-scripts/run-weighted-sweep.sh
-```
-
-It writes one canonical JSONL per weight below a timestamped
-`out/weighted-astar-standard-<timestamp>-<commit>/` directory and imports all
-six runs under one sweep ID.
+Campaign orchestration, result importing, ClickHouse analysis, Grafana
+resources, and profiling scripts live in the sibling
+[`shortest-path-benchmarks`](../shortest-path-benchmarks) repository.
+`route-bench` remains here with the implementation it measures.
 
 `route-bench` is the canonical local runner. It runs in-process (so it does not
 measure viewer or HTTP overhead), applies all four account profiles, and writes
@@ -138,7 +113,7 @@ investigation; do not use its timings for performance comparisons.
 ### Report performance
 
 ```sh
-node benchmarks/report.js out/route-benchmark.jsonl out/route-benchmark-bencher.json
+node ../shortest-path-benchmarks/scripts/report.js out/route-benchmark.jsonl out/route-benchmark-bencher.json
 bencher run --adapter json --file out/route-benchmark-bencher.json
 ```
 

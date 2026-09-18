@@ -142,23 +142,6 @@ executable route-bench
     time
   default-language: GHC2024
 
-executable bench-import
-  import: warnings
-  main-is: BenchImport.hs
-  hs-source-dirs: app
-  build-depends:
-    aeson,
-    base,
-    bytestring,
-    containers,
-    directory,
-    process,
-    scientific,
-    shortest-path-model,
-    text,
-    time
-  default-language: GHC2024
-
 executable world-facts
   import: warnings
   main-is: WorldFacts.hs

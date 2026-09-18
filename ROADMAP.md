@@ -305,7 +305,8 @@ Potential later integrations include importing account state from RuneLite or an
 
 ### Integrated benchmark UI
 
-Grafana is the current benchmark-analysis workbench.
+Grafana is the current benchmark analysis workbench in the sibling
+`shortest-path-benchmarks` repository.
 
 If a small set of comparison views proves consistently useful, eventually integrate them into the sibling viewer web application.
 
