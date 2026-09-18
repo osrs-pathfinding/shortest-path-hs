@@ -107,12 +107,18 @@ Relevant tables/views are `point_access`, `place_facts`, and `transport_facts`. 
 
 ## Direct route requests
 
-Use the existing direct server. Omitting `accountProfile` means everything enabled; adding `"accountProfile":"maxed"` selects a named profile.
+Use the JSON-lines backend from the sibling
+[`shortest-path-viewer`](../../shortest-path-viewer) repository. Omitting
+`accountProfile` means everything enabled; adding `"accountProfile":"maxed"`
+selects a named profile.
 
-Do not start the server once per route. `serve` loads the world and Tile A* cache once, then accepts newline-delimited JSON requests until stdin closes. Generate a batch request file with a unique `id` for every route/profile pair and process it in one invocation:
+Do not start the backend once per route. `viewer-backend serve` loads the world
+and Tile A* cache once, then accepts newline-delimited JSON requests until stdin
+closes. Generate a batch request file with a unique `id` for every route/profile
+pair and process it in one invocation:
 
 ```sh
-nix-shell --run 'cabal run pathfinder-tool -- serve \
+nix-shell ../shortest-path-viewer/shell.nix --run 'cabal --project-file=../shortest-path-viewer/cabal.project run viewer-backend -- serve \
   < out/unreachable-diagnostic-requests.jsonl \
   > out/unreachable-diagnostic-responses.jsonl'
 ```
@@ -135,7 +141,7 @@ printf '%s\n' '{
   "includeExpandedTiles":false,
   "useHeuristic":true,
   "finder":"tile-full"
-}' | nix-shell --run 'cabal run pathfinder-tool -- serve'
+}' | nix-shell ../shortest-path-viewer/shell.nix --run 'cabal --project-file=../shortest-path-viewer/cabal.project run viewer-backend -- serve'
 ```
 
 For unreachable direct-server responses, `cost` is currently encoded as Haskell `maxBound` (approximately `9.22e18`), not `null`. Treat `cost >= 9e18` as unreachable when parsing this diagnostic output.

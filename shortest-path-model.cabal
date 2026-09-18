@@ -29,13 +29,11 @@ library
     ShortestPath.Internal.Cost
     ShortestPath.Internal.DistanceTransform
     ShortestPath.Internal.MutableHeap
-    ShortestPath.Internal.RgbaTile
     ShortestPath.Internal.Timing
     ShortestPath.Items
     ShortestPath.Exact.ReferenceDijkstra
     ShortestPath.Exact.TileAStar
     ShortestPath.Exact.TileAStar.Configuration
-    ShortestPath.Exact.TileAStar.Debug
     ShortestPath.Exact.TileAStar.Heuristic
     ShortestPath.Exact.TileAStar.HeuristicScan
     ShortestPath.Exact.TileAStar.Preprocessing
@@ -57,7 +55,7 @@ library
     ShortestPath.World
   hs-source-dirs: src
   c-sources:
-    csrc/tile_astar_render.c
+    csrc/distance_transform.c
   build-depends:
     base >=4.20 && <5,
     aeson,

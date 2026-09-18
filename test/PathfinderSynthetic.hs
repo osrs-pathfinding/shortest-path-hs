@@ -9,7 +9,6 @@ import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
 
 import ShortestPath.Exact.TileAStar
-import ShortestPath.Exact.TileAStar.Debug
 import ShortestPath.Exact.TileAStar.Heuristic
   ( Heuristic(..), heuristicAt, heuristicAtComponent, heuristicAtGeneratorsComponent
   , heuristicAtResolved, prepareHeuristic, prepareHeuristicProfiled, seedKey
@@ -46,7 +45,6 @@ main = do
       tileGlobalRoute = findRouteTileAStar tileAStar globalQuery
   assert (routeSteps rawGlobalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
   assert (routeSteps tileGlobalRoute == [UseTransport "SYNTHETIC_GLOBAL" (tD1 tiles)])
-  checkReversePathDebug tileAStar tiles
   checkTransportOnlyEndpoint reference tileAStar tiles
   checkIntermediateTransportEndpoint reference tileAStar tiles
   checkPohCapabilityGates
@@ -677,35 +675,6 @@ checkRoute raw tileAStar world (Case name q expectation) = do
  where
   sparseConfig = TileAStarConfig SparseWalkingReverse True False
 
-checkReversePathDebug :: TileAStar -> Tiles -> IO ()
-checkReversePathDebug tileAStar tiles = do
-  let initialQuery = query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_GLOBAL") False
-      initialDebug = reversePathDebug tileAStar initialQuery
-  assertMsg ("initial global leaked: " <> show initialDebug) (all ((/= "SYNTHETIC_GLOBAL") . reverseEdgeLabel) (concatMap reverseStatePath (reverseDebugStates initialDebug)))
-  let decline = reversePathDebug tileAStar (withoutInventory (query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_LOCAL_AT_BANK") True))
-      (declineUnbanked, declineBanked) = twoStates decline
-  assertMsg ("decline unbanked: " <> show declineUnbanked) (map reverseEdgeType (reverseStatePath declineUnbanked) == ["bank", "transport"])
-  assertMsg ("decline transitions: " <> show (reverseStatePath declineUnbanked)) (map transition (reverseStatePath declineUnbanked) == [(False, True), (True, True)])
-  assertMsg ("decline banked: " <> show declineBanked) (map reverseEdgeType (reverseStatePath declineBanked) == ["transport"])
-  assert (map transition (reverseStatePath declineBanked) == [(True, True)])
-  let mixed = reversePathDebug tileAStar (withoutInventory (query (tA0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_GLOBAL") True))
-      (mixedUnbanked, mixedBanked) = twoStates mixed
-  assertMsg ("mixed unbanked value: " <> show mixedUnbanked) (reverseStateDistance mixedUnbanked == reverseStateHeuristic mixedUnbanked)
-  assertMsg ("mixed banked: " <> show mixedBanked) (reverseStateUnreachable mixedBanked)
-  assertMsg ("mixed unbanked path: " <> show (reverseStatePath mixedUnbanked)) (map reverseEdgeType (reverseStatePath mixedUnbanked) == ["transport"])
-  assertMsg ("mixed transitions: " <> show (reverseStatePath mixedUnbanked)) (map transition (reverseStatePath mixedUnbanked) == [(False, True)])
-  let oneMissing = reversePathDebug tileAStar (withoutInventory (query (tE0 tiles) (tD1 tiles) (Set.singleton "SYNTHETIC_BANK_LOCAL") False))
-      (missingUnbanked, missingBanked) = twoStates oneMissing
-  assertMsg ("missing unbanked: " <> show missingUnbanked) (reverseStateUnreachable missingUnbanked)
-  assertMsg ("missing banked: " <> show missingBanked) (not (reverseStateUnreachable missingBanked))
-  assert (map reverseEdgeType (reverseStatePath missingBanked) == ["transport"])
- where
-  transition edge = (reverseEdgeFromBanked edge, reverseEdgeToBanked edge)
-  twoStates debug =
-    case reverseDebugStates debug of
-      [unbanked, banked] -> (unbanked, banked)
-      states -> error ("expected two reverse debug states, got " <> show (length states))
-
 checkHeuristicPruning :: TileAStar -> Tiles -> IO ()
 checkHeuristicPruning tileAStar tiles = do
   let unknownQuery = (query (tA0 tiles) (tA25 tiles) (Set.singleton "SYNTHETIC_UNKNOWN") False)
@@ -737,21 +706,10 @@ checkIntermediateTransportEndpoint raw tileAStar tiles = do
       expected = [ UseTransport "SYNTHETIC_X_1" (tX tiles)
                  , UseTransport "SYNTHETIC_X_2" (tC0 tiles)
                  ]
-      xDebug = reversePathDebug tileAStar (query (tX tiles) (tC0 tiles) enabled False)
-      yDebug = reversePathDebug tileAStar (query (tY tiles) (tC0 tiles) enabled False)
   assert (routeCost rawRoute == 12)
   assert (routeSteps rawRoute == expected)
   assert (routeCost tileRoute == 12)
   assert (routeSteps tileRoute == expected)
-  assert (reverseStateDistance (unbankedState xDebug) == 7)
-  assert (reverseStateHeuristic (unbankedState xDebug) == 7)
-  assert (reverseStateUnreachable (unbankedState yDebug))
- where
-  unbankedState debug =
-    case reverseDebugStates debug of
-      [state, _] -> state
-      states -> error ("expected two reverse states, got " <> show (length states))
-
 checkPohTopology :: IO ()
 checkPohTopology = do
   let low = packTile 1856 5696 0

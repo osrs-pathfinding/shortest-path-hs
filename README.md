@@ -147,11 +147,8 @@ search aggregates separately. Bencher owns history and regression detection.
 
 ### Inspect a route in the viewer
 
-Start the viewer, then open <http://127.0.0.1:8000/viewer/>:
-
-```sh
-node viewer/server.js
-```
+The interactive viewer now lives in the sibling
+[`shortest-path-viewer`](../shortest-path-viewer) repository.
 
 The **Test case** menu includes selected corpus routes and latest JSONL results.
 Choose a route (a result restores its account profile), then click **Run route**
@@ -193,38 +190,6 @@ nix-shell --run 'cabal test pathfinder-synthetic'
 The synthetic suite directly exercises both reverse implementations and checks
 the sparse labels against the production clique labels.
 
-Run the Kourend -> Desert benchmark through the direct server protocol:
-
-```sh
-printf '%s\n' '{"id":1,"start":{"x":1503,"y":3553,"plane":0},"target":{"x":3359,"y":2912,"plane":0},"allowTransports":true,"includeExpandedTiles":false,"useHeuristic":true,"finder":"tile-full"}' \
-  | nix-shell --run 'cabal run pathfinder-tool -- serve'
-```
-
-Compare reverse-heuristic implementations:
-
-```sh
-# Reference implicit same-component Chebyshev clique.
-printf '%s\n' '{"id":1,"start":{"x":1503,"y":3553,"plane":0},"target":{"x":3359,"y":2912,"plane":0},"allowTransports":true,"includeExpandedTiles":false,"useHeuristic":true,"finder":"tile-full"}' \
-  | nix-shell --run 'cabal run pathfinder-tool -- serve'
-
-# Sparse Manhattan walking network.
-printf '%s\n' '{"id":1,"start":{"x":1503,"y":3553,"plane":0},"target":{"x":3359,"y":2912,"plane":0},"allowTransports":true,"includeExpandedTiles":false,"useHeuristic":true,"finder":"tile-full"}' \
-  | nix-shell --run 'SPM_TILE_REVERSE_IMPL=manhattan cabal run pathfinder-tool -- serve'
-```
-
-Check sparse Manhattan reverse labels against the clique reference for the query:
-
-```sh
-printf '%s\n' '{"id":1,"start":{"x":1503,"y":3553,"plane":0},"target":{"x":3359,"y":2912,"plane":0},"allowTransports":true,"includeExpandedTiles":false,"useHeuristic":true,"finder":"tile-full"}' \
-  | nix-shell --run 'SPM_TILE_REVERSE_IMPL=manhattan SPM_TILE_COMPARE_REVERSE=1 cabal run pathfinder-tool -- serve'
-```
-
-Optional diagnostic counters:
-
-```sh
-SPM_TILE_REVERSE_COUNTERS=1
-```
-
 Do not use counter-enabled timings as wall-clock benchmark results; reverse counter threading materially slows the hot loop.
 
 Current useful flags:
@@ -233,7 +198,6 @@ Current useful flags:
 SPM_TILE_REVERSE_IMPL=manhattan   use sparse Manhattan reverse Dijkstra
 SPM_TILE_COMPARE_REVERSE=1        compare sparse labels against clique labels
 SPM_TILE_REVERSE_COUNTERS=1       enable expensive reverse diagnostics
-SPM_HEURISTIC_TRANSFORM=c         use C Chebyshev transform for heuristic image rendering
 ```
 
 These values are parsed once by the executable layer into explicit Tile A*

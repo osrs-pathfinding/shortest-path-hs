@@ -24,7 +24,7 @@ Key Haskell modules:
 Other important areas:
 
 * benchmark runner — consumes the sibling corpus and produces JSONL performance output.
-* viewer — spatial inspection of individual routes/search behaviour.
+* sibling `../shortest-path-viewer` — spatial inspection of individual routes/search behaviour.
 * world inspection data — derived/queryable facts about components, places and structural reachability.
 * benchmark analysis — JSONL is canonical; databases/Grafana are derived analysis infrastructure.
 
@@ -259,7 +259,7 @@ per-case metric comparison
 historical case performance
 ```
 
-Use Grafana/ClickHouse for broad comparison and the pathfinding viewer to understand **why** one particular route behaved badly.
+Use Grafana/ClickHouse for broad comparison and the sibling viewer repository to understand **why** one particular route behaved badly.
 
 ### Repeatable mismatch handoff
 

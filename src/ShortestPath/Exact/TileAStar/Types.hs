@@ -15,12 +15,6 @@ module ShortestPath.Exact.TileAStar.Types
   , TileBankGlobalObservation(..)
   , TileReverseCounters(..)
   , TileAStarTimings(..)
-  , ReversePathDebug(..)
-  , ReversePathState(..)
-  , ReversePathEdge(..)
-  , HeuristicRender(..)
-  , HeuristicLayer(..)
-  , HeuristicTile(..)
   , tileStaticStats
   , tileTopology
   , tileWorld
@@ -226,64 +220,5 @@ data TileAStarTimings = TileAStarTimings
   , tileTotalMilliseconds :: !Double
   , tileSearchCounters :: !TileAStarCounters
   , tileReverseCounters :: !TileReverseCounters
-  }
-  deriving stock (Eq, Show)
-
-data ReversePathDebug = ReversePathDebug
-  { reverseDebugSeed :: !Tile
-  , reverseDebugTarget :: !Tile
-  , reverseDebugStates :: [ReversePathState]
-  }
-  deriving stock (Eq, Show)
-
-data ReversePathState = ReversePathState
-  { reverseStateBanked :: !Bool
-  , reverseStateTile :: !(Maybe Tile)
-  , reverseStateDistance :: !Int
-  , reverseStateHeuristic :: !Int
-  , reverseStateUnreachable :: !Bool
-  , reverseStatePath :: [ReversePathEdge]
-  }
-  deriving stock (Eq, Show)
-
-data ReversePathEdge = ReversePathEdge
-  { reverseEdgeFrom :: !Tile
-  , reverseEdgeTo :: !Tile
-  , reverseEdgeFromBanked :: !Bool
-  , reverseEdgeToBanked :: !Bool
-  , reverseEdgeType :: String
-  , reverseEdgeLabel :: String
-  , reverseEdgeCost :: !Int
-  , reverseEdgeCumulativeCost :: !Int
-  }
-  deriving stock (Eq, Show)
-
-data HeuristicRender = HeuristicRender
-  { renderTileSize :: !Int
-  , renderLayers :: [HeuristicLayer]
-  }
-  deriving stock (Eq, Show)
-
-data HeuristicLayer = HeuristicLayer
-  { layerKey :: String
-  , layerLabel :: String
-  , layerBankPathEnabled :: !Bool
-  , layerMinimum :: !Int
-  , layerMaximum :: !Int
-  , layerHeuristicMilliseconds :: !Double
-  , layerTransformMilliseconds :: !Double
-  , layerWriteMilliseconds :: !Double
-  , layerSeeds :: [(Tile, Int)]
-  , layerTiles :: [HeuristicTile]
-  }
-  deriving stock (Eq, Show)
-
-data HeuristicTile = HeuristicTile
-  { tileUrl :: String
-  , tilePlane :: !Int
-  , tileX :: !Int
-  , tileY :: !Int
-  , tileMinimum :: !Int
-  , tileMaximum :: !Int
   }
   deriving stock (Eq, Show)

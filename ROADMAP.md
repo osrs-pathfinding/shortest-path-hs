@@ -17,7 +17,7 @@ This project aims to become a production-quality OSRS pathfinder with a reproduc
 * `world-facts.duckdb` provides queryable derived facts about world topology, components, places, and structural reachability.
 * Benchmark results are emitted as canonical JSONL.
 * Results can be imported into ClickHouse and explored/comparison-tested in Grafana.
-* The existing viewer supports spatial inspection of individual routes/search behaviour.
+* The sibling `../shortest-path-viewer` supports spatial inspection of individual routes/search behaviour.
 
 ## Implementation strategy
 
@@ -307,7 +307,7 @@ Potential later integrations include importing account state from RuneLite or an
 
 Grafana is the current benchmark-analysis workbench.
 
-If a small set of comparison views proves consistently useful, eventually integrate them into the main viewer/web application.
+If a small set of comparison views proves consistently useful, eventually integrate them into the sibling viewer web application.
 
 Likely useful public views:
 
