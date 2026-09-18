@@ -207,6 +207,6 @@
 
 ## Notes
 
-- The census uses current resource files directly from `/home/matt/shortest-path/src/main/resources`.
+- The census uses current resource files directly from `../shortest-path/src/main/resources`.
 - Hub classification is based on TSV permutation shape: rows with origin-only plus destination-only entries.
 - `graph-census.json` and CSV files under `out/` preserve the measured details for later analysis.

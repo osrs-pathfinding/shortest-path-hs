@@ -73,7 +73,7 @@ A route being unreachable for one account and reachable for another is useful da
 Generate:
 
 ```text
-benchmarks/corpus/routes-v1.json
+../shortest-path-corpus/corpus/routes-v1.json
 ```
 
 and commit it.

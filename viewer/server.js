@@ -5,6 +5,7 @@ const { execFile, spawn } = require("child_process");
 const { resolveEndpoints } = require("../benchmarks/world-facts");
 
 const root = path.resolve(__dirname, "..");
+const corpusRoot = process.env.SHORTEST_PATH_CORPUS_DIR || path.resolve(root, "../shortest-path-corpus");
 const port = Number(process.env.PORT || 8000);
 const maxBodyBytes = 64 * 1024;
 const routeTimeoutMs = Number(process.env.HIERARCHY_ROUTE_TIMEOUT_MS || 2 * 60 * 1000);
@@ -18,7 +19,7 @@ const types = {
   ".json": "application/json",
   ".tsv": "text/tab-separated-values"
 };
-const doorTransportFile = process.env.DOOR_TRANSPORTS_TSV || "/home/matt/shortest-path-tooling/door_transports.tsv";
+const doorTransportFile = process.env.DOOR_TRANSPORTS_TSV || path.resolve(root, "../shortest-path-tooling/door_transports.tsv");
 const worldFactsDb = process.env.WORLD_FACTS_DB || path.join(root, "data/world-facts.duckdb");
 
 function json(res, status, value) {
@@ -421,7 +422,7 @@ function handleEndpointRefinement(req, res) {
   }
   try {
     if (!endpointRefinementCache) {
-      const routes = JSON.parse(fs.readFileSync(path.join(root, "benchmarks/corpus/routes-v1.json"), "utf8"));
+      const routes = JSON.parse(fs.readFileSync(path.join(corpusRoot, "corpus/routes-v1.json"), "utf8"));
       const endpoints = routes.flatMap(route => [
         { route, side: "start", raw: route.rawStart },
         { route, side: "target", raw: route.rawTarget }
@@ -437,6 +438,18 @@ function handleEndpointRefinement(req, res) {
       }));
     }
     json(res, 200, endpointRefinementCache);
+  } catch (error) {
+    json(res, 503, { error: error.message });
+  }
+}
+
+function handleCorpusRoutes(req, res) {
+  if (req.method !== "GET") {
+    json(res, 405, { error: "method not allowed" });
+    return;
+  }
+  try {
+    json(res, 200, JSON.parse(fs.readFileSync(path.join(corpusRoot, "corpus/routes-v1.json"), "utf8")));
   } catch (error) {
     json(res, 503, { error: error.message });
   }
@@ -470,6 +483,10 @@ http.createServer((req, res) => {
   }
   if (requestPath === "/api/endpoint-refinement") {
     handleEndpointRefinement(req, res);
+    return;
+  }
+  if (requestPath === "/api/corpus-routes") {
+    handleCorpusRoutes(req, res);
     return;
   }
   if (requestPath === "/door_transports.tsv") {

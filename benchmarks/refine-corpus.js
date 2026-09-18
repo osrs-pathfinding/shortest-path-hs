@@ -10,10 +10,9 @@ const root = path.resolve(__dirname, "..");
 const gpsRoot = path.resolve(root, "../runelite-gps-plugin");
 const questRoot = path.resolve(root, "../quest-helper");
 const shortestPathRoot = path.resolve(root, "../shortest-path");
-const corpusPath = path.join(__dirname, "corpus/routes-v1.json");
+const corpusRoot = process.env.SHORTEST_PATH_CORPUS_DIR || path.resolve(root, "../shortest-path-corpus");
+const corpusPath = path.join(corpusRoot, "corpus/routes-v1.json");
 const routes = JSON.parse(fs.readFileSync(corpusPath, "utf8"));
-const sentinels = JSON.parse(fs.readFileSync(path.join(__dirname, "corpus/sentinels-v1.json"), "utf8"));
-const wiki = JSON.parse(fs.readFileSync(path.join(__dirname, "corpus/wiki-places-v1.json"), "utf8"));
 const gpsRevision = child.execFileSync("git", ["-C", gpsRoot, "rev-parse", "HEAD"], {encoding: "utf8"}).trim();
 const questRevision = child.execFileSync("git", ["-C", questRoot, "rev-parse", "HEAD"], {encoding: "utf8"}).trim();
 
@@ -71,7 +70,6 @@ const rawEndpoints = [
   ...routes.flatMap(route => [route.rawStart, route.rawTarget]),
   ...gpsRows.map(point => point.raw),
   ...npcDefinitions.map(([, raw]) => raw),
-  ...wiki.places.map(entry => entry.coordinate),
 ];
 const endpointResolutions = resolveEndpoints(rawEndpoints);
 const endpointResolution = raw => endpointResolutions.get(coordinateKey(raw)) || {resolved: null, method: "unresolved", candidates: []};
@@ -96,15 +94,11 @@ const questPlaces = existingPlaces("quest-natural", /quest step$/i).filter(point
 const cluePlaces = existingPlaces("clue-natural", /clue/i).filter(point => !transportCoordinates.has(point.resolved.join()));
 const npcPlaces = npcDefinitions.map(([name, raw, source]) => place(`${name} — Slayer master`, raw, null, source, "npc"));
 for (const npc of npcPlaces) npc.source = `quest-helper@${questRevision.slice(0, 12)}:${npc.source}`;
-const wikiPlaces = wiki.places.map(entry => {
-  const source = wiki.sources[entry.source];
-  return place(`${entry.monster} — ${entry.location}`, entry.coordinate, null, `oldschool-wiki:${source.page}@${source.revision}#Locations`, "monster");
-});
 const routePlaces = routes.flatMap(route => [
   place(route.startName, route.rawStart, null, route.startSource, route.category),
   place(route.targetName, route.rawTarget, null, route.targetSource, route.category),
 ]);
-const allCandidates = cluster([...gpsPlaces, ...questPlaces, ...cluePlaces, ...npcPlaces, ...wikiPlaces]);
+const allCandidates = cluster([...gpsPlaces, ...questPlaces, ...cluePlaces, ...npcPlaces]);
 const worldFacts = classifyPoints([...allCandidates, ...routePlaces].map(point => point.resolved));
 const factFor = point => worldFacts.get(coordinateKey(point.resolved));
 const benchmarkEligible = point => factFor(point)?.reachable === true;
@@ -190,7 +184,6 @@ for (const route of routes) for (const endpoint of [
   place(route.targetName, route.rawTarget, null, route.targetSource, route.category),
 ]) if (benchmarkEligible(endpoint)) categoryPools.set(route.category, cluster([...(categoryPools.get(route.category) || []), endpoint]));
 
-const currentInvalid = routes.filter(route => route.expectedReachable !== false && (!eligibleCoordinate(route.start) || !eligibleCoordinate(route.target)));
 const startCounts = new Map(), targetCounts = new Map();
 for (const route of refined) {
   if (eligibleCoordinate(route.start)) startCounts.set(coordinateKey(route.start), (startCounts.get(coordinateKey(route.start)) || 0) + 1);
@@ -244,90 +237,4 @@ if (refined.length !== routes.length) throw new Error(`route count changed: ${ro
 if (JSON.stringify(countsBy(refined, route => route.category)) !== JSON.stringify(countsBy(routes, route => route.category))) throw new Error("category counts changed");
 if (JSON.stringify(countsBy(refined.flatMap(route => route.tiers), tier => tier)) !== JSON.stringify(countsBy(routes.flatMap(route => route.tiers), tier => tier))) throw new Error("tier counts changed");
 
-function metrics(selected) {
-  const startCounts = new Map(), targetCounts = new Map();
-  for (const route of selected) {
-    const start = `${normalizeName(route.startName)}@${Math.floor(route.start[0] / 32)},${Math.floor(route.start[1] / 32)},${route.start[2]}`;
-    const target = `${normalizeName(route.targetName)}@${Math.floor(route.target[0] / 32)},${Math.floor(route.target[1] / 32)},${route.target[2]}`;
-    startCounts.set(start, (startCounts.get(start) || 0) + 1);
-    targetCounts.set(target, (targetCounts.get(target) || 0) + 1);
-  }
-  const pairs = new Set(selected.map(route => `${route.start.join()}>${route.target.join()}`));
-  const top = counts => [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 20).map(([name, count]) => `  ${count}  ${name}`).join("\n");
-  const bankStarts = selected.filter(route => /bank/i.test(route.startName)).length;
-  const bankTargets = selected.filter(route => /bank/i.test(route.targetName)).length;
-  const transportStarts = selected.filter(route => transportCoordinates.has(route.start.join())).length;
-  const transportTargets = selected.filter(route => transportCoordinates.has(route.target.join())).length;
-  return [
-    `routes: ${selected.length}`,
-    `unique logical starts: ${startCounts.size}`,
-    `unique logical targets: ${targetCounts.size}`,
-    `unique logical places: ${new Set([...startCounts.keys(), ...targetCounts.keys()]).size}`,
-    `bank starts: ${bankStarts} (${(100 * bankStarts / selected.length).toFixed(1)}%)`,
-    `bank targets: ${bankTargets} (${(100 * bankTargets / selected.length).toFixed(1)}%)`,
-    `transport-node starts: ${transportStarts} (${(100 * transportStarts / selected.length).toFixed(1)}%)`,
-    `transport-node targets: ${transportTargets} (${(100 * transportTargets / selected.length).toFixed(1)}%)`,
-    `maximum logical start reuse: ${Math.max(...startCounts.values())}`,
-    `maximum logical target reuse: ${Math.max(...targetCounts.values())}`,
-    `bidirectional pairs: ${selected.filter(route => pairs.has(`${route.target.join()}>${route.start.join()}`)).length / 2}`,
-    `categories: ${JSON.stringify(countsBy(selected, route => route.category))}`,
-    `tiers: ${JSON.stringify(countsBy(selected.flatMap(route => route.tiers), tier => tier))}`,
-    `distance tags: ${JSON.stringify(countsBy(selected, route => route.distanceTag))}`,
-    `plane tags: ${JSON.stringify(countsBy(selected, route => route.planeTag))}`,
-    "top 20 starts:", top(startCounts), "top 20 targets:", top(targetCounts),
-  ].join("\n");
-}
-
-const waterPattern = /\b(sea|ocean|strait|bay|atoll|coast|passage|sailing)\b/i;
-const rejectedCandidates = allCandidates.filter(point => !benchmarkEligible(point));
-const unresolvedCandidates = rejectedCandidates.filter(point => factFor(point)?.status === "unresolved");
-const invalidStarts = currentInvalid.filter(route => !eligibleCoordinate(route.start));
-const invalidTargets = currentInvalid.filter(route => !eligibleCoordinate(route.target));
-const invalidBoth = currentInvalid.filter(route => !eligibleCoordinate(route.start) && !eligibleCoordinate(route.target));
-const describe = (name, coordinate, source) => {
-  const fact = worldFacts.get(coordinateKey(coordinate));
-  return `${name}\t${coordinate.join(",")}\t${source}\t${fact?.status || "unresolved"}\t${(fact?.componentIds || []).join(",") || "-"}`;
-};
-const rejectedEndpoints = currentInvalid.flatMap(route => [
-  ...(!eligibleCoordinate(route.start) ? [`${route.id}\tstart\t${describe(route.startName, route.start, route.startSource)}`] : []),
-  ...(!eligibleCoordinate(route.target) ? [`${route.id}\ttarget\t${describe(route.targetName, route.target, route.targetSource)}`] : []),
-]);
-const waterPlaces = cluster([...allCandidates, ...routePlaces]).filter(point => waterPattern.test(point.name));
-const usedCoordinates = new Set(refined.flatMap(route => [coordinateKey(route.start), coordinateKey(route.target)]));
-const changedRoutes = refined.filter((route, index) => JSON.stringify(route) !== JSON.stringify(routes[index])).length;
-const changedIds = new Set(refined.filter((route, index) => JSON.stringify(route) !== JSON.stringify(routes[index])).map(route => route.id));
-const reachabilityReport = [
-  "# Reachability cleanup",
-  `candidate places examined: ${allCandidates.length}`,
-  `reachable candidate places: ${allCandidates.length - rejectedCandidates.length}`,
-  `structurally unreachable candidate places: ${rejectedCandidates.length - unresolvedCandidates.length}`,
-  `unresolved candidate places: ${unresolvedCandidates.length}`,
-  `current routes examined: ${routes.length}`,
-  `routes with invalid start: ${invalidStarts.length}`,
-  `routes with invalid target: ${invalidTargets.length}`,
-  `routes with both invalid: ${invalidBoth.length}`,
-  `routes with any invalid endpoint: ${currentInvalid.length}`,
-  `routes replaced: ${changedRoutes}`,
-  `sentinel route definitions changed: ${sentinels.filter(sentinel => changedIds.has(sentinel.routeId)).length}/${sentinels.length}`,
-  "",
-  "# Rejected route endpoints",
-  "route_id\tside\tname\tcoordinate\tsource\tstatus\tcomponents",
-  ...rejectedEndpoints,
-  "",
-  "# Unreachable candidate places (non-water names; investigate world-model gaps)",
-  "name\tcoordinate\tsource\tstatus\tcomponents",
-  ...rejectedCandidates.filter(point => !waterPattern.test(point.name)).map(point => describe(point.name, point.resolved, point.source)),
-  "",
-  "# Water/Sailing sanity check",
-  "name\tcoordinate\treachable\tcomponents\tused_in_final_corpus",
-  ...waterPlaces.map(point => {
-    const fact = factFor(point);
-    return `${point.name}\t${point.resolved.join(",")}\t${fact?.reachable === true}\t${(fact?.componentIds || []).join(",") || "-"}\t${usedCoordinates.has(coordinateKey(point.resolved))}`;
-  }),
-].join("\n") + "\n";
-
-const sections = [["all", refined], ...["gps-natural", "quest-natural", "clue-natural"].map(category => [category, refined.filter(route => route.category === category)])];
 fs.writeFileSync(corpusPath, JSON.stringify(refined, null, 2) + "\n");
-fs.writeFileSync(path.join(__dirname, "corpus/coverage-v1.txt"), sections.map(([name, selected]) => `# ${name}\n${metrics(selected)}`).join("\n\n") + "\n");
-const reachabilityPath = path.join(__dirname, "corpus/reachability-v1.txt");
-if (currentInvalid.length || !fs.existsSync(reachabilityPath)) fs.writeFileSync(reachabilityPath, reachabilityReport);

@@ -16,7 +16,7 @@ Do not fix anything during this pass. Record evidence and continue.
 
 ## Inputs
 
-- Corpus: `benchmarks/corpus/routes-v1.json`
+- Corpus: `../shortest-path-corpus/corpus/routes-v1.json`
 - Canonical profiles: `early`, `mid`, `end`, `maxed`
 - Regenerated Tile A* results: `out/oracle-unreachable-tile-astar-2026-09-08.jsonl`
 - Requirements-ignored results for routes unreachable by all four profiles: `out/all-profile-unreachable-everything-enabled-summary-2026-09-08.jsonl`

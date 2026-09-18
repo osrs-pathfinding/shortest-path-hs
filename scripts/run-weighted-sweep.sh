@@ -13,8 +13,9 @@ commit=$(git rev-parse --short HEAD)
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 sweep="weighted-astar-standard-${timestamp}-${commit}"
 output_dir="$root/out/$sweep"
-corpus="$root/benchmarks/corpus/routes-v1.json"
-oracle="$root/benchmarks/corpus/oracle-v1.json"
+corpus_dir="${SHORTEST_PATH_CORPUS_DIR:-$root/../shortest-path-corpus}"
+corpus="$corpus_dir/corpus/routes-v1.json"
+oracle="$corpus_dir/oracle/oracle-v1.json"
 clickhouse_url=${CLICKHOUSE_URL:-http://127.0.0.1:8123}
 testbed=${TESTBED:-cedric}
 
@@ -32,6 +33,7 @@ for weight in "${weights[@]}"; do
   output="$output_dir/w${weight}.jsonl"
 
   "$route_bench" \
+    --corpus-dir "$corpus_dir" \
     --tier standard \
     --runs 3 \
     --corpus "$corpus" \
@@ -40,6 +42,7 @@ for weight in "${weights[@]}"; do
     --output "$output"
 
   "$bench_import" \
+    --corpus-dir "$corpus_dir" \
     --run-id "$run_id" \
     --sweep "$sweep" \
     --testbed "$testbed" \

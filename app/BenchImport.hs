@@ -22,19 +22,26 @@ import System.Exit (exitFailure)
 import System.Directory (removeFile)
 import System.IO (hClose, openBinaryTempFile)
 import System.Process (readProcess)
+import ShortestPath.BenchmarkProfiles (discoverCorpusDir)
 
 data Options = Options
   { inputPath :: FilePath, corpusPath :: FilePath, exclusionsPath :: FilePath, profileSource :: FilePath
   , runId :: Maybe String, notes :: String, testbed :: String, clickhouseUrl :: String
-  , sweep :: Maybe String
+  , sweep :: Maybe String, corpusDirOption :: Maybe FilePath
   }
 
 defaultOptions :: Options
-defaultOptions = Options "" "benchmarks/corpus/routes-v1.json" "benchmarks/corpus/excluded-routes-v1.json" "src/ShortestPath/BenchmarkProfiles.hs" Nothing "" "cedric" "http://127.0.0.1:8123" Nothing
+defaultOptions = Options "" "" "" "" Nothing "" "cedric" "http://127.0.0.1:8123" Nothing Nothing
 
 main :: IO ()
 main = do
-  options <- parseOptions defaultOptions =<< getArgs
+  parsed <- parseOptions defaultOptions =<< getArgs
+  corpusRoot <- discoverCorpusDir (corpusDirOption parsed)
+  let options = parsed
+        { corpusPath = if null (corpusPath parsed) then corpusRoot <> "/corpus/routes-v1.json" else corpusPath parsed
+        , exclusionsPath = if null (exclusionsPath parsed) then corpusRoot <> "/corpus/excluded-routes-v1.json" else exclusionsPath parsed
+        , profileSource = if null (profileSource parsed) then corpusRoot <> "/accounts/account-profiles-v1.json" else profileSource parsed
+        }
   when (null (inputPath options)) dieUsage
   raw <- BS.readFile (inputPath options)
   rows <- either die pure (mapM decodeLine (filter (not . BS.null) (BS.split 10 raw)))
@@ -49,6 +56,7 @@ main = do
   profiles <- BS.readFile (profileSource options)
   corpusId <- gitHash (corpus <> "\n" <> exclusions)
   profileId <- gitHash profiles
+  corpusRevision <- readProcess "git" ["-C", corpusRoot, "rev-parse", "HEAD"] ""
   let tier = text first "benchmarkTier" "full"
       suiteInput = BSC.pack (corpusId <> "\n" <> profileId <> "\n" <> tier)
   suiteId <- gitHash suiteInput
@@ -71,6 +79,9 @@ main = do
              , ("positive_case_count", show (caseCountFor "positive" rows))
              , ("negative_case_count", show (caseCountFor "negative" rows))
              , ("excluded_route_count", show (length excludedRoutes))
+             , ("corpus_format_version", "1")
+             , ("account_profiles_version", "1")
+             , ("corpus_git_revision", trim corpusRevision)
              ] <> maybe [] (\value -> [("sweep", value)]) (sweep options)) :: Map.Map String String)
         ]
   _ <- clickhouse options "INSERT INTO osrs_bench.runs FORMAT JSONEachRow" (encode run <> "\n")
@@ -86,6 +97,7 @@ parseOptions o ("--corpus":v:xs) = parseOptions (o {corpusPath = v}) xs
 parseOptions o ("--exclusions":v:xs) = parseOptions (o {exclusionsPath = v}) xs
 parseOptions o ("--profile-source":v:xs) = parseOptions (o {profileSource = v}) xs
 parseOptions o ("--sweep":v:xs) = parseOptions (o {sweep = Just v}) xs
+parseOptions o ("--corpus-dir":v:xs) = parseOptions (o {corpusDirOption = Just v}) xs
 parseOptions o (v:xs) | null (inputPath o) = parseOptions (o {inputPath = v}) xs
 parseOptions _ _ = dieUsage
 
@@ -199,5 +211,5 @@ urlEncode = concatMap encodeChar
 
 trim = reverse . dropWhile (== '\n') . reverse . dropWhile (== '\n')
 
-dieUsage = die "usage: bench-import [--run-id ID] [--notes TEXT] [--testbed ID] [--clickhouse-url URL] [--corpus PATH] [--exclusions PATH] [--profile-source PATH] [--sweep ID] results.jsonl"
+dieUsage = die "usage: bench-import [--corpus-dir DIR] [--run-id ID] [--notes TEXT] [--testbed ID] [--clickhouse-url URL] [--corpus PATH] [--exclusions PATH] [--profile-source PATH] [--sweep ID] results.jsonl"
 die message = putStrLn message >> exitFailure

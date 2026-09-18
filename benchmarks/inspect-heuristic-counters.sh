@@ -11,7 +11,7 @@ fi
 
 mkdir -p "$output_dir"
 
-node - benchmarks/corpus/routes-v1.json "$output_dir/route.json" <<'JS'
+node - "${SHORTEST_PATH_CORPUS_DIR:-../shortest-path-corpus}/corpus/routes-v1.json" "$output_dir/route.json" <<'JS'
 const fs = require("fs");
 const routes = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const route = routes.find(({id}) => id === "gps-natural-0012");
@@ -24,7 +24,8 @@ printf '%s\n' '{"routeId":"gps-natural-0012","accountProfile":"maxed","correct":
 SPM_TILE_REVERSE_IMPL=manhattan SPM_TILE_REVERSE_COUNTERS=1 \
   cabal run route-bench -- \
     --corpus "$output_dir/route.json" \
-    --oracle benchmarks/corpus/oracle-v1.json \
+    --corpus-dir "${SHORTEST_PATH_CORPUS_DIR:-../shortest-path-corpus}" \
+    --oracle "${SHORTEST_PATH_CORPUS_DIR:-../shortest-path-corpus}/oracle/oracle-v1.json" \
     --output "$output_dir/result.jsonl" \
     --rerun-failures "$output_dir/maxed.jsonl" \
     --tier full \

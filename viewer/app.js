@@ -275,7 +275,7 @@ fetchJson("../out/leak-route.json", json => { route = normaliseRoute(json, "leak
 fetchJson("../out/length-mismatch-routes.json", json => addFixtureRoutes("Mismatch", json), () => {});
 fetchJson("../out/hierarchy-test-routes.json", json => addFixtureRoutes("Fixture", json), () => {});
 fetchJson("../benchmarks/routes.json", json => addFixtureRoutes("Seed", json), message => { routeStatus.textContent = message; });
-fetchJson("../benchmarks/corpus/routes-v1.json", json => {
+fetchJson("/api/corpus-routes", json => {
   benchmarkRoutes = Array.isArray(json) ? json : (json.routes || []);
   addFixtureRoutes("Benchmark", benchmarkRoutes);
   render();

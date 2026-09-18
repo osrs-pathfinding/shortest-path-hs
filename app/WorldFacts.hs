@@ -20,6 +20,7 @@ import System.Process (readProcess, readProcessWithExitCode)
 import Text.Read (readMaybe)
 
 import ShortestPath.Requirements
+import ShortestPath.BenchmarkProfiles (discoverCorpusDir)
 import ShortestPath.Tile
 import ShortestPath.Topology
 import ShortestPath.Transport
@@ -45,22 +46,6 @@ instance FromJSON Place where
     tile [x, y, p] = packTile x y p
     tile _ = error "invalid place coordinate"
 
-data WikiPlace = WikiPlace
-  { wikiMonster :: String
-  , wikiLocation :: String
-  , wikiCoordinate :: [Int]
-  , wikiSource :: Int
-  }
-
-instance FromJSON WikiPlace where
-  parseJSON = withObject "wiki place" $ \value -> WikiPlace
-    <$> value .: "monster" <*> value .: "location" <*> value .: "coordinate" <*> value .: "source"
-
-newtype WikiDocument = WikiDocument [WikiPlace]
-
-instance FromJSON WikiDocument where
-  parseJSON = withObject "wiki document" $ \value -> WikiDocument <$> value .: "places"
-
 data Route = Route
   { routeName :: String
   , routeStart :: [Int]
@@ -81,11 +66,11 @@ main = do
   createDirectoryIfMissing True (takeDirectory output)
   world <- loadWorld defaultSourcePaths
   topology <- buildWorldTopology world
-  routes <- loadRoutes "benchmarks/corpus/routes-v1.json"
-  wiki <- loadWiki "benchmarks/corpus/wiki-places-v1.json"
+  corpus <- discoverCorpusDir Nothing
+  routes <- loadRoutes (corpus </> "corpus/routes-v1.json")
   gpsPath <- fromMaybe "../runelite-gps-plugin/src/main/resources/destinations.tsv" <$> lookupEnv "WORLD_FACTS_GPS_DESTINATIONS"
   gps <- loadGpsPlaces gpsPath
-  let places = Map.elems (Map.fromList [(placeId p, p) | p <- routePlaces routes <> wikiPlaces wiki <> gps])
+  let places = Map.elems (Map.fromList [(placeId p, p) | p <- routePlaces routes <> gps])
       points = Set.toAscList (Set.fromList (map placeTile places <> Set.toList (worldBanks world) <> transportPoints world))
       tempDir = output <> ".csv"
       tempDb = output <> ".tmp"
@@ -106,11 +91,6 @@ outputPath _ = error "usage: world-facts [--output PATH]"
 
 loadRoutes :: FilePath -> IO [Route]
 loadRoutes path = either fail pure =<< eitherDecodeFileStrict' path
-
-loadWiki :: FilePath -> IO [WikiPlace]
-loadWiki path = do
-  WikiDocument value <- either fail pure =<< eitherDecodeFileStrict' path
-  pure value
 
 loadGpsPlaces :: FilePath -> IO [Place]
 loadGpsPlaces path = do
@@ -133,12 +113,6 @@ routePlaces = concatMap $ \route ->
  where
   tile [x, y, p] = packTile x y p
   tile _ = error "invalid route coordinate"
-
-wikiPlaces :: [WikiPlace] -> [Place]
-wikiPlaces = map $ \place -> makePlace (wikiMonster place <> " - " <> wikiLocation place) (tile (wikiCoordinate place)) ("oldschool-wiki:" <> show (wikiSource place)) "monster"
- where
-  tile [x, y, p] = packTile x y p
-  tile _ = error "invalid wiki coordinate"
 
 makePlace :: String -> Tile -> String -> String -> Place
 makePlace name point source kind = Place (source <> "|" <> name <> "|" <> coordinateText point) name point source kind

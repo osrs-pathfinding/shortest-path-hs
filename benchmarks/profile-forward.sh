@@ -38,7 +38,8 @@ exe="$(
 
 SPM_TILE_REVERSE_IMPL=manhattan "$exe" \
   --corpus "$profile_dir/route.json" \
-  --oracle benchmarks/corpus/oracle-v1.json \
+  --corpus-dir "${SHORTEST_PATH_CORPUS_DIR:-../shortest-path-corpus}" \
+  --oracle "${SHORTEST_PATH_CORPUS_DIR:-../shortest-path-corpus}/oracle/oracle-v1.json" \
   --output "$profile_dir/result.jsonl" \
   --rerun-failures "$profile_dir/maxed.jsonl" \
   --tier full \

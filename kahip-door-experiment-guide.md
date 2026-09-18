@@ -2,19 +2,19 @@
 
 This guide assumes:
 
-- regenerated collision data is under `/home/matt/shortest-path-tooling/shortest-path/src/main/resources`
-- filtered door transports are at `/home/matt/shortest-path-tooling/door_transports.tsv`
-- `metis-partition` is run from `/home/matt/shortest-path-model`
+- regenerated collision data is under `../shortest-path/src/main/resources`
+- filtered door transports are at `../shortest-path-tooling/door_transports.tsv`
+- `metis-partition` is run from this repository
 
 ## Common Environment
 
 Use these env vars for all door-chart runs:
 
 ```bash
-export SPM_RESOURCES_DIR=/home/matt/shortest-path-tooling/shortest-path/src/main/resources
-export SPM_COLLISION_ZIP=/home/matt/shortest-path-tooling/shortest-path/src/main/resources/collision-map.zip
-export SPM_BANK_FILE=/home/matt/shortest-path-tooling/shortest-path/src/main/resources/destinations/game_features/bank.tsv
-export DOOR_TRANSPORTS_TSV=/home/matt/shortest-path-tooling/door_transports.tsv
+export SPM_RESOURCES_DIR=../shortest-path/src/main/resources
+export SPM_COLLISION_ZIP=../shortest-path/src/main/resources/collision-map.zip
+export SPM_BANK_FILE=../shortest-path/src/main/resources/destinations/game_features/bank.tsv
+export DOOR_TRANSPORTS_TSV=../shortest-path-tooling/door_transports.tsv
 ```
 
 ## Experiment 1: Door Chart, Ditch Removed

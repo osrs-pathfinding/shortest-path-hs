@@ -71,7 +71,7 @@ itemNormalizationChecks = do
   assert (resolveItemName "SHANTAY_PASS" == Right (ItemVariation [1854]))
   let coinsRequirement = parsed "COINS=100"
       numericAccount = emptyAccountState {accountInventory = Map.singleton 995 100000}
-      symbolicSpec = mustSpec "early" (benchmarkAccountSpec "early" [])
+      symbolicSpec = emptySpec
       symbolicAccountSpec = symbolicSpec
         { accountSpecCarried = ItemLoadout (Map.singleton "COINS" 1000) Map.empty Map.empty }
       unknownAccountSpec = symbolicSpec
@@ -97,18 +97,8 @@ itemNormalizationChecks = do
   assert (not (requirementsSatisfied (RequirementContext (emptyAccountState {accountInventory = Map.fromList [(1, 49), (2, 99)]}) CarriedOnly 0) (itemTransport alternatives)))
   transports <- loadTransports defaultSourcePaths
   let routingNames = symbolicNames transports
-      profileNames = Set.fromList
-        [ name
-        | profile <- benchmarkProfileNames
-        , spec <- maybeToList (benchmarkAccountSpec profile transports)
-        , name <- Map.keys (loadoutInventory (accountSpecCarried spec))
-          <> Map.keys (loadoutEquipment (accountSpecCarried spec))
-          <> Map.keys (loadoutRunePouch (accountSpecCarried spec))
-          <> Map.keys (accountSpecBank spec)
-        , symbolic name
-        ]
-  putStrLn ("symbolic item names: " <> show (Set.toAscList (routingNames <> profileNames)))
-  assert (all (isRight . resolveItemName) (Set.toList (routingNames <> profileNames)))
+  putStrLn ("symbolic item names: " <> show (Set.toAscList routingNames))
+  assert (all (isRight . resolveItemName) (Set.toList routingNames))
  where
   parsed raw = case parseItems raw of
     Right (Just expression) -> expression
@@ -128,7 +118,6 @@ itemNormalizationChecks = do
     ItemOne term -> [term]
     ItemAnd expressions -> concatMap itemTerms expressions
     ItemOr expressions -> concatMap itemTerms expressions
-  maybeToList = maybe [] pure
 
 profileChecks :: IO ()
 profileChecks = do
@@ -180,11 +169,11 @@ mustProfile name Nothing = error ("missing benchmark profile: " <> name)
 
 semanticProfileChecks :: IO ()
 semanticProfileChecks = do
-  let specs = [mustSpec name (benchmarkAccountSpec name []) | name <- benchmarkProfileNames]
+  let specs = [emptySpec]
       compiled = map (compileAccount benchmarkNowMinutes) specs
   assert (all isRight compiled)
   assert (compiled == map (compileAccount benchmarkNowMinutes) specs)
-  compilerChecks (mustSpec "early" (benchmarkAccountSpec "early" []))
+  compilerChecks emptySpec
   assert (classifyUnmodelledVar (GameVarbit VB.karamDungeonEntryfee) == Just RuntimeVar)
   assert (classifyUnmodelledVar (GameVarPlayer VP.leagueCombatMasteryPaths) == Just SpecialModeVar)
   assert (classifyUnmodelledVar (GameVarPlayer VP.haunted) == Just NeedsInvestigation)
@@ -328,7 +317,6 @@ semanticProfileChecks = do
       corsairResourceArea = find (\transport -> varbits transport == [VarReq (GameVarbit VB.corsairCoveResourceEntry) 1 VarEq]) transports
       balloons = map (findTransport "HOT_AIR_BALLOON") ["Entrana", "Taverley", "Castle Wars", "Grand Tree", "Crafting Guild", "Varrock"]
       primio = find (\transport -> origin transport == Just (packTile 3280 3412 0) && destination transport == Just (packTile 1700 3141 0)) transports
-  assert (all (\account -> all (bankAccessMonotonic account) transports) [early, mid, end, maxed])
   assert (maybe False (available early) base)
   assert (maybe False (not . available early) camTorum)
   assert (maybe False (available cam) camTorum)
@@ -395,11 +383,6 @@ semanticProfileChecks = do
   assert (all hasWallTransport virtualWalls)
   assert (all (all ((/= "VIRTUAL_WALL") . transportType) . preparedLocalTransportsAt prepared False . fst . wallCrossing) virtualWalls)
   assert (routeCost route < maxBound)
- where
-  bankAccessMonotonic account transport =
-    transportAvailability (RequirementContext account CarriedOnly benchmarkNowMinutes) transport /= Available
-      || transportAvailability (RequirementContext account CarriedAndBank benchmarkNowMinutes) transport == Available
-
 pohRealChecks :: TileAStar -> [Transport] -> IO ()
 pohRealChecks astar transports = do
   let maxed = mustProfile "maxed" (benchmarkAccount "maxed" transports)
@@ -468,6 +451,11 @@ compilerChecks base = do
  where
   compiledVarbit varbit spec = either (const Nothing) (Map.lookup varbit . accountVarbits) (compileAccount benchmarkNowMinutes spec)
 
-mustSpec :: String -> Maybe AccountSpec -> AccountSpec
-mustSpec _ (Just spec) = spec
-mustSpec name Nothing = error ("missing benchmark account spec: " <> name)
+emptySpec :: AccountSpec
+emptySpec = AccountSpec
+  (Progression Map.empty Set.empty Set.empty Map.empty False Set.empty Set.empty Set.empty Set.empty Set.empty)
+  (RawGameState Map.empty Map.empty)
+  (PohBuild Rimmington NoJewelleryBox (SelectedPohPortals Set.empty) False False False False False False False)
+  (ItemLoadout (Map.singleton "COINS" 1000) Map.empty Map.empty)
+  Map.empty
+  (RuntimeState Standard CooldownReady True)

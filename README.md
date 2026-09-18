@@ -28,7 +28,7 @@ Query it directly with `duckdb data/world-facts.duckdb`.
 The distributed `routing-separators-v1.json` is generated offline with KaHIP:
 
 ```sh
-nix-shell --run 'cabal run metis-partition -- generate-artifact /home/matt/osrs-pathfinding/shortest-path/src/main/resources/routing-separators-v1.json 20000 500 32 40 42'
+nix-shell --run 'cabal run metis-partition -- generate-artifact ../shortest-path/src/main/resources/routing-separators-v1.json 20000 500 32 40 42'
 ```
 
 Each KaHIP vertex is one collision-walkable tile. Each undirected graph edge is
@@ -82,10 +82,9 @@ one JSON object per route/profile/repetition to a JSONL file.
 
 The checked-in v1 corpus contains 724 fixed routes and 2,896 route/profile
 cases: 2,809 positive and 87 expected-unreachable negatives. It includes GPS, quest, clue, walking,
-transport, Wilderness, geographic, and regression cases. The 39 entries in
-`benchmarks/corpus/sentinels-v1.json` are the individually tracked cases.
+transport, Wilderness, geographic, and regression cases.
 The 26 unresolved all-profile failures live in
-`benchmarks/corpus/excluded-routes-v1.json` and are not executed. Every result
+`../shortest-path-corpus/corpus/excluded-routes-v1.json` and are not executed. Every result
 records its corpus `expectation` separately from observed and oracle reachability.
 
 Regenerate the natural-route selection from the sibling `runelite-gps-plugin`,
@@ -94,29 +93,23 @@ report:
 
 ```sh
 nix-shell --run 'node benchmarks/refine-corpus.js'
-nix-shell --run 'node benchmarks/validate-corpus.js'
-less benchmarks/corpus/coverage-v1.txt
-less benchmarks/corpus/reachability-v1.txt
+node ../shortest-path-corpus/tools/validate.js
 ```
-
-The pinned OSRS Wiki monster-location snapshots used by the generator are stored
-in `benchmarks/corpus/wiki-places-v1.json`; generation does not require network
-access.
 
 ### Validate and smoke-test the v1 corpus
 
 Validate the route schema first:
 
 ```sh
-nix-shell --run 'node benchmarks/validate-corpus.js'
+node ../shortest-path-corpus/tools/validate.js
 ```
 
 Generate a smoke-tier exact oracle and run the smoke benchmark. Temporary paths
 keep generated benchmark data out of the corpus commit:
 
 ```sh
-nix-shell --run 'cabal run route-bench -- --tier smoke --oracle /tmp/route-bench-smoke-oracle.json --write-oracle --jobs 4'
-nix-shell --run 'cabal run route-bench -- --tier smoke --oracle /tmp/route-bench-smoke-oracle.json --output /tmp/route-benchmark-smoke.jsonl --runs 3'
+nix-shell --run 'cabal run route-bench -- --corpus-dir ../shortest-path-corpus --tier smoke --oracle /tmp/route-bench-smoke-oracle.json --write-oracle --jobs 4'
+nix-shell --run 'cabal run route-bench -- --corpus-dir ../shortest-path-corpus --tier smoke --oracle /tmp/route-bench-smoke-oracle.json --output /tmp/route-benchmark-smoke.jsonl --runs 3'
 ```
 
 ### Run standard or full
@@ -142,9 +135,8 @@ node benchmarks/report.js out/route-benchmark.jsonl out/route-benchmark-bencher.
 bencher run --adapter json --file out/route-benchmark-bencher.json
 ```
 
-The exporter tracks positive-corpus p50/p95/p99 and category p50s, negative
-search aggregates separately, and only positive pairs in
-`benchmarks/corpus/sentinels-v1.json` individually. Bencher owns history and regression detection.
+The exporter tracks positive-corpus p50/p95/p99 and category p50s, with negative
+search aggregates separately. Bencher owns history and regression detection.
 
 ### Inspect a route in the viewer
 

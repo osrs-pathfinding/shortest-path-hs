@@ -478,8 +478,9 @@ AccountSpec -> compileAccount -> AccountState -> RequirementContext
 ```
 
 `ShortestPath.AccountSemantics` owns semantic OSRS types and numeric game-state
-derivation. `ShortestPath.BenchmarkProfiles` owns only benchmark fixture
-definitions. `ShortestPath.Account.transportAvailability` is the authoritative
+derivation. `shortest-path-corpus` owns the benchmark fixture definitions;
+`ShortestPath.BenchmarkProfiles` only decodes that neutral fixture.
+`ShortestPath.Account.transportAvailability` is the authoritative
 requirement evaluator used through `prepareQueryTransports`; routing algorithms
 must not independently interpret account facts. Raw varbit/varplayer overrides
 are exceptional and contradictory derived/raw values must be rejected.

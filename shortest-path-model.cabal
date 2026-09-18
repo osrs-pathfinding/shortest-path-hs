@@ -100,12 +100,8 @@ executable account-profile
   main-is: AccountProfile.hs
   hs-source-dirs: app
   build-depends:
-    aeson,
     base,
-    bytestring,
     containers,
-    directory,
-    filepath,
     shortest-path-model
   default-language: GHC2024
 

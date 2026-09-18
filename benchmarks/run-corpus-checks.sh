@@ -2,7 +2,8 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-corpus=${CORPUS:-"$root/benchmarks/corpus/routes-v1.json"}
+corpus_dir=${SHORTEST_PATH_CORPUS_DIR:-"$root/../shortest-path-corpus"}
+corpus=${CORPUS:-"$corpus_dir/corpus/routes-v1.json"}
 tier=${TIER:-full}
 jobs=${JOBS:-4}
 runs=${RUNS:-1}
@@ -14,15 +15,16 @@ audit="$output/account-vars.txt"
 
 mkdir -p "$output"
 cd "$root"
+node "$corpus_dir/tools/validate.js"
 
 echo "[1/3] Raw Dijkstra oracle/benchmark"
 nix-shell --run \
-  "cabal run route-bench -- --corpus '$corpus' --oracle '$oracle' --tier '$tier' --jobs '$jobs' --write-oracle" \
+  "cabal run route-bench -- --corpus-dir '$corpus_dir' --corpus '$corpus' --oracle '$oracle' --tier '$tier' --jobs '$jobs' --write-oracle" \
   2>&1 | tee "$dijkstraLog"
 
 echo "[2/3] Tile A* correctness and diagnostic comparison"
 nix-shell --run \
-  "cabal run route-bench -- --corpus '$corpus' --oracle '$oracle' --output '$tileOutput' --tier '$tier' --runs '$runs' --jobs '$jobs'" \
+  "cabal run route-bench -- --corpus-dir '$corpus_dir' --corpus '$corpus' --oracle '$oracle' --output '$tileOutput' --tier '$tier' --runs '$runs' --jobs '$jobs'" \
   2>&1 | tee "$output/tile-astar.log"
 
 if rg -q '"correct"\s*:\s*false' "$tileOutput"; then

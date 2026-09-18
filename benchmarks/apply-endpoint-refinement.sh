@@ -2,7 +2,8 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-corpus=${1:-"$root/benchmarks/corpus/routes-v1.json"}
+corpus_root=${SHORTEST_PATH_CORPUS_DIR:-$root/../shortest-path-corpus}
+corpus=${1:-"$corpus_root/corpus/routes-v1.json"}
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/endpoint-refinement.XXXXXX")
 trap 'rm -rf "$temporary"' EXIT
 
@@ -17,9 +18,7 @@ echo "refining existing endpoints"
 WORLD_FACTS_DB="$facts" nix-shell --run \
   "node benchmarks/refine-endpoints.js '$corpus' '$corrected'"
 
-echo "validating corrected corpus"
-WORLD_FACTS_DB="$facts" nix-shell --run \
-  "node benchmarks/validate-corpus.js '$corrected' --world-facts '$facts'"
-
 cp "$corrected" "$corpus"
+echo "validating corrected corpus"
+node "$corpus_root/tools/validate.js"
 echo "updated $corpus"

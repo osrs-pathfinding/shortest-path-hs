@@ -5,7 +5,8 @@ const path = require("path");
 const {resolveEndpoints} = require("./world-facts");
 
 const root = path.resolve(__dirname, "..");
-const input = process.argv[2] || path.join(__dirname, "corpus/routes-v1.json");
+const corpusRoot = process.env.SHORTEST_PATH_CORPUS_DIR || path.resolve(root, "../shortest-path-corpus");
+const input = process.argv[2] || path.join(corpusRoot, "corpus/routes-v1.json");
 const output = process.argv[3] || input;
 const database = process.env.WORLD_FACTS_DB;
 const routes = JSON.parse(fs.readFileSync(input, "utf8"));

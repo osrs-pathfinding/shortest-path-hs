@@ -170,7 +170,7 @@ init
   -- source-dir: src
 
 install-dirs user
-  -- prefix: /home/matt/.cabal
+  -- prefix: ~/.cabal
   -- bindir: $prefix/bin
   -- libdir: $prefix/lib
   -- libsubdir: $abi/$libname

@@ -5,7 +5,7 @@ description: Read OSRS pathfinding benchmark results, summarize correctness mism
 
 # Benchmark mismatch analysis
 
-Use this read-only workflow for correctness results in `/home/matt/shortest-path-model`. Stop after reporting the results and the first mismatch.
+Use this read-only workflow for correctness results in the shortest-path-model checkout. Stop after reporting the results and the first mismatch.
 
 ## Establish the result set
 

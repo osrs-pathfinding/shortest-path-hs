@@ -6,9 +6,9 @@ const path = require("path");
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i], process.argv[i + 1]);
 
-const resources = args.get("--resources") || "/home/matt/shortest-path/src/main/resources/transports";
-const varbitFile = args.get("--varbit") || "/home/matt/runelite/runelite-api/src/main/java/net/runelite/api/gameval/VarbitID.java";
-const varPlayerFile = args.get("--varplayer") || "/home/matt/runelite/runelite-api/src/main/java/net/runelite/api/gameval/VarPlayerID.java";
+const resources = args.get("--resources") || "../shortest-path/src/main/resources/transports";
+const varbitFile = args.get("--varbit") || "../runelite/runelite-api/src/main/java/net/runelite/api/gameval/VarbitID.java";
+const varPlayerFile = args.get("--varplayer") || "../runelite/runelite-api/src/main/java/net/runelite/api/gameval/VarPlayerID.java";
 const output = args.get("--output") || "data/gamevars";
 const haskell = args.get("--haskell") || "src/ShortestPath/GameVars";
 const revision = args.get("--revision");

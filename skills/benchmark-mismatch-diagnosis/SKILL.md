@@ -5,7 +5,7 @@ description: Diagnose and, only when explicitly requested, fix one OSRS pathfind
 
 # Benchmark mismatch diagnosis
 
-Use only when the user explicitly asks to diagnose or fix a named mismatch in `/home/matt/shortest-path-model`.
+Use only when the user explicitly asks to diagnose or fix a named mismatch in the shortest-path-model checkout.
 
 ## Isolate one case
 

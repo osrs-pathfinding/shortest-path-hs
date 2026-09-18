@@ -3,9 +3,8 @@
 const fs = require("fs");
 const path = require("path");
 
-const [input = "out/route-benchmark.jsonl", output = "out/route-benchmark-bencher.json", sentinelsPath = "benchmarks/corpus/sentinels-v1.json"] = process.argv.slice(2);
+const [input = "out/route-benchmark.jsonl", output = "out/route-benchmark-bencher.json"] = process.argv.slice(2);
 const samples = fs.readFileSync(input, "utf8").trim().split(/\r?\n/).filter(Boolean).map(JSON.parse).filter(sample => sample.timings);
-const sentinels = new Set(JSON.parse(fs.readFileSync(sentinelsPath, "utf8")).map(item => `${item.routeId}/${item.accountProfile}`));
 if (!samples.length) throw new Error(`no benchmark samples in ${input}`);
 
 const percentile = (values, p) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1];
@@ -32,13 +31,6 @@ for (const expectation of ["positive", "negative"]) {
   const values = cases.filter(value => value.expectation === expectation);
   add(`correctness/${expectation}/passed`, "cases", values.filter(value => value.correct).length);
   add(`correctness/${expectation}/total`, "cases", values.length);
-}
-for (const value of positiveCases) if (sentinels.has(`${value.routeId}/${value.accountProfile}`)) {
-  const name = `sentinel/${value.routeId}/${value.accountProfile}`;
-  add(name, "total-time", value.timings.totalMs * 1e6);
-  add(name, "search-time", value.timings.searchMs * 1e6);
-  add(name, "reverse-setup-time", value.timings.reverseDijkstraMs * 1e6);
-  add(name, "states-popped", value.expandedNodes);
 }
 fs.mkdirSync(path.dirname(output), { recursive: true });
 fs.writeFileSync(output, JSON.stringify(bmf, null, 2));

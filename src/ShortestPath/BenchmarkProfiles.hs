@@ -1,46 +1,126 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
+
 module ShortestPath.BenchmarkProfiles
-  ( benchmarkProfileNames
-  , benchmarkAccountSpec
+  ( BenchmarkProfiles(..)
+  , benchmarkProfileNames
   , benchmarkAccount
   , benchmarkProfileVariableGaps
   , benchmarkNowMinutes
+  , benchmarkProfileNamesFrom
+  , benchmarkAccountFrom
+  , benchmarkProfileVariableGapsFrom
+  , discoverCorpusDir
+  , loadBenchmarkProfiles
   ) where
 
-import Data.List (nub)
+import Data.Aeson (FromJSON(..), eitherDecodeFileStrict', withObject, (.:), (.:?))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import System.Directory (doesDirectoryExist, doesFileExist)
+import System.Environment (lookupEnv)
+import System.FilePath ((</>))
+import System.IO.Unsafe (unsafePerformIO)
+import Text.Read (readMaybe)
 
 import ShortestPath.Account
-import ShortestPath.AccountSemantics
-import ShortestPath.Requirements
-import ShortestPath.Transport
+import ShortestPath.AccountSemantics (compileItemReferences)
+import ShortestPath.Requirements (VarbitId(..), VarPlayerId(..), VarReq)
+import ShortestPath.Transport (Transport)
+
+data BenchmarkProfiles = BenchmarkProfiles
+  { benchmarkNowMinutesFrom :: Int
+  , benchmarkAccounts :: Map.Map String AccountState
+  }
+
+data ProfileFile = ProfileFile Int Int (Map.Map String Profile)
+
+data Profile = Profile
+  { profileLevels :: Map.Map String Int
+  , profileQuests :: [String]
+  , profileVarbits :: Map.Map String Int
+  , profileVarplayers :: Map.Map String Int
+  , profileInventory :: Map.Map String Int
+  , profileEquipment :: Map.Map String Int
+  , profileRunePouch :: Map.Map String Int
+  , profileBank :: Map.Map String Int
+  , profileDiaries :: Map.Map String String
+  , profilePoh :: PohProfile
+  , profilePlantedSpiritTrees :: [String]
+  , profileFairyRingsUnlocked :: Bool
+  , profileRuntime :: RuntimeProfile
+  }
+
+data PohProfile = PohProfile
+  { pohProfileLocation :: String
+  , pohProfileJewelleryBox :: String
+  , pohProfilePortals :: PortalProfile
+  , pohProfileFairyRing :: Bool
+  , pohProfileSpiritTree :: Bool
+  , pohProfileObelisk :: Bool
+  , pohProfileMountedGlory :: Bool
+  , pohProfileMountedXerics :: Bool
+  , pohProfileMountedDigsite :: Bool
+  , pohProfileMountedMythical :: Bool
+  }
+
+data PortalProfile = PortalProfile String [String]
+data RuntimeProfile = RuntimeProfile String CooldownProfile Bool
+data CooldownProfile = CooldownProfile String (Maybe Int)
+
+instance FromJSON ProfileFile where
+  parseJSON = withObject "account profile file" $ \o ->
+    ProfileFile <$> o .: "formatVersion" <*> o .: "benchmarkNowMinutes" <*> o .: "profiles"
+
+instance FromJSON Profile where
+  parseJSON = withObject "account profile" $ \o ->
+    Profile <$> o .: "levels" <*> o .: "completedQuests" <*> o .: "varbits" <*> o .: "varplayers"
+      <*> o .: "inventory" <*> o .: "equipment" <*> o .: "runePouch" <*> o .: "bank"
+      <*> o .: "diaries" <*> o .: "poh" <*> o .: "plantedSpiritTrees"
+      <*> o .: "fairyRingsUnlocked" <*> o .: "runtime"
+
+instance FromJSON PohProfile where
+  parseJSON = withObject "POH profile" $ \o -> do
+    location <- o .: "location"
+    jewellery <- o .: "jewelleryBox"
+    portals <- o .: "portals"
+    PohProfile location jewellery portals <$> o .: "fairyRing" <*> o .: "spiritTree"
+      <*> o .: "obelisk" <*> o .: "mountedGlory" <*> o .: "mountedXerics"
+      <*> o .: "mountedDigsite" <*> o .: "mountedMythical"
+
+instance FromJSON PortalProfile where
+  parseJSON = withObject "POH portal profile" $ \o -> PortalProfile <$> o .: "mode" <*> o .: "destinations"
+
+instance FromJSON RuntimeProfile where
+  parseJSON = withObject "runtime profile" $ \o -> RuntimeProfile <$> o .: "spellbook" <*> o .: "minigameTeleport" <*> o .: "arriveInsidePoh"
+
+instance FromJSON CooldownProfile where
+  parseJSON = withObject "cooldown profile" $ \o -> CooldownProfile <$> o .: "state" <*> o .:? "minutes"
 
 benchmarkProfileNames :: [String]
-benchmarkProfileNames = ["early", "mid", "end", "maxed"]
-
-benchmarkAccountSpec :: String -> [Transport] -> Maybe AccountSpec
-benchmarkAccountSpec name transports = case name of
-  "early" -> Just earlySpec
-  "mid" -> Just midSpec
-  "end" -> Just endSpec
-  "maxed" -> Just (maxedSpec allItems)
-  _ -> Nothing
- where
-  allItems = Map.fromList
-    [(item, 1000) | transport <- transports, item <- itemNames =<< maybeToList (items transport)]
+benchmarkProfileNames = benchmarkProfileNamesFrom defaultBenchmarkProfiles
 
 benchmarkAccount :: String -> [Transport] -> Maybe AccountState
-benchmarkAccount name transports = do
-  accountSpec <- benchmarkAccountSpec name transports
-  either (error . ("benchmark account failed to compile: " <>) . show) Just
-    (compileAccount benchmarkNowMinutes accountSpec)
+benchmarkAccount name _ = benchmarkAccountFrom defaultBenchmarkProfiles name
 
 benchmarkProfileVariableGaps :: [Transport] -> [(String, [VarReq])]
-benchmarkProfileVariableGaps transports =
-  [ (name, nub unknown)
-  | name <- benchmarkProfileNames
-  , Just account <- [benchmarkAccount name transports]
-  , let context = RequirementContext account CarriedAndBank benchmarkNowMinutes
+benchmarkProfileVariableGaps = benchmarkProfileVariableGapsFrom defaultBenchmarkProfiles
+
+benchmarkNowMinutes :: Int
+benchmarkNowMinutes = benchmarkNowMinutesFrom defaultBenchmarkProfiles
+
+benchmarkProfileNamesFrom :: BenchmarkProfiles -> [String]
+benchmarkProfileNamesFrom profiles = filter (`Map.member` benchmarkAccounts profiles) ["early", "mid", "end", "maxed"]
+
+benchmarkAccountFrom :: BenchmarkProfiles -> String -> Maybe AccountState
+benchmarkAccountFrom profiles name = Map.lookup name (benchmarkAccounts profiles)
+
+benchmarkProfileVariableGapsFrom :: BenchmarkProfiles -> [Transport] -> [(String, [VarReq])]
+benchmarkProfileVariableGapsFrom profiles transports =
+  [ (name, Set.toList (Set.fromList unknown))
+  | name <- benchmarkProfileNamesFrom profiles
+  , Just account <- [benchmarkAccountFrom profiles name]
+  , let context = RequirementContext account CarriedAndBank (benchmarkNowMinutesFrom profiles)
         unknown = concat
           [ requirements
           | transport <- transports
@@ -50,141 +130,153 @@ benchmarkProfileVariableGaps transports =
   , not (null unknown)
   ]
 
-benchmarkNowMinutes :: Int
-benchmarkNowMinutes = 100000000
+discoverCorpusDir :: Maybe FilePath -> IO FilePath
+discoverCorpusDir explicit = do
+  environment <- lookupEnv "SHORTEST_PATH_CORPUS_DIR"
+  choose (maybe [] pure explicit <> maybe [] pure environment <> ["../shortest-path-corpus"])
+ where
+  choose [] = fail "canonical benchmark corpus not found; pass --corpus-dir DIR or set SHORTEST_PATH_CORPUS_DIR"
+  choose (candidate:rest) = do
+    directory <- doesDirectoryExist candidate
+    manifest <- doesFileExist (candidate </> "manifest.json")
+    if directory && manifest then pure candidate else choose rest
 
-earlySpec, midSpec, endSpec :: AccountSpec
-earlySpec = spec (progression earlyLevels earlyQuests (allDiaries Medium) Set.empty Set.empty Set.empty earlyPlantedSpiritTrees earlyPermanentUnlocks) basicPoh earlyLoadout earlyBank
-midSpec = spec (progression midLevels canonicalQuestUniverse (allDiaries Hard) allPlatforms allBalloonDestinations allCatacombsEntrances midPlantedSpiritTrees allPermanentUnlocks) midPoh midLoadout midBank
-endSpec = spec (progression (Map.insert "Quest" 327 endLevels) canonicalQuestUniverse endDiaries allPlatforms allBalloonDestinations allCatacombsEntrances endPlantedSpiritTrees allPermanentUnlocks) maxedPoh endLoadout endBank
+loadBenchmarkProfiles :: FilePath -> IO BenchmarkProfiles
+loadBenchmarkProfiles root = do
+  let path = root </> "accounts/account-profiles-v1.json"
+  decoded <- either fail pure =<< eitherDecodeFileStrict' path
+  if formatVersion decoded /= 1
+    then fail (path <> ": unsupported account profile formatVersion")
+    else BenchmarkProfiles (profileNow decoded) <$> traverse compileProfile (profiles decoded)
+ where
+  compileProfile profile = do
+    inventory <- compileItems "inventory" (profileInventory profile)
+    equipment <- compileItems "equipment" (profileEquipment profile)
+    runePouch <- compileItems "rune pouch" (profileRunePouch profile)
+    bank <- compileItems "bank" (profileBank profile)
+    varbits <- parseVars "varbit" VarbitId (profileVarbits profile)
+    varplayers <- parseVars "varplayer" VarPlayerId (profileVarplayers profile)
+    diaries <- traverse parseDiary (Map.toList (profileDiaries profile))
+    poh <- parsePoh (profilePoh profile)
+    planted <- traverse parseSpiritTree (profilePlantedSpiritTrees profile)
+    runtime <- parseRuntime (profileRuntime profile)
+    pure AccountState
+      { accountLevels = profileLevels profile
+      , accountCompletedQuests = Set.fromList (profileQuests profile)
+      , accountVarbits = Map.fromList varbits
+      , accountVarPlayers = Map.fromList varplayers
+      , accountInventory = inventory
+      , accountEquipment = equipment
+      , accountRunePouch = runePouch
+      , accountBank = bank
+      , accountDiaries = Map.fromList diaries
+      , accountPoh = poh
+      , accountPlantedSpiritTrees = Set.fromList planted
+      , accountFairyRingsUnlocked = profileFairyRingsUnlocked profile
+      , accountRuntime = runtime
+      }
 
-maxedSpec :: ItemReferences -> AccountSpec
-maxedSpec allItems =
-  spec
-    (progression
-      (Map.fromList [(skill, 99) | skill <- allSkills] <> Map.fromList [("Quest", 327), ("Total", 2376)])
-      canonicalQuestUniverse
-      (allDiaries Elite)
-      allPlatforms
-      allBalloonDestinations
-      allCatacombsEntrances
-      maxedPlantedSpiritTrees
-      allPermanentUnlocks)
-    maxedPoh
-    maxedLoadout
-    (allItems <> endBank)
+  compileItems field values = either (fail . show) pure (compileItemReferences field values)
 
-spec :: Progression -> PohBuild -> ItemLoadout -> ItemReferences -> AccountSpec
-spec progress poh carried bank =
-  AccountSpec progress emptyRawGameState poh carried bank standardRuntime
+  parseVars field constructor values = traverse parseOne (Map.toList values)
+   where
+    parseOne (key, value) = maybe (fail (field <> " has invalid ID: " <> key)) (\identifier -> pure (constructor identifier, value)) (readMaybe key)
 
-progression :: SkillLevels -> Set.Set String -> Map.Map Diary DiaryTier -> Set.Set QuetzalPlatform -> Set.Set HotAirBalloonDestination -> Set.Set CatacombsEntrance -> Set.Set PlantedSpiritTree -> Set.Set PermanentUnlock -> Progression
-progression skillLevels quests diaries platforms balloons catacombs plantedSpiritTrees unlocks =
-  Progression skillLevels (Set.insert "Dragon Slayer I" quests) Set.empty diaries True plantedSpiritTrees platforms balloons catacombs unlocks
+  parseDiary (name, tier) = do
+    diary <- parseDiaryName name
+    value <- parseDiaryTier tier
+    pure (diary, value)
 
-emptyRawGameState :: RawGameState
-emptyRawGameState = RawGameState Map.empty Map.empty
+  parsePoh (PohProfile location jewellery (PortalProfile mode destinations) fairyRing spiritTree obelisk glory xerics digsite mythical) = do
+    pohLocationValue <- parsePohLocation location
+    jewelleryValue <- parseJewelleryBox jewellery
+    portals <- case mode of
+      "all" -> pure AllPohPortals
+      "selected" -> pure (SelectedPohPortals (Set.fromList destinations))
+      _ -> fail ("unknown POH portal mode: " <> mode)
+    pure (PohBuild pohLocationValue jewelleryValue portals fairyRing spiritTree obelisk glory xerics digsite mythical)
 
-allDiaries :: DiaryTier -> Map.Map Diary DiaryTier
-allDiaries tier = Map.fromList [(diary, tier) | diary <- [minBound .. maxBound]]
+  parseRuntime (RuntimeProfile spellbook (CooldownProfile state minutes) arriveInside) = do
+    spellbookValue <- parseSpellbook spellbook
+    cooldown <- case state of
+      "ready" -> pure CooldownReady
+      "usedAt" -> maybe (fail "usedAt cooldown has no minutes") (pure . CooldownUsedAt) minutes
+      _ -> fail ("unknown cooldown state: " <> state)
+    pure (RuntimeState spellbookValue cooldown arriveInside)
 
-endDiaries :: Map.Map Diary DiaryTier
-endDiaries = Map.insert LumbridgeDraynor Elite (allDiaries Hard)
+  parseSpiritTree name = parseSpiritTreeName (case name of
+    "FARMING_GUILD" -> "FarmingGuildTree"
+    "PORT_SARIM" -> "PortSarimTree"
+    "ETCETERIA" -> "EtceteriaTree"
+    "BRIMHAVEN" -> "BrimhavenTree"
+    "HOSIDIUS" -> "HosidiusTree"
+    other -> other)
 
-allPlatforms :: Set.Set QuetzalPlatform
-allPlatforms = Set.fromList [minBound .. maxBound]
+  parseDiaryName = \case
+    "Ardougne" -> pure Ardougne
+    "Desert" -> pure Desert
+    "Falador" -> pure Falador
+    "Fremennik" -> pure Fremennik
+    "Kandarin" -> pure Kandarin
+    "Karamja" -> pure Karamja
+    "KourendKebos" -> pure KourendKebos
+    "LumbridgeDraynor" -> pure LumbridgeDraynor
+    "Morytania" -> pure Morytania
+    "Varrock" -> pure Varrock
+    "WesternProvinces" -> pure WesternProvinces
+    "Wilderness" -> pure Wilderness
+    value -> fail ("unknown diary: " <> value)
 
-allBalloonDestinations :: Set.Set HotAirBalloonDestination
-allBalloonDestinations = Set.fromList [minBound .. maxBound]
+  parseDiaryTier = \case
+    "NoDiary" -> pure NoDiary
+    "Easy" -> pure Easy
+    "Medium" -> pure Medium
+    "Hard" -> pure Hard
+    "Elite" -> pure Elite
+    value -> fail ("unknown diary tier: " <> value)
 
-allCatacombsEntrances :: Set.Set CatacombsEntrance
-allCatacombsEntrances = Set.fromList [minBound .. maxBound]
+  parsePohLocation = \case
+    "Rimmington" -> pure Rimmington
+    "Taverley" -> pure Taverley
+    "Pollnivneach" -> pure Pollnivneach
+    "Rellekka" -> pure Rellekka
+    "Brimhaven" -> pure Brimhaven
+    "Yanille" -> pure Yanille
+    "Prifddinas" -> pure Prifddinas
+    "Hosidius" -> pure Hosidius
+    "Aldarin" -> pure Aldarin
+    value -> fail ("unknown POH location: " <> value)
 
-allPermanentUnlocks :: Set.Set PermanentUnlock
-allPermanentUnlocks = Set.fromList [minBound .. maxBound]
+  parseJewelleryBox = \case
+    "NoJewelleryBox" -> pure NoJewelleryBox
+    "FancyJewelleryBox" -> pure FancyJewelleryBox
+    "OrnateJewelleryBox" -> pure OrnateJewelleryBox
+    value -> fail ("unknown jewellery box: " <> value)
 
-earlyPermanentUnlocks :: Set.Set PermanentUnlock
-earlyPermanentUnlocks = Set.singleton CorsairCoveResourceArea
+  parseSpellbook = \case
+    "Standard" -> pure Standard
+    "Ancient" -> pure Ancient
+    "Lunar" -> pure Lunar
+    "Arceuus" -> pure Arceuus
+    value -> fail ("unknown spellbook: " <> value)
 
-earlyPlantedSpiritTrees, midPlantedSpiritTrees, endPlantedSpiritTrees, maxedPlantedSpiritTrees :: Set.Set PlantedSpiritTree
-earlyPlantedSpiritTrees = Set.empty
-midPlantedSpiritTrees = Set.singleton FarmingGuildTree
-endPlantedSpiritTrees = Set.fromList [FarmingGuildTree, PortSarimTree]
-maxedPlantedSpiritTrees = allPlayerPlantedSpiritTrees
+  parseSpiritTreeName = \case
+    "FarmingGuildTree" -> pure FarmingGuildTree
+    "PortSarimTree" -> pure PortSarimTree
+    "EtceteriaTree" -> pure EtceteriaTree
+    "BrimhavenTree" -> pure BrimhavenTree
+    "HosidiusTree" -> pure HosidiusTree
+    value -> fail ("unknown planted spirit tree: " <> value)
 
-canonicalQuestUniverse :: Set.Set String
-canonicalQuestUniverse = earlyQuests <> Set.fromList
-  [ "Land of the Goblins", "Sins of the Father", "Dragon Slayer I"
-  , "Making Friends with My Arm", "Cabin Fever", "The Depths of Despair"
-  , "Zogre Flesh Eaters", "The Path of Glouphrie", "Troubled Tortugans"
-  , "Song of the Elves", "The Forsaken Tower", "Enlightened Journey"
-  , "Legends' Quest", "Shilo Village", "Waterfall Quest", "Darkness of Hallowvale"
-  , "Fishing Contest", "Mountain Daughter", "Between a Rock...", "The Golem"
-  , "Icthlarin's Little Helper", "Tears of Guthix", "The Lost Tribe"
-  , "Swan Song", "The Fremennik Isles", "Beneath Cursed Sands"
-  , "Tree Gnome Village", "The Grand Tree", "Plague City", "Watchtower"
-  , "Regicide", "Throne of Miscellania", "Mourning's End Part I"
-  , "The Queen of Thieves", "The Tale of the Righteous", "Architectural Alliance"
-  ]
+defaultBenchmarkProfiles :: BenchmarkProfiles
+defaultBenchmarkProfiles = unsafePerformIO (discoverCorpusDir Nothing >>= loadBenchmarkProfiles)
+{-# NOINLINE defaultBenchmarkProfiles #-}
 
-allSkills :: [String]
-allSkills = ["Attack", "Strength", "Defence", "Hitpoints", "Ranged", "Prayer", "Magic", "Agility", "Herblore", "Thieving", "Crafting", "Fletching", "Slayer", "Hunter", "Mining", "Smithing", "Fishing", "Cooking", "Firemaking", "Woodcutting", "Farming", "Runecraft", "Construction", "Sailing"]
+formatVersion :: ProfileFile -> Int
+formatVersion (ProfileFile value _ _) = value
 
-levels :: [Int] -> SkillLevels
-levels values = Map.fromList (zip allSkills values)
+profileNow :: ProfileFile -> Int
+profileNow (ProfileFile _ value _) = value
 
-earlyLevels, midLevels, endLevels :: SkillLevels
-earlyLevels = levels [70, 75, 70, 75, 70, 60, 70, 70, 65, 65, 65, 65, 65, 65, 65, 65, 65, 70, 70, 65, 65, 60, 60, 60]
-midLevels = levels [80, 85, 80, 85, 80, 70, 85, 80, 78, 82, 80, 80, 80, 80, 80, 80, 80, 80, 80, 80, 83, 75, 78, 75]
-endLevels = levels [90, 95, 90, 95, 90, 85, 94, 90, 90, 91, 90, 90, 95, 90, 85, 91, 90, 95, 90, 90, 91, 85, 85, 85]
-
-earlyQuests :: Set.Set String
-earlyQuests = Set.fromList ["Another Slice of H.A.M.", "Biohazard", "Bone Voyage", "Children of the Sun", "Client of Kourend", "Creature of Fenkenstrain", "Death to the Dorgeshuun", "Enter the Abyss", "Garden of Tranquillity", "Haunted Mine", "Holy Grail", "In Search of the Myreque", "Lost City", "Monkey Madness I", "Nature Spirit", "Observatory Quest", "Plague City", "Priest in Peril", "Regicide", "Sea Slug", "Shades of Mort'ton", "Tai Bwo Wannai Trio", "The Corsair Curse", "The Fremennik Trials", "The Giant Dwarf", "The Grand Tree", "The Lost Tribe", "Tree Gnome Village", "Twilight's Promise", "Watchtower"]
-
-basicPoh, midPoh, maxedPoh :: PohBuild
-basicPoh = PohBuild Rimmington NoJewelleryBox (SelectedPohPortals Set.empty) False False False False False False False
-midPoh = PohBuild Rimmington FancyJewelleryBox (SelectedPohPortals (Set.fromList ["Varrock Portal", "Falador Portal", "Camelot Portal", "Ardougne Portal", "Kourend Portal", "Barrows Portal"])) False False False True True True True
-maxedPoh = PohBuild Rimmington OrnateJewelleryBox AllPohPortals True True True True True True True
-
-standardRuntime :: RuntimeState
-standardRuntime = RuntimeState Standard CooldownReady True
-
-earlyLoadout, midLoadout, endLoadout, maxedLoadout :: ItemLoadout
-earlyLoadout = ItemLoadout (Map.fromList [("772", 1), ("2552", 1), ("3853", 1), ("1704", 1), ("8013", 1), ("995", 100000)]) Map.empty standardRunes
-midLoadout = ItemLoadout (Map.fromList [("772", 1), ("2552", 1), ("1704", 1), ("3853", 1), ("11866", 1), ("11190", 1), ("8013", 1), ("29271", 1), ("995", 1000000)]) Map.empty standardRunes
-endLoadout = ItemLoadout (Map.fromList [("9813", 1), ("2552", 1), ("1704", 1), ("8013", 1), ("995", 5000000)]) Map.empty standardRunes
-maxedLoadout = ItemLoadout (Map.fromList [("13280", 1), ("13069", 1), ("8013", 1), ("995", 10000000)]) Map.empty standardRunes
-
-standardRunes :: ItemReferences
-standardRunes = Map.fromList [("554", 10000), ("555", 10000), ("556", 10000), ("563", 10000)]
-
-earlyBank :: ItemReferences
-earlyBank = itemBank ["772", "2552", "3853", "1704", "11118", "11105", "21146", "11980", "8013", "995"]
-
-midBank, endBank :: ItemReferences
-midBank = itemBank
-  [ "2552", "3853", "11978", "11968", "11972", "11194", "11866", "11980", "21146", "21166"
-  , "8007", "8008", "8009", "8010", "8011", "8012", "8013", "12402", "12403", "12404", "12406", "12407", "12409", "12410", "12938"
-  , "772", "4251", "6707", "13393", "13660", "19564", "21389", "21760", "22400", "22599", "22601", "23946", "25818", "29273", "29893", "32399"
-  , "11140", "13110", "13114", "13123", "13127", "13131", "13135", "13139", "13143", "22945"
-  , "AIR_RUNE", "WATER_RUNE", "EARTH_RUNE", "FIRE_RUNE", "LAW_RUNE", "NATURE_RUNE", "COINS", "AXE", "PICKAXE", "ROPE", "MACHETE", "SHANTAY_PASS", "CROSSBOW", "MITH_GRAPPLE"
-  ]
-endBank = itemBank
-  [ "2552", "3853", "11978", "11968", "11972", "11194", "11866", "11980", "21146", "21166"
-  , "8007", "8008", "8009", "8010", "8011", "8012", "8013", "12402", "12403", "12404", "12405", "12406", "12407", "12408", "12409", "12410", "12411", "12642", "12938"
-  , "772", "4251", "6707", "13393", "13660", "19564", "21268", "21389", "21760", "22400", "22599", "22601", "23458", "23946", "25818", "26818", "26948", "28327", "29275", "29893", "32399", "33104"
-  , "13103", "13111", "13115", "13124", "13128", "13132", "13136", "13140", "13144", "22947"
-  , "AIR_RUNE", "WATER_RUNE", "EARTH_RUNE", "FIRE_RUNE", "LAW_RUNE", "NATURE_RUNE", "COINS", "AXE", "PICKAXE", "ROPE", "MACHETE", "SHANTAY_PASS", "CROSSBOW", "MITH_GRAPPLE"
-  ]
-
-itemBank :: [String] -> ItemReferences
-itemBank itemIds = Map.fromList [(item, 1000) | item <- itemIds]
-
-itemNames :: ItemExpr -> [String]
-itemNames expression = case expression of
-  ItemOne term -> [itemName term]
-  ItemAnd terms -> concatMap itemNames terms
-  ItemOr terms -> concatMap itemNames terms
-
-maybeToList :: Maybe a -> [a]
-maybeToList = maybe [] pure
+profiles :: ProfileFile -> Map.Map String Profile
+profiles (ProfileFile _ _ value) = value

@@ -16,13 +16,13 @@ import GHC.Clock (getMonotonicTimeNSec)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
-import System.FilePath (takeDirectory)
+import System.FilePath ((</>), takeDirectory)
 import System.Process (readProcess)
 import System.Info (arch, os)
 import System.IO (hFlush, stdout)
 
 import ShortestPath.Account (AccountState, RequirementMode(..))
-import ShortestPath.BenchmarkProfiles (benchmarkAccount, benchmarkProfileNames, benchmarkProfileVariableGaps, benchmarkNowMinutes)
+import ShortestPath.BenchmarkProfiles
 import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..), findRouteReferenceDijkstra)
 import ShortestPath.Exact.TileAStar
 import ShortestPath.Exact.TileAStar.Configuration
@@ -77,31 +77,38 @@ data Options = Options
   , rerunFailures :: Maybe FilePath
   , strictProfileVars :: Bool
   , heuristicWeightOption :: Double
+  , corpusDirOption :: Maybe FilePath
   }
 
 defaultOptions :: Options
-defaultOptions = Options "benchmarks/corpus/routes-v1.json" "benchmarks/corpus/oracle-v1.json" "out/route-benchmark.jsonl" 3 False False False Nothing "full" 4 Nothing False 1
+defaultOptions = Options "" "" "out/route-benchmark.jsonl" 3 False False False Nothing "full" 4 Nothing False 1 Nothing
 
 main :: IO ()
 main = do
-  options <- parseOptions =<< getArgs
+  parsed <- parseOptions =<< getArgs
+  corpusDir <- discoverCorpusDir (corpusDirOption parsed)
+  profiles <- loadBenchmarkProfiles corpusDir
+  let options = parsed
+        { inputPath = if null (inputPath parsed) then corpusDir </> "corpus/routes-v1.json" else inputPath parsed
+        , oraclePath = if null (oraclePath parsed) then corpusDir </> "oracle/oracle-v1.json" else oraclePath parsed
+        }
   cases <- maybe id take (routeLimit options) . filterTier (benchmarkTier options) <$> loadCases options
-  when (null cases) (die "no benchmark routes; select routes for benchmarks/corpus/routes-v1.json first")
+  when (null cases) (die "no benchmark routes; select routes from the corpus first")
   world <- loadWorld defaultSourcePaths
   topology <- buildWorldTopology world
   tileConfig <- tileAStarConfigFromEnvironment
   when (strictProfileVars options) $ do
-    let gaps = benchmarkProfileVariableGaps (allTransports world)
+    let gaps = benchmarkProfileVariableGapsFrom profiles (allTransports world)
     when (not (null gaps)) $ die (unlines ("unmodelled benchmark profile variables:" : [name <> ": " <> show (length requirements) | (name, requirements) <- gaps]))
   if writeOracle options
-    then writeOracles options topology cases
-    else buildTileAStarFromTopology topology >>= forceTileAStar >>= \astar -> runBench tileConfig options world astar cases
+    then writeOracles profiles options topology cases
+    else buildTileAStarFromTopology topology >>= forceTileAStar >>= \astar -> runBench profiles tileConfig options world astar cases
 
 parseOptions :: [String] -> IO Options
 parseOptions = go defaultOptions
  where
   go options [] = pure options
-  go options ("--seed":rest) = go (options {inputPath = "benchmarks/routes.json", oraclePath = "benchmarks/corpus/oracle-seed.json", seedMode = True}) rest
+  go options ("--seed":rest) = go (options {inputPath = "benchmarks/routes.json", oraclePath = "out/oracle-seed.json", seedMode = True}) rest
   go options ("--corpus":path:rest) = go (options {inputPath = path}) rest
   go options ("--oracle":path:rest) = go (options {oraclePath = path}) rest
   go options ("--output":path:rest) = go (options {outputPath = path}) rest
@@ -121,10 +128,11 @@ parseOptions = go defaultOptions
   go options ("--diagnostic":rest) = go (options {diagnostic = True}) rest
   go options ("--rerun-failures":path:rest) = go (options {rerunFailures = Just path}) rest
   go options ("--strict-profile-vars":rest) = go (options {strictProfileVars = True}) rest
+  go options ("--corpus-dir":path:rest) = go (options {corpusDirOption = Just path}) rest
   go options ("--heuristic-weight":weight:rest) = case reads weight of
     [(n, "")] | n > 0 -> go (options {heuristicWeightOption = n}) rest
     _ -> die "--heuristic-weight must be positive"
-  go _ _ = die "usage: route-bench [--seed] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic] [--rerun-failures JSONL] [--strict-profile-vars] [--heuristic-weight N]"
+  go _ _ = die "usage: route-bench [--corpus-dir DIR] [--seed] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic] [--rerun-failures JSONL] [--strict-profile-vars] [--heuristic-weight N]"
 
 loadCases :: Options -> IO [RouteCase]
 loadCases options = do
@@ -139,9 +147,9 @@ filterTier :: String -> [RouteCase] -> [RouteCase]
 filterTier "full" = id
 filterTier tier = filter (elem tier . routeTiers)
 
-writeOracles :: Options -> WorldTopology -> [RouteCase] -> IO ()
-writeOracles options topology cases = do
-  let profiles = [(name, benchmarkAccount name (allTransports world)) | name <- benchmarkProfileNames]
+writeOracles :: BenchmarkProfiles -> Options -> WorldTopology -> [RouteCase] -> IO ()
+writeOracles benchmarkProfiles options topology cases = do
+  let profiles = [(name, benchmarkAccountFrom benchmarkProfiles name) | name <- benchmarkProfileNamesFrom benchmarkProfiles]
       work = [(route, name, profile) | route <- indexed cases, (name, profile) <- profiles]
       total = length work
       jobs = min total (oracleJobs options)
@@ -163,6 +171,18 @@ writeOracles options topology cases = do
       reachableCount = length (filter (oracleReachable . snd) results)
   createDirectoryIfMissing True (takeDirectory (oraclePath options))
   LBS.writeFile (oraclePath options) (encode entries)
+  commit <- gitCommit
+  LBS.writeFile (oraclePath options <> ".metadata.json") (encode (object
+    [ "formatVersion" .= (1 :: Int)
+    , "accountProfilesVersion" .= (1 :: Int)
+    , "routesVersion" .= (1 :: Int)
+    , "oracleVersion" .= (1 :: Int)
+    , "generator" .= object
+        [ "implementation" .= ("shortest-path-model" :: String)
+        , "gitRevision" .= commit
+        , "resourceDataRevision" .= ("unspecified" :: String)
+        ]
+    ]))
   putStrLn ("oracle summary: " <> show reachableCount <> " reachable, " <> show (total - reachableCount) <> " unreachable; wrote " <> oraclePath options)
  where
   worker workQueue resultQueue = do
@@ -176,7 +196,7 @@ writeOracles options topology cases = do
 
   oracleFor route profile = do
     started <- getMonotonicTimeNSec
-    let result = findRouteReferenceDijkstra (ReferenceDijkstra topology) (query route profile 1)
+    let result = findRouteReferenceDijkstra (ReferenceDijkstra topology) (query (benchmarkNowMinutesFrom benchmarkProfiles) route profile 1)
         cost = routeCost result
     resolvedCost <- evaluate cost
     finished <- getMonotonicTimeNSec
@@ -185,8 +205,8 @@ writeOracles options topology cases = do
     pure (oracle, milliseconds started finished)
   world = topologyWorld topology
 
-runBench :: TileAStarConfig -> Options -> World -> TileAStar -> [RouteCase] -> IO ()
-runBench tileConfig options world astar cases = do
+runBench :: BenchmarkProfiles -> TileAStarConfig -> Options -> World -> TileAStar -> [RouteCase] -> IO ()
+runBench benchmarkProfiles tileConfig options world astar cases = do
   oracles <- loadOracle options
   failedKeys <- maybe (pure Nothing) (fmap Just . loadFailedKeys) (rerunFailures options)
   commit <- gitCommit
@@ -195,7 +215,7 @@ runBench tileConfig options world astar cases = do
   now <- getCurrentTime
   createDirectoryIfMissing True (takeDirectory (outputPath options))
   LBS.writeFile (outputPath options) LBS.empty
-  let profiles = [(name, benchmarkAccount name (allTransports world)) | name <- benchmarkProfileNames]
+  let profiles = [(name, benchmarkAccountFrom benchmarkProfiles name) | name <- benchmarkProfileNamesFrom benchmarkProfiles]
       queries =
         [ (route, profileName, profile)
         | route <- indexed cases
@@ -209,8 +229,8 @@ runBench tileConfig options world astar cases = do
   -- Warm the same code path without recording it.
   let firstRoute = case queries of (route, _, _) : _ -> route; [] -> error "checked above"
   forM_ (Set.toList (Set.fromList [profileName | (_, profileName, _) <- queries])) $ \profileName -> do
-    let profile = benchmarkAccount profileName (allTransports world)
-    (route, _) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query firstRoute profile (heuristicWeightOption options))
+    let profile = benchmarkAccountFrom benchmarkProfiles profileName
+    (route, _) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query (benchmarkNowMinutesFrom benchmarkProfiles) firstRoute profile (heuristicWeightOption options))
     voidRoute route
   forM_ (zip [1 :: Int ..] queries) $ \(queryNumber, (route, profileName, profile)) -> do
     putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName)
@@ -220,7 +240,7 @@ runBench tileConfig options world astar cases = do
     when (oracleReachable expected /= (expectation == "positive")) $
       die ("corpus expectation disagrees with oracle for " <> key route profileName)
     forM_ [1 .. repetitions options] $ \repetition -> do
-      (result, timings) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query route profile (heuristicWeightOption options))
+      (result, timings) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query (benchmarkNowMinutesFrom benchmarkProfiles) route profile (heuristicWeightOption options))
       let cost = routeCost result
           reachable = cost /= maxBound
           weight = heuristicWeightOption options
@@ -249,7 +269,7 @@ runBench tileConfig options world astar cases = do
         ] <> quality
       when (diagnostic options) $ do
         started <- getMonotonicTimeNSec
-        let raw = findRouteReferenceDijkstra (ReferenceDijkstra (tileTopology astar)) (query route profile 1)
+        let raw = findRouteReferenceDijkstra (ReferenceDijkstra (tileTopology astar)) (query (benchmarkNowMinutesFrom benchmarkProfiles) route profile 1)
         voidRoute raw
         finished <- getMonotonicTimeNSec
         when (routeCost raw /= routeCost result) (die ("raw Dijkstra mismatch for " <> key route profileName))
@@ -286,12 +306,12 @@ stableId route = fromMaybe (error "indexed route missing id") (routeId route)
 key :: RouteCase -> String -> String
 key route profile = stableId route <> "/" <> profile
 
-query :: RouteCase -> Maybe AccountState -> Double -> Query
-query route profile weight =
+query :: Int -> RouteCase -> Maybe AccountState -> Double -> Query
+query now route profile weight =
   (defaultQuery (tile (routeStart route)) (tile (routeTarget route)))
     { allowTransports = routeAllowTransports route
     , requirementMode = maybe IgnoreRequirements ConfiguredRequirements profile
-    , queryNowMinutes = benchmarkNowMinutes
+    , queryNowMinutes = now
     , heuristicWeight = weight
     }
  where
