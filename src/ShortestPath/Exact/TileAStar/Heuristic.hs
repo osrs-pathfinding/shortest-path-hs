@@ -103,7 +103,7 @@ prepareHeuristicFor astar account overlay =
   heuristicFromDistances components graph overlay distances 0 0 emptyReverseCounters
  where
   graph = compiledSiteGraph account
-  distances = reverseDijkstraUncounted graph overlay
+  distances = halveDistances (manhattanDistances (reverseDijkstraManhattanUncounted graph overlay))
   components = topologyRoutingComponents (tileTopology astar)
 
 prepareHeuristicProfiled :: TileAStarConfig -> TileAStar -> CompiledRoutingAccount -> Tile -> IO Heuristic
