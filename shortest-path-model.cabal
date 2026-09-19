@@ -9,6 +9,9 @@ license: BSD-3-Clause
 license-file: LICENSE
 build-type: Simple
 
+data-files:
+  data/routing-separators-v1.json
+
 source-repository head
   type: git
   location: https://github.com/mpickering/shortest-path-model.git
@@ -53,6 +56,8 @@ library
     ShortestPath.Tsv
     ShortestPath.Wilderness
     ShortestPath.World
+  other-modules:
+    Paths_shortest_path_model
   hs-source-dirs: src
   c-sources:
     csrc/distance_transform.c

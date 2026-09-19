@@ -19,7 +19,9 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Word (Word8)
 import System.Directory (doesFileExist)
+import System.Environment (lookupEnv)
 
+import Paths_shortest_path_model (getDataFileName)
 import ShortestPath.Tile
 import ShortestPath.Separator
 import ShortestPath.Transport
@@ -30,6 +32,7 @@ data World = World
   , worldGlobalTeleports :: [Transport]
   , worldBanks :: Set.Set Tile
   , worldSeparatorArtifact :: Maybe SeparatorArtifact
+  , worldSeparatorArtifactPath :: Maybe FilePath
   }
   deriving stock (Show)
 
@@ -40,11 +43,20 @@ data CollisionMap = CollisionMap
 
 loadWorld :: SourcePaths -> IO World
 loadWorld paths = do
+  configuredSeparator <- lookupEnv "SPM_SEPARATOR_FILE"
+  separatorPath <- case configuredSeparator of
+    Just path -> pure path
+    Nothing
+      | separatorFile paths == separatorFile defaultSourcePaths -> getDataFileName (separatorFile paths)
+      | otherwise -> pure (separatorFile paths)
   world <- loadWorldWithoutSeparators paths
-  exists <- doesFileExist (separatorFile paths)
-  if exists then pure () else fail ("required routing separator artifact is missing: " <> separatorFile paths)
-  artifact <- either fail pure =<< eitherDecodeFileStrict' (separatorFile paths)
-  pure world {worldSeparatorArtifact = Just artifact}
+  exists <- doesFileExist separatorPath
+  if exists then pure () else fail ("required routing separator artifact is missing: " <> separatorPath)
+  artifact <- either fail pure =<< eitherDecodeFileStrict' separatorPath
+  pure world
+    { worldSeparatorArtifact = Just artifact
+    , worldSeparatorArtifactPath = Just separatorPath
+    }
 
 loadWorldWithoutSeparators :: SourcePaths -> IO World
 loadWorldWithoutSeparators paths = do
@@ -59,6 +71,7 @@ loadWorldWithoutSeparators paths = do
       , worldGlobalTeleports = globals
       , worldBanks = banks
       , worldSeparatorArtifact = Nothing
+      , worldSeparatorArtifactPath = Nothing
       }
 
 walkingNeighbors :: World -> Tile -> [Tile]

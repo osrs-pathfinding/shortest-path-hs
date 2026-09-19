@@ -55,9 +55,14 @@ In particular, `defaultSourcePaths` refers to:
 ```text
 ../shortest-path/src/main/resources/collision-map.zip
 ../shortest-path/src/main/resources/destinations/game_features/bank.tsv
-../shortest-path/src/main/resources/routing-separators-v1.json
 ../shortest-path/src/main/resources/transports/*.tsv
+data/routing-separators-v1.json
 ```
+
+The sibling `shortest-path` checkout contains authoritative world/game data.
+`data/routing-separators-v1.json` is the checked-in, Haskell Tile A*-specific
+separator artifact derived from that data. It is validated against the current
+walking topology before routing starts.
 
 A typical development checkout is therefore:
 
@@ -344,7 +349,7 @@ The currently used generation parameters are:
 
 ```sh
 nix-shell --run \
-  'cabal run separator-artifact -- generate ../shortest-path/src/main/resources/routing-separators-v1.json 20000 500 32 40 42'
+  'cabal run separator-artifact -- generate data/routing-separators-v1.json 20000 500 32 40 42'
 ```
 
 Generation invokes KaHIP's `node_separator`. The output stores validated cut
@@ -356,13 +361,16 @@ The generator also writes:
 OUTPUT.diagnostics.json
 ```
 
-Environment overrides supported by this executable are:
+Environment overrides for upstream world inputs are:
 
 ```text
 SPM_RESOURCES_DIR
 SPM_COLLISION_ZIP
 SPM_BANK_FILE
 ```
+
+At runtime, `SPM_SEPARATOR_FILE` independently overrides the model-owned
+separator artifact.
 
 ### `world-facts`
 
@@ -500,5 +508,5 @@ tools/corpus-maintenance/    model-aware corpus maintenance
 test/                        correctness and semantic tests
 csrc/                        native distance-transform implementation
 docs/                        artifact/interface documentation
-```
 
+```

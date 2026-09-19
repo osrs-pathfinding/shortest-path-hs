@@ -161,7 +161,7 @@ loadOrBuildTileAStar world = do
   cached <- if fresh then loadTileComponentCache else pure Nothing
   case cached of
     Just (components, static) -> case worldTopologyFromComponents productionStructuralReachabilityPolicy world components of
-      Left err -> fail (show err)
+      Left err -> fail (renderReachabilityError world err)
       Right topology -> timedPhase "force cached tile astar components" (forceTileAStar (TileAStar topology static))
     Nothing -> do
       tileAStar@(TileAStar topology static) <- timedPhase "build tile astar components" (buildTileAStar world)

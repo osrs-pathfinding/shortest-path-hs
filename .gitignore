@@ -2,7 +2,11 @@
 cabal.config.user
 dist-newstyle/
 out/
-data/
+data/*
+!data/
+!data/gamevars/
+!data/gamevars/**
+!data/routing-separators-v1.json
 *.o
 *.hi
 *.duckdb

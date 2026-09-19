@@ -96,7 +96,7 @@ defaultSourcePaths =
     { resourcesDir = "../shortest-path/src/main/resources"
     , collisionZip = "../shortest-path/src/main/resources/collision-map.zip"
     , bankFile = "../shortest-path/src/main/resources/destinations/game_features/bank.tsv"
-    , separatorFile = "../shortest-path/src/main/resources/routing-separators-v1.json"
+    , separatorFile = "data/routing-separators-v1.json"
     }
 
 transportTypes :: [TransportType]

@@ -85,6 +85,10 @@ policy. Account-specific reachability and benchmark eligibility remain above
 that world layer. A missing production seed is an error, not permission to mark
 every component reachable.
 
+The checked-in separator artifact under `data/` is implementation-owned derived
+data, not an upstream `shortest-path` resource. Its walking-topology identity
+must match the current `walkingNeighbors` graph; mismatch is a hard failure.
+
 `world-facts` is derived from this same topology. Tile A* may relax it, but the
 heuristic and unreachable pruning must preserve every valid attachment.
 
@@ -306,4 +310,3 @@ Check:
 * If world/corpus semantics changed, should the corpus/world-facts identity change?
 
 Prefer measuring over guessing.
-

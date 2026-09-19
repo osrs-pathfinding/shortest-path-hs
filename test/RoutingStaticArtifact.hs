@@ -62,7 +62,7 @@ checkRealRoundTripAndAttachments = do
         (Map.singleton blocked [local])
         [global]
         (Set.singleton root)
-        Nothing)
+        Nothing Nothing)
   astar <- either (fail . show) pure =<< buildTileAStarWithPolicy (StructuralReachabilityPolicy [root] Set.empty) world
   artifact <- either fail pure (routingStaticV1 astar)
   encoded <- either fail pure (encodeRoutingStaticV1 artifact)
@@ -86,6 +86,7 @@ checkRealRoundTripAndAttachments = do
           Set.empty
           (Just (SeparatorArtifact separatorArtifactVersion (walkingTopologyIdentity crossingWorld)
             (SeparatorConfig 0 0 0 0 "test" 0) [canonicalCut from to]))
+          Nothing
     crossingAstar <- either (fail . show) pure =<< buildTileAStarWithPolicy (StructuralReachabilityPolicy [from] Set.empty) crossingWorld
     crossingArtifact <- either fail pure (routingStaticV1 crossingAstar)
     crossingEncoded <- either fail pure (encodeRoutingStaticV1 crossingArtifact)

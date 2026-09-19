@@ -151,10 +151,14 @@ cost 1.
 Thus separators change the routing-component partition without changing the
 represented shortest-path metric.
 
-The separator artifact is validated against an FNV-based identity of the
-walking topology. A cut is rejected if it is not a real authoritative walking
-edge, if it crosses natural components, or if it does not split routing
-components.
+Separators are generated offline by `separator-artifact` and checked in as the
+Haskell implementation's `data/routing-separators-v1.json`. The artifact
+records an FNV-based identity of the effective walking graph produced by
+`walkingNeighbors`; runtime recomputes that identity before constructing
+routing components. A mismatch is fatal: routing topology construction refuses
+to continue with stale separators. After the identity check, every cut is also
+validated: its endpoints must exist, it must be a real authoritative walking
+edge, it must cross natural components, and it must split routing components.
 
 ### Point attachments
 

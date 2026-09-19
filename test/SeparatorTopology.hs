@@ -25,7 +25,7 @@ main = do
   check "narrow separator accepted" (separatorRejection acceptanceConfig 10 10 2 == Nothing)
   check "small child rejected" (separatorRejection acceptanceConfig 4 10 1 /= Nothing)
   check "wide separator rejected" (separatorRejection acceptanceConfig 10 10 3 /= Nothing)
-  let base = World (collisionMap tiles) Map.empty [] Set.empty Nothing
+  let base = World (collisionMap tiles) Map.empty [] Set.empty Nothing Nothing
       identity = walkingTopologyIdentity base
       emptyArtifact = artifact identity []
       cuts = Set.toAscList (Set.fromList
@@ -42,6 +42,7 @@ main = do
   check "serialization" (decoded == splitArtifact)
   unsplit <- build (base {worldSeparatorArtifact = Just emptyArtifact})
   split <- build (base {worldSeparatorArtifact = Just decoded})
+  check "matching topology identity accepted" (separatorTopologyIdentity decoded == identity)
   let unsplitTopology = tileTopology unsplit
       splitTopology = tileTopology split
   check "one natural component" (Vector.length (componentIds (topologyNaturalComponents splitTopology)) == 1)
@@ -58,6 +59,7 @@ main = do
   check "route cost preserved" (routeCost splitRoute == routeCost unsplitRoute)
   check "reference route cost" (routeCost splitRoute == routeCost referenceRoute)
   checkDisconnected identity
+  checkMismatch base identity
   case worldTopologyFromComponents policy base (topologyNaturalComponents splitTopology) of
     Left MissingSeparatorArtifact -> pure ()
     other -> fail ("missing separator artifact accepted: " <> showEither other)
@@ -88,11 +90,30 @@ assertWalkingInvariant topology = mapM_ checkEdge
 checkDisconnected :: String -> IO ()
 checkDisconnected _ = do
   let isolated = packTile 40 40 0
-      base = World (collisionMap ([packTile x 10 0 | x <- [10 .. 12]] <> [isolated])) Map.empty [] Set.empty Nothing
+      base = World (collisionMap ([packTile x 10 0 | x <- [10 .. 12]] <> [isolated])) Map.empty [] Set.empty Nothing Nothing
       world = withEmptySeparatorArtifact base
       policy = StructuralReachabilityPolicy [packTile 10 10 0] Set.empty
   topology <- either (fail . show) pure =<< buildWorldTopologyWithPolicy policy world
   check "disconnected components unchanged" (Vector.length (componentIds (topologyNaturalComponents topology)) == Vector.length (componentIds (topologyRoutingComponents topology)))
+
+checkMismatch :: World -> String -> IO ()
+checkMismatch base identity = do
+  let changed = base
+        { worldCollision = collisionMap (tiles <> [packTile 25 11 0])
+        , worldSeparatorArtifact = Just (SeparatorArtifact separatorArtifactVersion identity (SeparatorConfig 20 2 2 20 "strong" 42) [])
+        }
+  changedComponents <- naturalComponents changed
+  case worldTopologyFromComponents policy changed changedComponents of
+    Left (SeparatorTopologyMismatch stored actual) -> do
+      check "mismatch preserves artifact identity" (stored == identity)
+      check "mismatch reports current identity" (actual == walkingTopologyIdentity changed)
+      check "collision change changes topology identity" (actual /= identity)
+    Left err -> fail ("wrong mismatch error: " <> show err)
+    Right _ -> fail "stale separator artifact was accepted"
+ where
+  policy = StructuralReachabilityPolicy [packTile 11 11 0] Set.empty
+  tiles = [packTile x y 0 | x <- [10 .. 16] <> [18 .. 24], y <- [10 .. 12]]
+    <> [packTile 17 y 0 | y <- [10 .. 12]]
 
 collisionMap :: [Tile] -> CollisionMap
 collisionMap values = CollisionMap (Map.fromList [(region, bytes region) | region <- Set.toList (Set.fromList (map tileRegion values))])

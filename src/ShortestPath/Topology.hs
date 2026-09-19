@@ -8,6 +8,7 @@ module ShortestPath.Topology
   , productionStructuralReachabilityPolicy
   , buildWorldTopology
   , buildWorldTopologyWithPolicy
+  , renderReachabilityError
   , worldTopologyFromComponents
   , naturalComponents
   , walkingTopologyIdentity
@@ -111,7 +112,7 @@ productionStructuralReachabilityPolicy = StructuralReachabilityPolicy
 buildWorldTopology :: World -> IO WorldTopology
 buildWorldTopology world = do
   result <- buildWorldTopologyWithPolicy productionStructuralReachabilityPolicy world
-  either (fail . show) pure result
+  either (fail . renderReachabilityError world) pure result
 
 buildWorldTopologyWithPolicy :: StructuralReachabilityPolicy -> World -> IO (Either ReachabilityError WorldTopology)
 buildWorldTopologyWithPolicy policy world = do
@@ -192,6 +193,28 @@ validateSeparatorArtifact world natural artifact
     | componentOfTile natural a == Nothing = Left (InvalidSeparatorCut cut "endpoint is not a natural walking tile")
     | otherwise = Right ()
   traverse_ f = foldr ((>>) . f) (Right ()) . Set.toList
+
+renderReachabilityError :: World -> ReachabilityError -> String
+renderReachabilityError world (SeparatorTopologyMismatch stored actual) = unlines
+  [ "Routing separator artifact does not match the current walking topology."
+  , ""
+  , "Artifact:"
+  , "  " <> maybe "<unknown>" id (worldSeparatorArtifactPath world)
+  , ""
+  , "Artifact topology identity:"
+  , "  " <> stored
+  , ""
+  , "Current topology identity:"
+  , "  " <> actual
+  , ""
+  , "The collision data or walking topology has changed."
+  , "Refusing to construct routing topology with stale separators."
+  , ""
+  , "Regenerate with:"
+  , ""
+  , "  cabal run separator-artifact -- generate data/routing-separators-v1.json 20000 500 32 40 42"
+  ]
+renderReachabilityError _ err = show err
 
 walkingTopologyIdentity :: World -> String
 walkingTopologyIdentity world = "fnv1a64:" <> pad (showHex digest "")

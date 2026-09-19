@@ -130,16 +130,16 @@ checkWildernessGlobals = do
   restricted = globalAt "WILD_30" restrictedTarget 1 30 Nothing
   exit = local "WILD_EXIT" deep outside 3
   world = withEmptySeparatorArtifact (World (collisionMap (ordinaryTarget : restrictedTarget : corridor))
-    (Map.singleton deep [exit]) [ordinary, restricted] Set.empty Nothing)
+    (Map.singleton deep [exit]) [ordinary, restricted] Set.empty Nothing Nothing)
   competingWorld = withEmptySeparatorArtifact (World
     (collisionMap [deep, cheapStage, cheapOutside, ordinaryTarget])
     (Map.fromList
       [ (deep, [local "EXPENSIVE_EXIT" deep outside 10, local "CHEAP_STAGE" deep cheapStage 2])
       , (cheapStage, [local "CHEAP_EXIT" cheapStage cheapOutside 1])
-      ]) [ordinary] Set.empty Nothing)
+      ]) [ordinary] Set.empty Nothing Nothing)
   bankWorld = withEmptySeparatorArtifact (World (collisionMap (ordinaryTarget : corridor)) Map.empty
     [globalAt "BANK_WILD_20" ordinaryTarget 1 20 (Just (ItemOne (ItemTerm "999" [999] 1)))]
-    (Set.singleton deep) Nothing)
+    (Set.singleton deep) Nothing Nothing)
   isWalk (Walk _) = True
   isWalk _ = False
 
@@ -219,7 +219,7 @@ checkBankGlobalHub = do
   teleportB = global "GLOBAL_B" destinationB 5 bankItem
   world = withEmptySeparatorArtifact
     (World (collisionMap [bankA, bankB, destinationA, destinationB]) Map.empty
-      [teleportA7, teleportA3, teleportB] (Set.fromList [bankA, bankB]) Nothing)
+      [teleportA7, teleportA3, teleportB] (Set.fromList [bankA, bankB]) Nothing Nothing)
   enabledQuery = (defaultQuery bankA destinationA)
     { enabledTransportTypes = Set.fromList ["GLOBAL_A_SLOW", "GLOBAL_A_FAST", "GLOBAL_B"]
     , bankPathEnabled = True
@@ -315,7 +315,7 @@ checkManhattanGeneratorProvenance = do
 
   checkOneEntry = do
     astar <- mustRight =<< buildTileAStarWithPolicy policy
-      (withEmptySeparatorArtifact (World (collisionMap componentTiles) Map.empty [] (Set.fromList [a, b, c, d]) Nothing))
+      (withEmptySeparatorArtifact (World (collisionMap componentTiles) Map.empty [] (Set.fromList [a, b, c, d]) Nothing Nothing))
     heuristic <- prepareManhattan astar (walkingQuery d a)
     let cid = componentId astar a
     assert (steinerCount astar > 0)
@@ -336,7 +336,7 @@ checkManhattanGeneratorProvenance = do
           [ (a, [local "GENERATOR_LEFT" a target 1])
           , (d, [local "GENERATOR_RIGHT" d target 1])
           ]
-        world = withEmptySeparatorArtifact (World (collisionMap (target : componentTiles)) transports [] (Set.fromList [b, midpoint, c]) Nothing)
+        world = withEmptySeparatorArtifact (World (collisionMap (target : componentTiles)) transports [] (Set.fromList [b, midpoint, c]) Nothing Nothing)
         routeQuery = query a target (Set.fromList ["GENERATOR_LEFT", "GENERATOR_RIGHT"]) False
     astar <- mustRight =<< buildTileAStarWithPolicy policy world
     heuristic <- prepareManhattan astar routeQuery
@@ -399,7 +399,7 @@ checkMultiplePointAttachments = do
       dead = packTile 20 20 0
       bridge = local "SYNTHETIC_SHARED_POINT" point dead 1
       shared = local "SYNTHETIC_SHARED_POINT_2" point left 1
-      world = withEmptySeparatorArtifact (World (collisionMap [left, right]) (Map.singleton point [bridge, shared]) [] Set.empty Nothing)
+      world = withEmptySeparatorArtifact (World (collisionMap [left, right]) (Map.singleton point [bridge, shared]) [] Set.empty Nothing Nothing)
       routeQuery = query left right (Set.singleton "SYNTHETIC_SHARED_POINT") False
   tileAStar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy left) world
   let reference = ReferenceDijkstra (tileTopology tileAStar)
@@ -543,7 +543,7 @@ mustRight = either (fail . show) pure
 
 synthetic :: (World, Tiles)
 synthetic =
-  ( withEmptySeparatorArtifact (World (CollisionMap (Map.singleton (1, 1) collisionBytes)) transports globals banks Nothing)
+  ( withEmptySeparatorArtifact (World (CollisionMap (Map.singleton (1, 1) collisionBytes)) transports globals banks Nothing Nothing)
   , Tiles a0 a1 a3 a8 a25 b1 c0 d0 d1 e0 s0 s2 unknown xSite ySite
   )
  where
@@ -722,7 +722,7 @@ checkPohTopology = do
       exitA = localWithDisplay "TELEPORTATION_PORTAL_POH" high (packTile 110 110 0) 4 "Portal A"
       exitB = localWithDisplay "TELEPORTATION_PORTAL_POH" high (packTile 120 120 0) 4 "Portal B"
       world = withEmptySeparatorArtifact (World (collisionMap [packTile 100 100 0, packTile 110 110 0, packTile 120 120 0])
-        (Map.fromList [(packTile 100 100 0, [ingress]), (high, [exitA, exitB])]) [] Set.empty Nothing)
+        (Map.fromList [(packTile 100 100 0, [ingress]), (high, [exitA, exitB])]) [] Set.empty Nothing Nothing)
       account portal = emptyAccountState
         { accountPoh = (accountPoh emptyAccountState) {pohPortalDestinations = SelectedPohPortals (Set.singleton portal)} }
       queryFor portal target = (defaultQuery (packTile 100 100 0) target)
@@ -790,7 +790,7 @@ checkPohCapabilityGates = do
     == Unavailable [MissingCapability "Fairy rings are not unlocked"])
   let pohFairy = transport "FAIRY_RING" pohLanding outsideB
       world = withEmptySeparatorArtifact (World (collisionMap [pohLanding, outsideB])
-        (Map.singleton pohLanding [pohFairy]) [] Set.empty Nothing)
+        (Map.singleton pohLanding [pohFairy]) [] Set.empty Nothing Nothing)
   astar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy pohLanding) world
   let route profile = findRouteTileAStar astar ((defaultQuery pohLanding outsideB)
         { enabledTransportTypes = Set.singleton "FAIRY_RING"
