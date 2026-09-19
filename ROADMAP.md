@@ -118,45 +118,7 @@ Performance comparisons should distinguish machine/testbed effects and implement
 The benchmark corpus is therefore also the migration path away from Haskell: it allows future implementations to be validated against the semantics developed here without relying on the Haskell code itself.
 
 
-## Near term
-
-### Correctness
-
-Make the full benchmark corpus correct before further serious optimisation.
-
-* Run all ~3,000 cases against the trusted/reference solver.
-* Classify failures:
-
-  * wrong path cost
-  * false unreachable
-  * false reachable
-  * transport/requirement mismatch
-  * lifecycle/state modelling bug
-  * endpoint/component bug
-  * world-data/model bug
-* Fix semantic classes of failures rather than individual benchmark cases.
-* Treat correctness as a gate for performance comparison.
-
-### Requirement and account fidelity
-
-Finish making transport availability match realistic OSRS account state.
-
-Important areas:
-
-* skills
-* quests
-* diaries
-* inventory
-* equipment
-* bank contents
-* spellbook/runtime state
-* POH facilities
-* permanent transport unlocks
-* relevant varbits/varplayers
-
-Maintain one authoritative requirement evaluator shared by all routing implementations.
-
-Keep account-static requirement handling out of the hot search loop where possible.
+## Medium-term
 
 ### World-model completeness
 
@@ -165,58 +127,6 @@ Use `out/world-facts.duckdb` as an inspection tool to find places which should b
 Keep this separate from benchmark eligibility.
 
 The broad place catalogue should continue to contain currently unsupported locations, including future Sailing destinations.
-
-## Medium term
-
-### Evidence-driven optimisation
-
-Once correctness is stable:
-
-* establish stable benchmark baselines;
-* compare changes across the full corpus;
-* use Grafana to inspect:
-
-  * candidate vs baseline scatter
-  * ranked regressions
-  * distributions
-  * profile/category breakdowns
-  * individual benchmark history;
-* use states expanded and related counters alongside wall time;
-* optimise based on broad evidence rather than individual example routes.
-
-Likely areas include:
-
-* heuristic setup cost
-* reverse relaxed search
-* tile-search hot-loop representation
-* transport preparation
-* PQ behaviour
-* account-specific transport filtering
-
-### KaHIP component partitioning
-
-Future experiment: explore using KaHIP to partition the natural-component/transport graph into
-decent-sized regions separated by small cuts. The purpose is to find useful
-boundaries for hierarchical search and preprocessing, not to change routing
-semantics.
-
-Prototype this offline from `out/world-facts.duckdb` and measure:
-
-* region balance and cut size;
-* the number and cost of transport edges crossing each cut;
-* whether common benchmark endpoints are distributed usefully;
-* setup cost, expanded states, and route cost with the resulting hierarchy.
-
-Try node and edge weights which reflect component size, transport frequency,
-and transport cost. Reject partitions which create tiny or transport-heavy
-regions, and retain reference Dijkstra as the correctness oracle
-until a decomposition proves useful across the corpus.
-
-### Wilderness semantics
-
-Model Wilderness teleport restrictions accurately.
-
-Prefer treating global-teleport availability as a spatial/source-side access problem rather than introducing unnecessary persistent search-state dimensions.
 
 ### Hub and lifecycle modelling
 
