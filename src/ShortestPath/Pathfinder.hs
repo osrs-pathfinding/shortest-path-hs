@@ -168,7 +168,7 @@ prepareRoutingTransports world options =
 preparedLocalTransportsAt :: QueryTransportAvailability -> Bool -> Tile -> [Transport]
 {-# INLINE preparedLocalTransportsAt #-}
 preparedLocalTransportsAt availability banked tile =
-  filter ((/= "VIRTUAL_WALL") . transportType) $ Map.findWithDefault [] tile
+  Map.findWithDefault [] tile
     (if banked then bankedLocalTransports availability else carriedLocalTransports availability)
 
 preparedGlobalTransports :: QueryTransportAvailability -> Bool -> [Transport]

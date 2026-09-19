@@ -810,7 +810,7 @@ concreteCost world q = snd . foldl step (queryStart q, 0)
     case routeStep of
       Walk next
         | next == current -> (next, total)
-        | next `elem` walkingNeighborsRaw world current -> (next, total + 1)
+        | next `elem` walkingNeighbors world current -> (next, total + 1)
         | otherwise -> error ("illegal reconstructed walk: " <> coordinateText current <> " -> " <> coordinateText next)
       UseTransport name next ->
         let costs = [duration t | t <- allTransports world, label t == name, destination t == Just next]

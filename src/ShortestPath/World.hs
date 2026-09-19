@@ -1,18 +1,14 @@
 module ShortestPath.World
   ( World(..)
   , CollisionMap(..)
-  , VirtualWall(..)
   , collisionFlag
   , collisionTiles
   , isWalkable
-  , isVirtualWallTile
   , loadWorld
   , loadWorldWithoutSeparators
   , ordinaryWalkingMask
   , ordinaryWalkingNeighborsFromMask
-  , virtualWalls
   , walkingNeighbors
-  , walkingNeighborsRaw
   ) where
 
 import Codec.Archive.Zip
@@ -42,24 +38,6 @@ data CollisionMap = CollisionMap
   }
   deriving stock (Show)
 
-data VirtualWall = VirtualWall
-  { wallName :: String
-  , wallStart :: Tile
-  , wallEnd :: Tile
-  , wallCrossing :: (Tile, Tile)
-  }
-  deriving stock (Eq, Show)
-
-virtualWalls :: [VirtualWall]
-virtualWalls =
-  [ wall "Cathery / White Wolf Mountain" (2854, 3442) (2856, 3440) (2854, 3441) (2855, 3442)
-  , wall "Members gate 1" (2836, 3452) (2836, 3449) (2835, 3451) (2837, 3451)
-  , wall "Members gate 3" (2932, 3320) (2935, 3320) (2933, 3319) (2933, 3321)
-  ]
- where
-  wall name (sx, sy) (ex, ey) (ax, ay) (bx, by) =
-    VirtualWall name (packTile sx sy 0) (packTile ex ey 0) (packTile ax ay 0, packTile bx by 0)
-
 loadWorld :: SourcePaths -> IO World
 loadWorld paths = do
   world <- loadWorldWithoutSeparators paths
@@ -74,42 +52,32 @@ loadWorldWithoutSeparators paths = do
   transports <- loadTransports paths
   banks <- Set.fromList <$> loadBanks paths
   let (globals, locals) = splitGlobals transports
-      walls = concatMap wallTransports virtualWalls
   pure
     World
       { worldCollision = collision
-      , worldTransports = Map.fromListWith (<>) [(o, [t]) | t <- locals <> walls, Just o <- [origin t]]
+      , worldTransports = Map.fromListWith (<>) [(o, [t]) | t <- locals, Just o <- [origin t]]
       , worldGlobalTeleports = globals
       , worldBanks = banks
       , worldSeparatorArtifact = Nothing
       }
 
 walkingNeighbors :: World -> Tile -> [Tile]
-walkingNeighbors = walkingNeighborsMode True
-
-walkingNeighborsRaw :: World -> Tile -> [Tile]
-walkingNeighborsRaw = walkingNeighborsMode False
-
-walkingNeighborsMode :: Bool -> World -> Tile -> [Tile]
-{-# INLINE walkingNeighborsMode #-}
-walkingNeighborsMode useWalls world tile =
+walkingNeighbors world tile =
   let (x, y, p) = unpackTile tile
       adjacent = [(dx, dy, packTile (x + dx) (y + dy) p) | (dx, dy) <- directions]
-      regular = filter allowed (ordinaryWalkingNeighborsFromMask tile (ordinaryWalkingMask cm tile))
+      regular = ordinaryWalkingNeighborsFromMask tile (ordinaryWalkingMask cm tile)
       blockedOrigins =
         [ next
         | (dx, dy, next) <- adjacent
         , abs dx + abs dy == 1
         , not (isWalkable cm next)
         , Map.member next (worldTransports world)
-        , allowed next
         ]
       blockedExits =
         [ next
         | (dx, dy, next) <- adjacent
         , isWalkable cm next
         , abs dx + abs dy == 1 || cardinalOpen x y p dx dy
-        , allowed next
         ]
    in if isWalkable cm tile then regular <> blockedOrigins else blockedExits
  where
@@ -117,9 +85,6 @@ walkingNeighborsMode useWalls world tile =
   directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)]
   cardinalOpen x y p dx dy =
     isWalkable cm (packTile (x + dx) y p) && isWalkable cm (packTile x (y + dy) p)
-  allowed next = not useWalls || (not (isVirtualWallTile next) && not (blocked tile next))
-  blocked a b = Set.member (min a b, max a b) blockedEdges
-  blockedEdges = virtualWallEdgeSet
 
 -- Bits are clockwise: 0 N, 1 NE, 2 E, 3 SE, 4 S, 5 SW, 6 W, 7 NW.
 ordinaryWalkingMask :: CollisionMap -> Tile -> Word8
@@ -165,21 +130,6 @@ isWalkable cm tile =
         , collisionFlag cm (x - 1) y p 1
         ]
 
-isVirtualWallTile :: Tile -> Bool
-isVirtualWallTile tile = tile `Set.member` virtualWallTileSet
-
-virtualWallTileSet :: Set.Set Tile
-virtualWallTileSet = Set.fromList (concatMap wallTiles virtualWalls)
-
-wallTiles :: VirtualWall -> [Tile]
-wallTiles wall
-  | sx == ex = [packTile sx y 0 | y <- [min sy ey .. max sy ey]]
-  | sy == ey = [packTile x sy 0 | x <- [min sx ex .. max sx ex]]
-  | otherwise = [packTile x (sy - (x - sx)) 0 | x <- [min sx ex .. max sx ex]]
- where
-  (sx, sy, _) = unpackTile (wallStart wall)
-  (ex, ey, _) = unpackTile (wallEnd wall)
-
 collisionTiles :: CollisionMap -> [Tile]
 collisionTiles cm =
   [ tile
@@ -217,61 +167,6 @@ splitGlobals = foldr go ([], [])
   go t (gs, ls) = case origin t of
     Nothing -> (t : gs, ls)
     Just _ -> (gs, t : ls)
-
-wallTransports :: VirtualWall -> [Transport]
-wallTransports wall = [make a b, make b a]
- where
-  (a, b) = wallCrossing wall
-  make from to =
-    Transport
-      { transportType = "VIRTUAL_WALL"
-      , origin = Just from
-      , destination = Just to
-      , duration = 1
-      , displayInfo = wallName wall
-      , objectInfo = ""
-      , consumable = False
-      , maxWildernessLevel = Nothing
-      , skills = []
-      , items = Nothing
-      , quests = []
-      , varbits = []
-      , varPlayers = []
-      , source = "virtual-walls"
-      }
-
-wallBlockedEdges :: VirtualWall -> [(Tile, Tile)]
-wallBlockedEdges wall =
-  cardinal <> diagonal
- where
-  (sx, sy, _) = unpackTile (wallStart wall)
-  (ex, ey, _) = unpackTile (wallEnd wall)
-  cardinal
-    | sx == ex =
-        [ (packTile x y 0, packTile (x + dx) y 0)
-        | y <- [min sy ey .. max sy ey]
-        , (x, dx) <- [(sx - 1, 1), (sx, 1)]
-        ]
-    | sy == ey =
-        [ (packTile x y 0, packTile x (y + dy) 0)
-        | x <- [min sx ex .. max sx ex]
-        , (y, dy) <- [(sy - 1, 1), (sy, 1)]
-        ]
-    | otherwise = []
-  diagonal
-    | sx == ex || sy == ey = []
-    | otherwise =
-        [ (packTile x y 0, packTile (x + 1) y 0)
-        | x <- [min sx ex .. max sx ex - 1]
-        , let y = sy - (x - sx)
-        ]
-          <> [ (packTile x y 0, packTile x (y - 1) 0)
-             | x <- [min sx ex .. max sx ex - 1]
-             , let y = sy - (x - sx)
-             ]
-
-virtualWallEdgeSet :: Set.Set (Tile, Tile)
-virtualWallEdgeSet = Set.fromList (concatMap wallBlockedEdges virtualWalls)
 
 parseRegionName :: FilePath -> Maybe (Int, Int)
 parseRegionName name =

@@ -70,7 +70,7 @@ checkRealRoundTripAndAttachments = do
   assert (decoded == artifact) "real artifact round trip differs"
   assert (Vector.length (artifactReachableBankTiles decoded) == 1) "reachable bank was not exported"
   let endpoints = [blocked, destination, globalDestination]
-      actual point = routingStaticPointAttachments decoded (walkingNeighborsRaw (topologyWorld (tileTopology astar))) point
+      actual point = routingStaticPointAttachments decoded (walkingNeighbors (topologyWorld (tileTopology astar))) point
       expected point = routingPointAttachments (tileTopology astar) point
       sites = map (Tile . fromIntegral) (Vector.toList (artifactSiteTiles decoded))
   mapM_ (\point -> assert (actual point == expected point) ("attachment mismatch at " <> coordinateText point)) (endpoints <> sites)
@@ -94,7 +94,7 @@ checkRealRoundTripAndAttachments = do
     let fromSite = fromIntegral (artifactCrossingFromSite crossingDecoded Vector.! 0)
         toSite = fromIntegral (artifactCrossingToSite crossingDecoded Vector.! 0)
         siteTiles = artifactSiteTiles crossingDecoded
-        actual point = routingStaticPointAttachments crossingDecoded (walkingNeighborsRaw (topologyWorld (tileTopology crossingAstar))) point
+        actual point = routingStaticPointAttachments crossingDecoded (walkingNeighbors (topologyWorld (tileTopology crossingAstar))) point
         expected point = routingPointAttachments (tileTopology crossingAstar) point
     assert (siteTiles Vector.! fromSite == fromIntegral (unTile from)) "separator source site was remapped"
     assert (siteTiles Vector.! toSite == fromIntegral (unTile to)) "separator destination site was remapped"

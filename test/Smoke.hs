@@ -31,8 +31,6 @@ main = do
   profileChecks
   semanticProfileChecks
   assert (parseTileField "3221 3218 0" == Just (packTile 3221 3218 0))
-  assert (length virtualWalls == 3)
-  assert (isVirtualWallTile (packTile 2836 3451 0))
 
 assert :: Bool -> IO ()
 assert True = pure ()
@@ -351,37 +349,15 @@ semanticProfileChecks = do
         ]
       walkingSamples = take 4096 (collisionTiles (worldCollision world)) <> transportSites
       maskNeighbors tile = ordinaryWalkingNeighborsFromMask tile (ordinaryWalkingMask (worldCollision world) tile)
-      ordinaryNeighbors tile = filter (isWalkable (worldCollision world)) (walkingNeighborsRaw world tile)
+      ordinaryNeighbors tile = filter (isWalkable (worldCollision world)) (walkingNeighbors world tile)
   assert (all (\tile -> not (isWalkable (worldCollision world) tile) || maskNeighbors tile == ordinaryNeighbors tile) walkingSamples)
   topology <- buildWorldTopology world
   astar <- buildTileAStarFromTopology topology
   let transportData = concat (Map.elems (worldTransports world)) <> worldGlobalTeleports world
   pohRealChecks astar transportData
-  let wallTiles =
-        [ packTile x y 0
-        | wall <- virtualWalls
-        , let (sx, sy, _) = unpackTile (wallStart wall)
-        , let (ex, ey, _) = unpackTile (wallEnd wall)
-        , x <- [min sx ex - 2 .. max sx ex + 2]
-        , y <- [min sy ey - 2 .. max sy ey + 2]
-        ]
-      rawOnlyWallEdges =
-        [ (from, to)
-        | from <- wallTiles
-        , to <- walkingNeighborsRaw world from
-        , to `notElem` walkingNeighbors world from
-        ]
-      hasWallTransport wall =
-        let (from, to) = wallCrossing wall
-         in any (\transport -> transportType transport == "VIRTUAL_WALL" && destination transport == Just to)
-              (Map.findWithDefault [] from (worldTransports world))
-      prepared = prepareQueryTransports world (defaultQuery (packTile 0 0 0) (packTile 0 0 0))
-      route = findRouteReferenceDijkstra (ReferenceDijkstra topology)
+  let route = findRouteReferenceDijkstra (ReferenceDijkstra topology)
         (defaultQuery (packTile 3280 3412 0) (packTile 1700 3141 0))
           { requirementMode = ConfiguredRequirements early }
-  assert (not (null rawOnlyWallEdges))
-  assert (all hasWallTransport virtualWalls)
-  assert (all (all ((/= "VIRTUAL_WALL") . transportType) . preparedLocalTransportsAt prepared False . fst . wallCrossing) virtualWalls)
   assert (routeCost route < maxBound)
 pohRealChecks :: TileAStar -> [Transport] -> IO ()
 pohRealChecks astar transports = do

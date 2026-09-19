@@ -137,13 +137,13 @@ current best cost for that state.
 
 ### Natural components
 
-`topologyNaturalComponents` partitions the raw walking graph produced by
-`walkingNeighborsRaw`. Natural-component IDs are stable with respect to the
+`topologyNaturalComponents` partitions the authoritative walking graph produced
+by `walkingNeighbors`. Natural-component IDs are stable with respect to the
 separator optimisation and are used by structural reachability.
 
 ### Routing components and separators
 
-`topologyRoutingComponents` starts from the same raw walking graph but removes
+`topologyRoutingComponents` starts from the same walking graph but removes
 the offline separator-cut adjacencies during flood fill. Each removed walking
 adjacency is reintroduced explicitly as a bidirectional `RoutingCrossing` of
 cost 1.
@@ -151,9 +151,10 @@ cost 1.
 Thus separators change the routing-component partition without changing the
 represented shortest-path metric.
 
-The separator artifact is validated against an FNV-based identity of the raw
-walking topology. A cut is rejected if it is not a real raw walking edge, if it
-crosses natural components, or if it does not split routing components.
+The separator artifact is validated against an FNV-based identity of the
+walking topology. A cut is rejected if it is not a real authoritative walking
+edge, if it crosses natural components, or if it does not split routing
+components.
 
 ### Point attachments
 
@@ -172,19 +173,11 @@ if transports connect to it. This is required for pure transport chains.
 Structural reachability is distinct from routing-component partitioning.
 Production reachability starts from the explicit Lumbridge seed and closes over
 allowed transport connectivity and global-teleport destinations while ignoring
-configured structural-only exclusions such as `VIRTUAL_WALL` and seasonal
-transports.
+configured structural-only exclusions such as seasonal transports.
 
 Search-tile storage is built only for routing tiles whose containing natural
 component is structurally reachable. This filtering does not renumber natural
 or routing component IDs.
-
-## Virtual walls
-
-`VIRTUAL_WALL` records belong to the older wall-aware topology model. Maintained
-routing uses `walkingNeighborsRaw`; virtual-wall records are therefore not
-legal transport relaxations in either maintained solver and are excluded from
-structural reachability.
 
 ## Static Tile A* preprocessing
 
@@ -727,9 +720,9 @@ For ordinary base tiles, walking neighbours are expanded using the precomputed
 walking mask and dense north/south node indices. This avoids repeated packed
 coordinate -> node map lookups for normal movement.
 
-Blocked/non-base query extras use authoritative `walkingNeighborsRaw` at
-runtime. A blocked tile can be entered when it is a usable local-transport
-origin, preserving transport endpoint semantics.
+Blocked/non-base query extras use authoritative `walkingNeighbors` at runtime. A
+blocked tile can be entered when it is a usable local-transport origin,
+preserving transport endpoint semantics.
 
 Every normal walk has cost 1.
 
@@ -748,8 +741,6 @@ Transport cost is:
 ```text
 duration + account/configured transport-type penalty
 ```
-
-`VIRTUAL_WALL` is never relaxed as a transport.
 
 A neighbour is only committed when the new `g` is strictly lower than the
 stored best cost and its heuristic is finite.
@@ -845,7 +836,7 @@ queue/search counts, heuristic scan counts, and reverse-search metrics.
 
 The following are semantic/correctness requirements:
 
-* authoritative raw walking connectivity;
+* authoritative walking connectivity;
 * separator crossings preserving removed walking edges exactly;
 * all valid endpoint attachments;
 * account-filtered transport availability and penalties;
@@ -942,4 +933,3 @@ with Haskell is established:
     synthetic cases and corpus route costs against the Haskell implementation
     and/or `ReferenceDijkstra`. Optimise representations only after semantic
     parity is established.
-

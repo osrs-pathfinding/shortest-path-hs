@@ -31,7 +31,7 @@ main = do
       cuts = Set.toAscList (Set.fromList
         [ canonicalCut from to
         | from <- collisionTiles (worldCollision base)
-        , to <- walkingNeighborsRaw base from
+        , to <- walkingNeighbors base from
         , let (fx, _, _) = unpackTile from
         , let (tx, _, _) = unpackTile to
         , fx <= 17
@@ -75,7 +75,7 @@ assertWalkingInvariant :: WorldTopology -> IO ()
 assertWalkingInvariant topology = mapM_ checkEdge
   [ (from, to)
   | from <- collisionTiles (worldCollision (topologyWorld topology))
-  , to <- walkingNeighborsRaw (topologyWorld topology) from
+  , to <- walkingNeighbors (topologyWorld topology) from
   , from < to
   ]
  where

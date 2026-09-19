@@ -151,12 +151,12 @@ Also, `sparseOriginalCount == siteCount` and
 ## Runtime attachment semantics
 
 The artifact intentionally omits natural components and collision data. The
-Java plugin already owns raw walking-neighbor calculation. For an arbitrary
-point, reproduce routing attachments as follows:
+Java plugin owns the authoritative walking-neighbor calculation. For an
+arbitrary point, reproduce routing attachments as follows:
 
 1. Unsigned-binary-search the packed point in `searchTiles`. If present,
    return the corresponding `searchComponents` entry.
-2. Otherwise enumerate the plugin's authoritative raw walking neighbors,
+2. Otherwise enumerate the plugin's authoritative walking neighbors,
    unsigned-binary-search each neighbor in `searchTiles`, and collect unique
    corresponding `searchComponents` IDs.
 

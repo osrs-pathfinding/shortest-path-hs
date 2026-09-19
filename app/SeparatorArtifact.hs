@@ -80,7 +80,7 @@ generateArtifact output config = do
   let cuts = Set.toAscList (Set.fromList
         [ canonicalCut (Tile from) to
         | (from, fromRegion) <- IntMap.toAscList assignments
-        , to <- walkingNeighborsRaw world (Tile from)
+        , to <- walkingNeighbors world (Tile from)
         , from < unTile to
         , Just toRegion <- [IntMap.lookup (unTile to) assignments]
         , fromRegion /= toRegion
@@ -143,7 +143,7 @@ readParts path expected = do
 writeGraph :: World -> [Int] -> FilePath -> IO ()
 writeGraph world tiles path = withFile path WriteMode $ \handle -> do
   let ids = IntMap.fromList (zip tiles [1 :: Int ..])
-      neighbours packed = [vertex | tile <- walkingNeighborsRaw world (Tile packed), Just vertex <- [IntMap.lookup (unTile tile) ids]]
+      neighbours packed = [vertex | tile <- walkingNeighbors world (Tile packed), Just vertex <- [IntMap.lookup (unTile tile) ids]]
       edgeCount = sum (map (length . neighbours) tiles) `div` 2
   hPutStrLn handle (show (length tiles) <> " " <> show edgeCount)
   forM_ tiles (hPutStrLn handle . unwords . map show . neighbours)

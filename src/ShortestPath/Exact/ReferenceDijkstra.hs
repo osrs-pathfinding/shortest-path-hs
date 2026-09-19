@@ -54,7 +54,7 @@ findRouteReferenceDijkstra (ReferenceDijkstra topology) q = search (Set.singleto
      where
       walk =
         [ (TileState t banked, 1, Just (Walk t))
-        | t <- walkingNeighborsRaw world tile
+        | t <- walkingNeighbors world tile
         , isWalkable (worldCollision world) t || usableOrigin banked t
         ]
       bank =

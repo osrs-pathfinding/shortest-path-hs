@@ -211,13 +211,12 @@ search trace astar@(TileAStar topology static) account prepared start options = 
           relaxNode
         forM_ cardinalNeighbors $ \nextTile ->
           when (usableOrigin banked nextTile && not (isWalkable (worldCollision world) nextTile)) (relaxWalk nextTile)
-      else forM_ (walkingNeighborsRaw world tile) $ \nextTile ->
+      else forM_ (walkingNeighbors world tile) $ \nextTile ->
         when (isWalkable (worldCollision world) nextTile || usableOrigin banked nextTile) (relaxWalk nextTile)
     when (compiledBankTransitionAvailable banked tile) $
       relaxEdge restricted counters best prevState prevKind prevLabel queue bestBankRef cost state (state + 1) 0 "" transportEdge
     when (compiledAllowTransports account) $
-      forM_ (localTransports banked tile) $ \transport ->
-        when (transportType transport /= "VIRTUAL_WALL") (relaxTransport banked transport)
+      forM_ (localTransports banked tile) (relaxTransport banked)
     when (not restricted && compiledAllowTransports account && compiledBankTransitionAvailable banked tile && not dominatedBankGlobal) $
       forM_ (preparedGlobalTransports availability True) (relaxTransport True)
    where
@@ -368,7 +367,7 @@ search trace astar@(TileAStar topology static) account prepared start options = 
     banked = stateBanked state
     dominatedBankGlobal = not banked && cost > bestBank
 
-  usableOrigin banked tile = compiledAllowTransports account && any ((/= "VIRTUAL_WALL") . transportType) (localTransports banked tile)
+  usableOrigin banked tile = compiledAllowTransports account && not (null (localTransports banked tile))
 
   compiledBankTransitionAvailable banked tile = compiledBankPathEnabled account && not banked && Set.member tile reachableBanks
 

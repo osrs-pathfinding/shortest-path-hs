@@ -106,7 +106,7 @@ data RoutingCrossing = RoutingCrossing
 productionStructuralReachabilityPolicy :: StructuralReachabilityPolicy
 productionStructuralReachabilityPolicy = StructuralReachabilityPolicy
   [packTile 3221 3218 0]
-  (Set.fromList ["VIRTUAL_WALL", "SEASONAL_TRANSPORTS"])
+  (Set.singleton "SEASONAL_TRANSPORTS")
 
 buildWorldTopology :: World -> IO WorldTopology
 buildWorldTopology world = do
@@ -187,7 +187,7 @@ validateSeparatorArtifact world natural artifact
   cuts = Set.fromList (separatorCuts artifact)
   validate cut@(SeparatorCut a b)
     | a == b = Left (InvalidSeparatorCut cut "self edge")
-    | b `notElem` walkingNeighborsRaw world a = Left (InvalidSeparatorCut cut "not an authoritative walking edge")
+    | b `notElem` walkingNeighbors world a = Left (InvalidSeparatorCut cut "not an authoritative walking edge")
     | componentOfTile natural a /= componentOfTile natural b = Left (InvalidSeparatorCut cut "crosses natural components")
     | componentOfTile natural a == Nothing = Left (InvalidSeparatorCut cut "endpoint is not a natural walking tile")
     | otherwise = Right ()
@@ -197,7 +197,7 @@ walkingTopologyIdentity :: World -> String
 walkingTopologyIdentity world = "fnv1a64:" <> pad (showHex digest "")
  where
   walkable = IntSet.fromList (map unTile (collisionTiles (worldCollision world)))
-  rows = [(tile, sort [unTile next | next <- walkingNeighborsRaw world (Tile tile), IntSet.member (unTile next) walkable]) | tile <- IntSet.toAscList walkable]
+  rows = [(tile, sort [unTile next | next <- walkingNeighbors world (Tile tile), IntSet.member (unTile next) walkable]) | tile <- IntSet.toAscList walkable]
   digest = foldl' hashInt offset (concatMap (\(tile, neighbours) -> tile : (-1) : neighbours <> [-2]) rows)
   offset = 14695981039346656037 :: Word64
   prime = 1099511628211 :: Word64
@@ -241,7 +241,7 @@ componentsAvoiding world blocked = runST $ do
     | otherwise = do
         packed <- Mutable.read queue readIx
         let from = Tile packed
-            next = [unTile tile | tile <- walkingNeighborsRaw world from, IntSet.member (unTile tile) remaining, not (blocked from tile)]
+            next = [unTile tile | tile <- walkingNeighbors world from, IntSet.member (unTile tile) remaining, not (blocked from tile)]
             remaining' = foldr IntSet.delete remaining next
             owner' = foldr (`IntMap.insert` cid) owner next
         forM_ (zip [writeIx ..] next) (uncurry (Mutable.write queue))
@@ -260,7 +260,7 @@ pointAttachmentDetails topology point =
     Just cid -> [(point, cid)]
     Nothing -> IntMap.elems (IntMap.fromList
       [ (cid, (tile, cid))
-      | tile <- walkingNeighborsRaw world point
+      | tile <- walkingNeighbors world point
       , Just cid <- [componentOfTile components tile]
       ])
  where
