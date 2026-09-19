@@ -3,7 +3,6 @@
 pkgs.mkShell {
   packages = [
     pkgs.duckdb
-    pkgs.jdk11
     pkgs.nodejs
     pkgs.jq
     pkgs.kahip
