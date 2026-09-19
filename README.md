@@ -1,217 +1,504 @@
 # shortest-path-model
 
-An exact, account-aware Old School RuneScape pathfinder. The maintained solver
-is direct Tile A*; `ReferenceDijkstra` is the deliberately simple correctness
-oracle.
+`shortest-path-model` is the Haskell implementation and semantic model for exact,
+account-aware Old School RuneScape routing.
 
-> Partition artifact configuration: maximum component size `20000`, minimum
-> child size `500`, maximum separator size `32`, imbalance `40`, random seed
-> `42`.
+The maintained production solver is `TileAStar`; `ReferenceDijkstra` is the
+deliberately simple independent correctness oracle. The repository also exposes
+a small set of executables for benchmarking, routing-artifact generation,
+separator generation, world inspection, and benchmark-account inspection.
 
-## Requirements
+For the algorithm and semantic details, see:
 
-Enter `nix-shell` for the pinned development tools. Runtime world data is read
-from the sibling `../shortest-path` checkout, and benchmarks use the sibling
-`../shortest-path-corpus` checkout. Override the corpus location with
-`SHORTEST_PATH_CORPUS_DIR`.
+* [`ALGORITHM.md`](ALGORITHM.md) — Tile A*, relaxed reverse search, banking,
+  Wilderness/global-teleport handling, separators, and correctness invariants.
+* [`SEMANTIC_MODEL.md`](SEMANTIC_MODEL.md) — account and transport requirement
+  semantics.
+* [`docs/routing-static-format-v1.md`](docs/routing-static-format-v1.md) —
+  exported static routing-artifact format.
 
-## Repository boundaries
+## What this repository exposes
 
-`src/` is the reusable routing/model library and `app/` contains supported
-implementation executables such as `route-bench` and routing-artifact
-preprocessing. `tools/` contains offline model-aware maintenance tooling:
-world facts, corpus endpoint maintenance, and account-profile generation.
+The repository has three distinct surfaces:
 
-Canonical routes and exported profiles belong to the sibling
-[`shortest-path-corpus`](../shortest-path-corpus) data repository. Benchmark
-campaigns/analysis and the interactive viewer belong to
-[`shortest-path-benchmarks`](../shortest-path-benchmarks) and
-[`shortest-path-viewer`](../shortest-path-viewer).
+| Surface                             | Purpose                                                                                    |
+| ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| Haskell library under `src/`        | Construct worlds, account-aware routing queries, and exact routes                          |
+| Executables under `app/` / `tools/` | Benchmarking and offline model/artifact tooling                                            |
+| Tests                               | Cross-check Tile A* against the independent Dijkstra oracle and exercise routing semantics |
 
-Corpus maintenance defaults to the sibling corpus. `refine-corpus.js` also
-accepts `GPS_PLUGIN_DIR`, `QUEST_HELPER_DIR`, and `SHORTEST_PATH_DIR` when those
-source checkouts are not at their default sibling locations.
+The main routing modules are:
 
-## World facts inspector
-
-Generate the disposable DuckDB inspector database from the authoritative Haskell world model:
-
-```sh
-nix-shell --run 'cabal run world-facts'
+```text
+ShortestPath.Tile
+ShortestPath.Account
+ShortestPath.Pathfinder
+ShortestPath.World
+ShortestPath.Topology
+ShortestPath.Exact.TileAStar
+ShortestPath.Exact.ReferenceDijkstra
 ```
 
-This writes `out/world-facts.duckdb`, containing `metadata`, natural `components`,
-`routing_components`, `separator_crossings`, `tiles`, `point_access`, `places`,
-and the derived `place_facts` view. One point
-may have zero, one, or several `point_access` rows/components; these attachments
-and structural-reachability flags come directly from `ShortestPath.Topology`.
-Query it directly with `duckdb out/world-facts.duckdb`. Set `WORLD_FACTS_DB` to
-write somewhere else.
+`ShortestPath.Exact.TileAStar` is the main routing facade.
 
-## Offline routing separators
+## World data
 
-The distributed `routing-separators-v1.json` is generated offline with KaHIP:
+The model does not carry a second copy of the RuneLite pathfinding resource
+data. By default it reads the sibling `shortest-path` checkout:
 
-```sh
-nix-shell --run 'cabal run separator-artifact -- generate ../shortest-path/src/main/resources/routing-separators-v1.json 20000 500 32 40 42'
+```text
+../shortest-path/src/main/resources/
 ```
 
-Each KaHIP vertex is one collision-walkable tile. Each undirected graph edge is
-one legal adjacency returned by `walkingNeighborsRaw` whose other endpoint is
-in the same natural component. Oversized natural components are partitioned
-independently with `node_separator --preconfiguration=strong`; the portable
-JSON stores only canonical cut tile pairs, the walking-topology identity, the
-settings, and the format version. Only structurally reachable natural
-components above the size threshold are candidates. The threshold triggers an
-attempt rather than requiring a split: branches remain intact when either
-child is below 500 tiles or the separator exceeds 32 tiles. Generation metrics
-and the attempted component IDs/sizes are written beside the artifact as
-`.diagnostics.json`. Runtime never invokes KaHIP and rejects a missing,
-mismatched, or invalid artifact.
+In particular, `defaultSourcePaths` refers to:
 
-## Route benchmarks
-
-Campaign orchestration, result importing, ClickHouse analysis, Grafana
-resources, and profiling scripts live in the sibling
-[`shortest-path-benchmarks`](../shortest-path-benchmarks) repository.
-`route-bench` remains here with the implementation it measures.
-
-`route-bench` is the canonical local runner. It runs in-process (so it does not
-measure viewer or HTTP overhead), applies all four account profiles, and writes
-one JSON object per route/profile/repetition to a JSONL file.
-
-The sibling v1 corpus contains 726 fixed routes and 2,904 route/profile
-cases: 2,811 positive and 87 expected-unreachable negatives. It includes GPS, quest, clue, walking,
-transport, Wilderness, geographic, and regression cases.
-The 26 unresolved all-profile failures live in
-`../shortest-path-corpus/corpus/excluded-routes-v1.json` and are not executed. Every result
-records its corpus `expectation` separately from observed and oracle reachability.
-
-Regenerate the natural-route selection from the sibling `runelite-gps-plugin`,
-`quest-helper`, and `shortest-path` clones, then inspect its endpoint-diversity
-report:
-
-```sh
-nix-shell --run 'node tools/corpus-maintenance/refine-corpus.js'
-node ../shortest-path-corpus/tools/validate.js
+```text
+../shortest-path/src/main/resources/collision-map.zip
+../shortest-path/src/main/resources/destinations/game_features/bank.tsv
+../shortest-path/src/main/resources/routing-separators-v1.json
+../shortest-path/src/main/resources/transports/*.tsv
 ```
 
-### Validate and smoke-test the v1 corpus
+A typical development checkout is therefore:
 
-Validate the route schema first:
-
-```sh
-node ../shortest-path-corpus/tools/validate.js
+```text
+parent/
+  shortest-path/
+  shortest-path-model/
+  shortest-path-corpus/
 ```
 
-Generate a smoke-tier exact oracle and run the smoke benchmark. Temporary paths
-keep generated benchmark data out of the corpus commit:
+The benchmark/account tooling also uses the sibling
+`../shortest-path-corpus` checkout. Set `SHORTEST_PATH_CORPUS_DIR` to override
+that location.
 
-```sh
-nix-shell --run 'cabal run route-bench -- --corpus-dir ../shortest-path-corpus --tier smoke --oracle /tmp/route-bench-smoke-oracle.json --write-oracle --jobs 4'
-nix-shell --run 'cabal run route-bench -- --corpus-dir ../shortest-path-corpus --tier smoke --oracle /tmp/route-bench-smoke-oracle.json --output /tmp/route-benchmark-smoke.jsonl --runs 3'
+## Routing API: “what is the route between these two points?”
+
+A route query is represented by `ShortestPath.Pathfinder.Query`.
+
+Coordinates are OSRS `(x, y, plane)` coordinates packed with `packTile`:
+
+```haskell
+start  = packTile 3221 3218 0
+target = packTile 3000 3000 0
 ```
 
-### Run standard or full
+The simplest exact query uses `defaultQuery`:
 
-For a serious comparison, generate the exact oracle after any collision,
-transport, requirement, or cost-semantics change. It uses reference Dijkstra and the
-full corpus can be slow:
+```haskell
+import ShortestPath.Exact.TileAStar
+import ShortestPath.Pathfinder
+import ShortestPath.Tile
+import ShortestPath.Transport
+import ShortestPath.World
 
-```sh
-nix-shell --run 'cabal run route-bench -- --write-oracle --jobs 4'
-nix-shell --run 'cabal run route-bench -- --tier standard --runs 5'
-nix-shell --run 'cabal run route-bench -- --tier full --runs 3'
+main :: IO ()
+main = do
+  world <- loadWorld defaultSourcePaths
+  astar <- buildTileAStar world
+
+  let start = packTile 3221 3218 0
+      target = packTile 3000 3000 0
+      query = defaultQuery start target
+
+  (route, _timings) <- findRouteProfiledTileAStar astar query
+
+  print (routeCost route)
+  mapM_ print (routeSteps route)
 ```
 
-Normal runs validate every result against the oracle and write
-`out/route-benchmark.jsonl`. `--diagnostic` additionally runs reference Dijkstra for
-investigation; do not use its timings for performance comparisons.
+`Route` contains:
 
-### Report performance
+```haskell
+data Route = Route
+  { routeCost :: Int
+  , routeExpandedNodes :: Int
+  , routeSteps :: [RouteStep]
+  }
 
-```sh
-node ../shortest-path-benchmarks/scripts/report.js out/route-benchmark.jsonl out/route-benchmark-bencher.json
-bencher run --adapter json --file out/route-benchmark-bencher.json
+data RouteStep
+  = Walk Tile
+  | UseTransport String Tile
 ```
 
-The exporter tracks positive-corpus p50/p95/p99 and category p50s, with negative
-search aggregates separately. Bencher owns history and regression detection.
+Every ordinary walking step costs `1`. Transport edges cost their configured
+duration plus any query-specific transport penalty.
 
-### Inspect a route in the viewer
+An unreachable query is represented by:
 
-The interactive viewer now lives in the sibling
-[`shortest-path-viewer`](../shortest-path-viewer) repository.
-
-The **Test case** menu includes selected corpus routes and latest JSONL results.
-Choose a route (a result restores its account profile), then click **Run route**
-for its detailed path and counters. The viewer explains individual routes; it
-does not provide historical charts.
-
-### Diagnose unreachable routes
-
-Benchmark mismatch and unreachable-route diagnostics live in the sibling
-[`shortest-path-benchmarks`](../shortest-path-benchmarks) repository.
-
-## Current routing-artifact tooling
-
-Build the benchmark executable:
-
-```sh
-nix-shell --run 'cabal build exe:routing-artifact'
+```text
+routeCost  = maxBound
+routeSteps = []
 ```
 
-Warm or rebuild the tile-A* static cache, including natural walking components and the sparse Manhattan walking network:
+### Default query semantics
+
+`defaultQuery start target` means:
+
+* exact search (`heuristicWeight = 1`);
+* transports enabled;
+* all known transport types enabled except `SEASONAL_TRANSPORTS`;
+* no transport penalties;
+* bank-path routing enabled;
+* transport requirements ignored;
+* query time `0`.
+
+Ignoring requirements is useful for topology/algorithm work, but it is not an
+account-specific player route.
+
+For an account-aware route, supply an `AccountState`:
+
+```haskell
+import ShortestPath.Account
+
+let query =
+      (defaultQuery start target)
+        { requirementMode = ConfiguredRequirements account
+        , queryNowMinutes = nowMinutes
+        }
+```
+
+The account controls levels, quests, varbits/varplayers, carried items,
+equipment, rune pouch, bank, diaries, POH state, planted spirit trees, fairy
+rings, spellbook and runtime/cooldown state.
+
+Other query-level controls include:
+
+```haskell
+allowTransports       :: Bool
+enabledTransportTypes :: Set String
+transportPenalties    :: Map String Int
+bankPathEnabled       :: Bool
+heuristicWeight       :: Double
+```
+
+See `ShortestPath.Pathfinder.Query` and `RoutingOptions` for the complete
+interface.
+
+### Reusing prepared state
+
+The one-shot call above is the simplest API. Higher-throughput consumers can
+reuse progressively more work:
+
+```text
+World / WorldTopology / TileAStar
+    long-lived static state
+
+RoutingOptions
+    -> compiled routing account
+    reusable while account/routing configuration is unchanged
+
+target
+    -> PreparedTarget
+    reusable for multiple starts with the same compiled routing account
+
+start
+    -> searchPrepared
+    cheap forward search
+```
+
+The relevant API is exposed through `ShortestPath.Exact.TileAStar`:
+
+```haskell
+compileRoutingAccount
+prepareTarget
+searchPrepared
+```
+
+There are profiled variants for measuring preparation/search phases separately.
+
+## Executables
+
+Build everything with:
+
+```sh
+nix-shell --run 'cabal build all'
+```
+
+The current executable surface is:
+
+```text
+route-bench
+routing-artifact
+separator-artifact
+world-facts
+account-profile
+```
+
+### `route-bench`
+
+`route-bench` is the implementation-local benchmark runner. Benchmark campaign
+orchestration, result history, ClickHouse/Grafana and comparison tooling live in
+the sibling `shortest-path-benchmarks` repository.
+
+Usage:
+
+```text
+route-bench
+  [--corpus-dir DIR]
+  [--corpus PATH]
+  [--oracle PATH]
+  [--output PATH]
+  [--runs N]
+  [--tier smoke|standard|full]
+  [--limit N]
+  [--write-oracle]
+  [--jobs N]
+  [--diagnostic]
+  [--rerun-failures JSONL]
+  [--strict-profile-vars]
+  [--heuristic-weight N]
+```
+
+By default it reads:
+
+```text
+<corpus>/corpus/routes-v1.json
+<corpus>/oracle/oracle-v1.json
+<corpus>/accounts/account-profiles-v1.json
+```
+
+and writes:
+
+```text
+out/route-benchmark.jsonl
+```
+
+Generate an exact reference oracle:
+
+```sh
+nix-shell --run 'cabal run route-bench -- --tier smoke --write-oracle --jobs 4'
+```
+
+Run the Tile A* benchmark against that oracle:
+
+```sh
+nix-shell --run 'cabal run route-bench -- --tier smoke --runs 3'
+```
+
+`--diagnostic` additionally executes `ReferenceDijkstra` and is intended for
+correctness investigation, not performance measurement.
+
+The executable accepts the following Tile A* diagnostic configuration from the
+environment:
+
+```text
+SPM_TILE_REVERSE_IMPL=manhattan|clique
+SPM_TILE_COMPARE_REVERSE=0|1
+SPM_TILE_REVERSE_COUNTERS=0|1
+```
+
+The normal/default reverse implementation used by the profiled executable path
+is `manhattan` (the sparse walking reverse graph).
+
+### `routing-artifact`
+
+`routing-artifact` owns implementation/static-artifact inspection and export.
+
+Usage:
+
+```text
+routing-artifact component-transform-report
+routing-artifact tile-static-report
+routing-artifact export-routing-static [PATH]
+```
+
+Examples:
 
 ```sh
 nix-shell --run 'cabal run routing-artifact -- tile-static-report'
 ```
 
-Run correctness checks:
+```sh
+nix-shell --run 'cabal run routing-artifact -- export-routing-static out/routing-static-v1.bin'
+```
+
+`component-transform-report` writes CSV/Markdown reports under `out/`.
+
+`tile-static-report` reports the size of the precomputed Tile A* site/sparse
+walking structures.
+
+`export-routing-static` writes the portable static artifact documented in
+[`docs/routing-static-format-v1.md`](docs/routing-static-format-v1.md).
+
+The executable maintains a generated cache at:
+
+```text
+out/tile-astar-components.bin
+```
+
+and rebuilds it when its model/resource inputs are newer.
+
+### `separator-artifact`
+
+`separator-artifact` generates the offline routing-separator artifact consumed
+by production topology construction.
+
+Usage:
+
+```text
+separator-artifact generate OUTPUT MAXIMUM-SIZE MINIMUM-CHILD MAXIMUM-SEPARATOR IMBALANCE SEED
+```
+
+The currently used generation parameters are:
+
+```sh
+nix-shell --run \
+  'cabal run separator-artifact -- generate ../shortest-path/src/main/resources/routing-separators-v1.json 20000 500 32 40 42'
+```
+
+Generation invokes KaHIP's `node_separator`. The output stores validated cut
+walking edges; runtime routing does not invoke KaHIP.
+
+The generator also writes:
+
+```text
+OUTPUT.diagnostics.json
+```
+
+Environment overrides supported by this executable are:
+
+```text
+SPM_RESOURCES_DIR
+SPM_COLLISION_ZIP
+SPM_BANK_FILE
+```
+
+### `world-facts`
+
+`world-facts` exports the authoritative Haskell topology/model into a disposable
+DuckDB database for inspection and corpus-maintenance tooling.
+
+Usage:
+
+```text
+world-facts [--output PATH]
+```
+
+Default:
+
+```sh
+nix-shell --run 'cabal run world-facts'
+```
+
+writes:
+
+```text
+out/world-facts.duckdb
+```
+
+The database includes model-derived tables/views for natural/routing components,
+separator crossings, tiles, point attachments, places and transports.
+
+Overrides:
+
+```text
+WORLD_FACTS_DB
+WORLD_FACTS_GPS_DESTINATIONS
+SHORTEST_PATH_CORPUS_DIR
+```
+
+This database is generated development data, not canonical corpus data.
+
+### `account-profile`
+
+`account-profile` inspects the current benchmark-account model.
+
+Usage:
+
+```text
+account-profile validate early|mid|end|maxed
+account-profile compare BEFORE AFTER
+account-profile coverage
+account-profile vars
+```
+
+Examples:
+
+```sh
+nix-shell --run 'cabal run account-profile -- validate maxed'
+nix-shell --run 'cabal run account-profile -- compare mid end'
+nix-shell --run 'cabal run account-profile -- coverage'
+```
+
+The canonical exported profile fixture is read from the sibling
+`shortest-path-corpus`.
+
+The current Haskell profile-generation/inspection tooling is transitional; the
+long-term source of truth is expected to become semantic profile definitions
+which generate the corpus fixture.
+
+## Exactness and the reference solver
+
+With `heuristicWeight = 1`, `TileAStar` is the maintained exact solver.
+
+`ReferenceDijkstra` is intentionally much simpler and slower. It uses the same
+world/account semantics but an independent search implementation, and is used as
+the correctness oracle in tests and benchmark oracle generation.
+
+The main correctness suites include:
 
 ```sh
 nix-shell --run 'cabal test tile-astar'
 nix-shell --run 'cabal test pathfinder-synthetic'
+nix-shell --run 'cabal test smoke'
 ```
 
-The synthetic suite directly exercises both reverse implementations and checks
-the sparse labels against the production clique labels.
+Run the full test suite with:
 
-Do not use counter-enabled timings as wall-clock benchmark results; reverse counter threading materially slows the hot loop.
+```sh
+nix-shell --run 'cabal test all'
+```
 
-Current useful flags:
+## Repository boundaries
+
+This repository owns:
+
+* Haskell routing/account/world semantics;
+* exact Tile A* and reference Dijkstra;
+* topology and algorithm preprocessing;
+* the Haskell benchmark executable;
+* routing/static artifact generation;
+* currently, model-aware world/corpus maintenance tooling.
+
+It does not own:
+
+* canonical route/profile data — `shortest-path-corpus`;
+* benchmark orchestration/history/dashboards — `shortest-path-benchmarks`;
+* interactive route visualisation — `shortest-path-viewer`;
+* Java-specific benchmark/account tooling — `shortest-path-tooling`;
+* RuneLite plugin integration — `gps-plugin`.
+
+The current `tools/world-facts` and `tools/corpus-maintenance` code is
+model-aware maintenance tooling. It lives here for now because it depends
+directly on the authoritative Haskell topology, but it is not part of the core
+routing API.
+
+## Development environment
+
+Enter the development shell with:
+
+```sh
+nix-shell
+```
+
+It supplies the Haskell/Node/DuckDB/KaHIP tooling required by the current
+executables and maintenance scripts.
+
+The current `shell.nix` imports the caller's `<nixpkgs>`; it is therefore a
+convenient development environment but is **not currently a pinned reproducible
+toolchain**.
+
+## Directory guide
 
 ```text
-SPM_TILE_REVERSE_IMPL=manhattan   use sparse Manhattan reverse Dijkstra
-SPM_TILE_COMPARE_REVERSE=1        compare sparse labels against clique labels
-SPM_TILE_REVERSE_COUNTERS=1       enable expensive reverse diagnostics
+src/                         routing/model library
+app/                         implementation executables
+tools/account-profiles/      benchmark-account inspection/generation
+tools/world-facts/           model -> DuckDB inspection tooling
+tools/corpus-maintenance/    model-aware corpus maintenance
+test/                        correctness and semantic tests
+csrc/                        native distance-transform implementation
+docs/                        artifact/interface documentation
 ```
 
-These values are parsed once by the executable layer into explicit Tile A*
-configuration; routing modules do not read process environment state.
-
-Recent laptop baseline for Kourend -> Desert, 5 warm in-process runs:
-
-```text
-Clique median:
-  total:   382 ms
-  setup:   252 ms
-  reverse: 247 ms
-  search:  121 ms
-
-Sparse Manhattan CSR median:
-  total:   316 ms
-  setup:   189 ms
-  reverse: 178 ms
-  search:  140 ms
-```
-
-Static sparse graph size from `tile-static-report`:
-
-```text
-static original sites: 7349
-static Steiner vertices: 37194
-static total vertices: 44543
-sparse walking undirected edges: 68667
-rough adjacency memory estimate: 2.07 MiB
-```
