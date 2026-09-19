@@ -31,9 +31,10 @@ benchmark profile / future account importer
 Reference Dijkstra      Tile A*
 ```
 
-`ShortestPath.AccountSemantics` owns semantic progression types and the
-semantic-to-RuneLite mapping. `ShortestPath.BenchmarkProfiles` only defines
-the Early/Mid/End/Maxed fixtures. Numeric game state is derived during
+`ShortestPath.AccountSemantics` owns the core semantic account compiler and
+semantic-to-RuneLite mapping. The representative Early/Mid/End/Maxed builders
+and profile-generation commands live under `tools/account-profiles`; the
+`ShortestPath.BenchmarkProfiles` adapter only loads canonical fixtures. Numeric game state is derived during
 `compileAccount`; benchmark profiles do not independently assign known
 semantic varbits or varplayers.
 

@@ -4,12 +4,12 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const child = require("child_process");
-const {classifyPoints, coordinateKey, resolveEndpoints} = require("./world-facts");
+const {classifyPoints, coordinateKey, resolveEndpoints} = require("../world-facts/world-facts");
 
-const root = path.resolve(__dirname, "..");
-const gpsRoot = path.resolve(root, "../runelite-gps-plugin");
-const questRoot = path.resolve(root, "../quest-helper");
-const shortestPathRoot = path.resolve(root, "../shortest-path");
+const root = path.resolve(__dirname, "../..");
+const gpsRoot = path.resolve(process.env.GPS_PLUGIN_DIR || path.resolve(root, "../../runelite-gps-plugin"));
+const questRoot = path.resolve(process.env.QUEST_HELPER_DIR || path.resolve(root, "../../quest-helper"));
+const shortestPathRoot = path.resolve(process.env.SHORTEST_PATH_DIR || path.resolve(root, "../shortest-path"));
 const corpusRoot = process.env.SHORTEST_PATH_CORPUS_DIR || path.resolve(root, "../shortest-path-corpus");
 const corpusPath = path.join(corpusRoot, "corpus/routes-v1.json");
 const routes = JSON.parse(fs.readFileSync(corpusPath, "utf8"));

@@ -15,6 +15,23 @@ from the sibling `../shortest-path` checkout, and benchmarks use the sibling
 `../shortest-path-corpus` checkout. Override the corpus location with
 `SHORTEST_PATH_CORPUS_DIR`.
 
+## Repository boundaries
+
+`src/` is the reusable routing/model library and `app/` contains supported
+implementation executables such as `route-bench` and routing-artifact
+preprocessing. `tools/` contains offline model-aware maintenance tooling:
+world facts, corpus endpoint maintenance, and account-profile generation.
+
+Canonical routes and exported profiles belong to the sibling
+[`shortest-path-corpus`](../shortest-path-corpus) data repository. Benchmark
+campaigns/analysis and the interactive viewer belong to
+[`shortest-path-benchmarks`](../shortest-path-benchmarks) and
+[`shortest-path-viewer`](../shortest-path-viewer).
+
+Corpus maintenance defaults to the sibling corpus. `refine-corpus.js` also
+accepts `GPS_PLUGIN_DIR`, `QUEST_HELPER_DIR`, and `SHORTEST_PATH_DIR` when those
+source checkouts are not at their default sibling locations.
+
 ## World facts inspector
 
 Generate the disposable DuckDB inspector database from the authoritative Haskell world model:
@@ -23,12 +40,13 @@ Generate the disposable DuckDB inspector database from the authoritative Haskell
 nix-shell --run 'cabal run world-facts'
 ```
 
-This writes `data/world-facts.duckdb`, containing `metadata`, natural `components`,
+This writes `out/world-facts.duckdb`, containing `metadata`, natural `components`,
 `routing_components`, `separator_crossings`, `tiles`, `point_access`, `places`,
 and the derived `place_facts` view. One point
 may have zero, one, or several `point_access` rows/components; these attachments
 and structural-reachability flags come directly from `ShortestPath.Topology`.
-Query it directly with `duckdb data/world-facts.duckdb`.
+Query it directly with `duckdb out/world-facts.duckdb`. Set `WORLD_FACTS_DB` to
+write somewhere else.
 
 ## Offline routing separators
 
@@ -62,8 +80,8 @@ resources, and profiling scripts live in the sibling
 measure viewer or HTTP overhead), applies all four account profiles, and writes
 one JSON object per route/profile/repetition to a JSONL file.
 
-The sibling v1 corpus contains 724 fixed routes and 2,896 route/profile
-cases: 2,809 positive and 87 expected-unreachable negatives. It includes GPS, quest, clue, walking,
+The sibling v1 corpus contains 726 fixed routes and 2,904 route/profile
+cases: 2,811 positive and 87 expected-unreachable negatives. It includes GPS, quest, clue, walking,
 transport, Wilderness, geographic, and regression cases.
 The 26 unresolved all-profile failures live in
 `../shortest-path-corpus/corpus/excluded-routes-v1.json` and are not executed. Every result
@@ -74,7 +92,7 @@ Regenerate the natural-route selection from the sibling `runelite-gps-plugin`,
 report:
 
 ```sh
-nix-shell --run 'node benchmarks/refine-corpus.js'
+nix-shell --run 'node tools/corpus-maintenance/refine-corpus.js'
 node ../shortest-path-corpus/tools/validate.js
 ```
 
@@ -132,27 +150,21 @@ does not provide historical charts.
 
 ### Diagnose unreachable routes
 
-The reusable diagnostic executable evaluates the transports on successful paths
-against the authoritative account profiles and emits one concise TSV row per
-route. Requests must include `id`, `routeId`, `routeName`, and `profile`; extra
-fields are ignored:
+Benchmark mismatch and unreachable-route diagnostics live in the sibling
+[`shortest-path-benchmarks`](../shortest-path-benchmarks) repository.
 
-```sh
-nix-shell --run 'cabal run unreachable-diagnostic -- requests.jsonl responses.jsonl unreachable-oracle.jsonl'
-```
-
-## Current pathfinder tooling
+## Current routing-artifact tooling
 
 Build the benchmark executable:
 
 ```sh
-nix-shell --run 'cabal build exe:pathfinder-tool'
+nix-shell --run 'cabal build exe:routing-artifact'
 ```
 
 Warm or rebuild the tile-A* static cache, including natural walking components and the sparse Manhattan walking network:
 
 ```sh
-nix-shell --run 'cabal run pathfinder-tool -- tile-static-report'
+nix-shell --run 'cabal run routing-artifact -- tile-static-report'
 ```
 
 Run correctness checks:

@@ -23,9 +23,13 @@ Key Haskell modules:
 
 Other important areas:
 
+* `tools/world-facts` — model-derived offline world inspection facts.
+* `tools/corpus-maintenance` — model-aware maintenance of the sibling corpus.
+* `tools/account-profiles` — representative account-profile construction and game-var tooling.
 * benchmark runner — consumes the sibling corpus and produces JSONL performance output.
 * sibling `../shortest-path-viewer` — spatial inspection of individual routes/search behaviour.
 * world inspection data — derived/queryable facts about components, places and structural reachability.
+* sibling `../shortest-path-benchmarks` — campaign orchestration, diagnostics, and analysis.
 * benchmark analysis — JSONL is canonical; databases/Grafana are derived analysis infrastructure.
 
 Planning and algorithm references:

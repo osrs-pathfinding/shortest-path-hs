@@ -14,7 +14,7 @@ This project aims to become a production-quality OSRS pathfinder with a reproduc
   * 4 account profiles
   * ~3,000 route/profile cases
 * The corpus has been cleaned so ordinary benchmarks use currently supported/reachable endpoints.
-* `world-facts.duckdb` provides queryable derived facts about world topology, components, places, and structural reachability.
+* `out/world-facts.duckdb` provides queryable derived facts about world topology, components, places, and structural reachability.
 * Benchmark results are emitted as canonical JSONL.
 * Results can be imported into ClickHouse and explored/comparison-tested in Grafana.
 * The sibling `../shortest-path-viewer` supports spatial inspection of individual routes/search behaviour.
@@ -160,7 +160,7 @@ Keep account-static requirement handling out of the hot search loop where possib
 
 ### World-model completeness
 
-Use `world-facts.duckdb` as an inspection tool to find places which should be reachable but are not.
+Use `out/world-facts.duckdb` as an inspection tool to find places which should be reachable but are not.
 
 Keep this separate from benchmark eligibility.
 
@@ -200,7 +200,7 @@ decent-sized regions separated by small cuts. The purpose is to find useful
 boundaries for hierarchical search and preprocessing, not to change routing
 semantics.
 
-Prototype this offline from `world-facts.duckdb` and measure:
+Prototype this offline from `out/world-facts.duckdb` and measure:
 
 * region balance and cut size;
 * the number and cost of transport edges crossing each cut;
@@ -256,7 +256,7 @@ ClickHouse/Grafana are analysis infrastructure, not the benchmark specification 
 
 ## World-inspection direction
 
-`world-facts.duckdb` should remain a reproducible, disposable inspection artefact derived from the authoritative Haskell world model.
+`out/world-facts.duckdb` should remain a reproducible, disposable inspection artefact derived from the authoritative Haskell world model.
 
 It should make questions such as these easy to answer:
 

@@ -3,10 +3,10 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const root = path.resolve(__dirname, "..");
+const root = path.resolve(__dirname, "../..");
 const coordinateKey = point => point.join(",");
 
-function classifyPoints(points, database = process.env.WORLD_FACTS_DB || path.join(root, "data/world-facts.duckdb")) {
+function classifyPoints(points, database = process.env.WORLD_FACTS_DB || path.join(root, "out/world-facts.duckdb")) {
   if (!fs.existsSync(database)) throw new Error(`missing ${database}; run nix-shell --run 'cabal run world-facts' first`);
   const unique = [...new Map(points.map(point => [coordinateKey(point), point])).values()];
   if (!unique.length) return new Map();
@@ -57,7 +57,7 @@ function classifyPoints(points, database = process.env.WORLD_FACTS_DB || path.jo
   }
 }
 
-function resolveEndpoints(points, radius = 12, database = process.env.WORLD_FACTS_DB || path.join(root, "data/world-facts.duckdb")) {
+function resolveEndpoints(points, radius = 12, database = process.env.WORLD_FACTS_DB || path.join(root, "out/world-facts.duckdb")) {
   if (!fs.existsSync(database)) throw new Error(`missing ${database}; run nix-shell --run 'cabal run world-facts' first`);
   const unique = [...new Map(points.map(point => [coordinateKey(point), point])).values()];
   if (!unique.length) return new Map();

@@ -5,7 +5,7 @@ const child = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const {resolveEndpoints, coordinateKey} = require("./world-facts");
+const {resolveEndpoints, coordinateKey} = require("../world-facts/world-facts");
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "endpoint-resolution-test-"));
 const database = path.join(dir, "facts.duckdb");

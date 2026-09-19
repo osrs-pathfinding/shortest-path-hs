@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 corpus_root=${SHORTEST_PATH_CORPUS_DIR:-$root/../shortest-path-corpus}
 corpus=${1:-"$corpus_root/corpus/routes-v1.json"}
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/endpoint-refinement.XXXXXX")
@@ -16,7 +16,7 @@ nix-shell --run "cabal run world-facts -- --output '$facts'"
 
 echo "refining existing endpoints"
 WORLD_FACTS_DB="$facts" nix-shell --run \
-  "node benchmarks/refine-endpoints.js '$corpus' '$corrected'"
+  "node tools/corpus-maintenance/refine-endpoints.js '$corpus' '$corrected'"
 
 cp "$corrected" "$corpus"
 echo "validating corrected corpus"

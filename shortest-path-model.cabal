@@ -74,21 +74,9 @@ library
 executable account-profile
   import: warnings
   main-is: AccountProfile.hs
-  hs-source-dirs: app
+  hs-source-dirs: tools/account-profiles
   build-depends:
     base,
-    containers,
-    shortest-path-model
-  default-language: GHC2024
-
-executable unreachable-diagnostic
-  import: warnings
-  main-is: UnreachableDiagnostic.hs
-  hs-source-dirs: app
-  build-depends:
-    aeson,
-    base,
-    bytestring,
     containers,
     shortest-path-model
   default-language: GHC2024
@@ -108,9 +96,9 @@ executable separator-artifact
     process
   default-language: GHC2024
 
-executable pathfinder-tool
+executable routing-artifact
   import: warnings
-  main-is: PathfinderTool.hs
+  main-is: RoutingArtifact.hs
   hs-source-dirs: app
   build-depends:
     aeson,
@@ -145,7 +133,7 @@ executable route-bench
 executable world-facts
   import: warnings
   main-is: WorldFacts.hs
-  hs-source-dirs: app
+  hs-source-dirs: tools/world-facts
   build-depends:
     aeson,
     base,

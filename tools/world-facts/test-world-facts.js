@@ -6,7 +6,7 @@ const {classifyPoints, coordinateKey} = require("./world-facts");
 const points = [
   [3221, 3218, 0],
   [3439, 3543, 2],
-  [2477, 4085, 0],
+  [2559, 2241, 0],
   [3178, 2447, 0],
   [0, 0, 0],
 ];

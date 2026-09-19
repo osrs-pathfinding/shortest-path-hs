@@ -50,7 +50,7 @@ parseCommand ["component-transform-report"] = pure ComponentTransformReport
 parseCommand ["tile-static-report"] = pure TileStaticReport
 parseCommand ["export-routing-static"] = pure (ExportRoutingStatic "out/routing-static-v1.bin")
 parseCommand ["export-routing-static", path] = pure (ExportRoutingStatic path)
-parseCommand _ = putStrLn "usage: pathfinder-tool component-transform-report|tile-static-report|export-routing-static [PATH]" >> exitFailure
+parseCommand _ = putStrLn "usage: routing-artifact component-transform-report|tile-static-report|export-routing-static [PATH]" >> exitFailure
 
 writeComponentTransformReport :: TileAStar -> IO ()
 writeComponentTransformReport astar = do
@@ -143,12 +143,12 @@ fillRatio row = fromIntegral (componentTransformTiles row) / fromIntegral (max 1
 
 timedPhase :: String -> IO a -> IO a
 timedPhase label action = do
-  putStrLn ("pathfinder tool: " <> label)
+  putStrLn ("routing artifact: " <> label)
   hFlush stdout
   started <- getMonotonicTimeNSec
   result <- action
   finished <- getMonotonicTimeNSec
-  printf "pathfinder tool: %s completed in %.1f ms\n" label (milliseconds started finished)
+  printf "routing artifact: %s completed in %.1f ms\n" label (milliseconds started finished)
   hFlush stdout
   pure result
 

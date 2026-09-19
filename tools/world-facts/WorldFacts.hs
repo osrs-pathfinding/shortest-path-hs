@@ -62,7 +62,7 @@ instance FromJSON Route where
 
 main :: IO ()
 main = do
-  output <- outputPath <$> getArgs
+  output <- outputPath =<< getArgs
   createDirectoryIfMissing True (takeDirectory output)
   world <- loadWorld defaultSourcePaths
   topology <- buildWorldTopology world
@@ -84,9 +84,9 @@ main = do
   report topology places
   putStrLn ("wrote " <> output <> " (" <> show (length (tileFacts topology)) <> " tiles, " <> show (length places) <> " places)")
 
-outputPath :: [String] -> FilePath
-outputPath ["--output", path] = path
-outputPath [] = "data/world-facts.duckdb"
+outputPath :: [String] -> IO FilePath
+outputPath ["--output", path] = pure path
+outputPath [] = fromMaybe "out/world-facts.duckdb" <$> lookupEnv "WORLD_FACTS_DB"
 outputPath _ = error "usage: world-facts [--output PATH]"
 
 loadRoutes :: FilePath -> IO [Route]

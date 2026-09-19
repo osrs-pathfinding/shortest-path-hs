@@ -11,7 +11,7 @@ The generated routing-relevant registry is in `data/gamevars/transport-gamevars.
 Regenerate the registry from a pinned RuneLite checkout or source files:
 
 ```bash
-node scripts/generate-gamevars.js \
+node tools/account-profiles/generate-gamevars.js \
   --varbit /path/to/runelite-api/src/main/java/net/runelite/api/gameval/VarbitID.java \
   --varplayer /path/to/runelite-api/src/main/java/net/runelite/api/gameval/VarPlayerID.java \
   --revision RUNELITE_COMMIT

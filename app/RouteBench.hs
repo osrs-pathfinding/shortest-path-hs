@@ -68,7 +68,6 @@ data Options = Options
   , oraclePath :: FilePath
   , outputPath :: FilePath
   , repetitions :: Int
-  , seedMode :: Bool
   , writeOracle :: Bool
   , diagnostic :: Bool
   , routeLimit :: Maybe Int
@@ -81,7 +80,7 @@ data Options = Options
   }
 
 defaultOptions :: Options
-defaultOptions = Options "" "" "out/route-benchmark.jsonl" 3 False False False Nothing "full" 4 Nothing False 1 Nothing
+defaultOptions = Options "" "" "out/route-benchmark.jsonl" 3 False False Nothing "full" 4 Nothing False 1 Nothing
 
 main :: IO ()
 main = do
@@ -108,7 +107,6 @@ parseOptions :: [String] -> IO Options
 parseOptions = go defaultOptions
  where
   go options [] = pure options
-  go options ("--seed":rest) = go (options {inputPath = "benchmarks/routes.json", oraclePath = "out/oracle-seed.json", seedMode = True}) rest
   go options ("--corpus":path:rest) = go (options {inputPath = path}) rest
   go options ("--oracle":path:rest) = go (options {oraclePath = path}) rest
   go options ("--output":path:rest) = go (options {outputPath = path}) rest
@@ -132,7 +130,7 @@ parseOptions = go defaultOptions
   go options ("--heuristic-weight":weight:rest) = case reads weight of
     [(n, "")] | n > 0 -> go (options {heuristicWeightOption = n}) rest
     _ -> die "--heuristic-weight must be positive"
-  go _ _ = die "usage: route-bench [--corpus-dir DIR] [--seed] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic] [--rerun-failures JSONL] [--strict-profile-vars] [--heuristic-weight N]"
+  go _ _ = die "usage: route-bench [--corpus-dir DIR] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic] [--rerun-failures JSONL] [--strict-profile-vars] [--heuristic-weight N]"
 
 loadCases :: Options -> IO [RouteCase]
 loadCases options = do
@@ -140,7 +138,7 @@ loadCases options = do
   case decoded of
     Left message -> die (inputPath options <> ": " <> message)
     Right cases
-      | not (seedMode options) && any (maybe True null . routeId) cases -> die "selected corpus routes require stable ids"
+      | any (maybe True null . routeId) cases -> die "selected corpus routes require stable ids"
       | otherwise -> pure cases
 
 filterTier :: String -> [RouteCase] -> [RouteCase]
@@ -279,7 +277,6 @@ loadOracle :: Options -> IO (Map.Map String Oracle)
 loadOracle options = do
   decoded <- eitherDecodeFileStrict' (oraclePath options)
   case decoded of
-    Left _ | seedMode options -> die "seed oracle missing; run route-bench --seed --write-oracle once"
     Left message -> die (oraclePath options <> ": " <> message)
     Right value -> pure value
 
@@ -295,9 +292,7 @@ loadFailedKeys path = do
       Right result -> pure result
 
 indexed :: [RouteCase] -> [RouteCase]
-indexed = zipWith add [1 :: Int ..]
- where add n route = route {routeId = Just (fromMaybe ("seed-" <> pad n) (routeId route))}
-       pad n = let s = show n in replicate (4 - length s) '0' <> s
+indexed = id
 
 stableId :: RouteCase -> String
 stableId route = fromMaybe (error "indexed route missing id") (routeId route)

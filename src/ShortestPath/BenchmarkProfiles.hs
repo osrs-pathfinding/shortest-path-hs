@@ -15,6 +15,7 @@ module ShortestPath.BenchmarkProfiles
   ) where
 
 import Data.Aeson (FromJSON(..), eitherDecodeFileStrict', withObject, (.:), (.:?))
+import Control.Monad (foldM)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import System.Directory (doesDirectoryExist, doesFileExist)
@@ -24,7 +25,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Text.Read (readMaybe)
 
 import ShortestPath.Account
-import ShortestPath.AccountSemantics (compileItemReferences)
+import ShortestPath.Items (resolveItemName, variationIds)
 import ShortestPath.Requirements (VarbitId(..), VarPlayerId(..), VarReq)
 import ShortestPath.Transport (Transport)
 
@@ -165,7 +166,21 @@ loadBenchmarkProfiles root = do
       , accountRuntime = runtime
       }
 
-  compileItems field values = either (fail . show) pure (compileItemReferences field values)
+  compileItems field values = either (\message -> fail (field <> ": " <> message)) pure (foldM add Map.empty (Map.toList values))
+   where
+    add counts (name, quantity) = do
+      variation <- either (Left . show) Right (resolveItemName name)
+      case variationIds variation of
+        identifier : _ -> do
+          current <- maybe (Right 0) Right (Map.lookup identifier counts)
+          total <- checkedAdd current quantity
+          pure (Map.insert identifier total counts)
+        [] -> Left ("empty item variation " <> name)
+    checkedAdd left right =
+      let total = toInteger left + toInteger right
+       in if total < toInteger (minBound :: Int) || total > toInteger (maxBound :: Int)
+            then Left ("quantity overflow: " <> show left <> " + " <> show right)
+            else Right (fromInteger total)
 
   parseVars field constructor values = traverse parseOne (Map.toList values)
    where

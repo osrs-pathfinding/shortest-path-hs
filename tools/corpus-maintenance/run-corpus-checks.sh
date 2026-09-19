@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 corpus_dir=${SHORTEST_PATH_CORPUS_DIR:-"$root/../shortest-path-corpus"}
 corpus=${CORPUS:-"$corpus_dir/corpus/routes-v1.json"}
 tier=${TIER:-full}

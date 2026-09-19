@@ -2,9 +2,9 @@
 
 const fs = require("fs");
 const path = require("path");
-const {resolveEndpoints} = require("./world-facts");
+const {resolveEndpoints} = require("../world-facts/world-facts");
 
-const root = path.resolve(__dirname, "..");
+const root = path.resolve(__dirname, "../..");
 const corpusRoot = process.env.SHORTEST_PATH_CORPUS_DIR || path.resolve(root, "../shortest-path-corpus");
 const input = process.argv[2] || path.join(corpusRoot, "corpus/routes-v1.json");
 const output = process.argv[3] || input;
