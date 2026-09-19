@@ -1,7 +1,5 @@
 # AGENTS.md
 
-This system is Nixos, and there is a nix shell which provides the necessary dependencies to build and run the project.
-
 This repository is an experimental/production-oriented OSRS pathfinding implementation. The main focus is **exact or near-exact tile pathfinding with transports and strong transport-aware heuristics**. The reproducible benchmark corpus lives in the sibling `shortest-path-corpus` repository.
 
 ## Project map
@@ -178,42 +176,6 @@ Preserve exact/reference path cost unless intentionally working on weighted/non-
 
 Avoid strings/maps/requirement-expression evaluation in the search hot loop; prepare compact eligible transport structures first.
 
-## Benchmark corpus
-
-The benchmark corpus is intended to become an implementation-independent OSRS pathfinding benchmark, not just test data for this algorithm.
-
-A full run is roughly:
-
-```text
-750 routes × 4 profiles ≈ 3000 cases
-```
-
-Profiles are approximately:
-
-```text
-early
-mid
-end
-maxed
-```
-
-Keep route IDs and profile semantics stable once a corpus version is published.
-
-JSONL benchmark results are canonical. ClickHouse/Grafana or other databases are disposable derived state.
-
-### Corpus endpoint eligibility
-
-Keep the broad destination/place catalogue even when locations are currently unreachable.
-
-Ordinary performance routes should use endpoints that are **structurally reachable using movement systems currently implemented by the pathfinder**.
-
-In particular, Sailing sea/ocean locations should currently remain in the place catalogue but should not be ordinary benchmark endpoints until Sailing routing exists.
-
-Do not filter by names such as `Sea` or `Ocean`; use authoritative component/reachability facts.
-
-Profile-specific unreachability is different and may be a valid benchmark result.
-
-Preserve explicit unreachable regression cases separately.
 
 ## World inspection / reachability facts
 
@@ -264,133 +226,6 @@ historical case performance
 ```
 
 Use Grafana/ClickHouse for broad comparison and the sibling viewer repository to understand **why** one particular route behaved badly.
-
-### Repeatable mismatch handoff
-
-When a Java canonical run has been imported into ClickHouse, use this workflow
-to produce a small, reproducible sample for follow-up. Set the URL if
-ClickHouse is not local:
-
-```sh
-clickhouse_url=${CLICKHOUSE_URL:-http://127.0.0.1:8123}
-```
-
-First identify the newest runs and verify that the comparison is like-for-like
-(`corpus_id`, `profile_set_id`, `suite_id`, tier, and testbed):
-
-```sh
-curl -sS "$clickhouse_url" --data-binary '
-SELECT run_id, created_at, git_commit, git_branch, corpus_id, profile_set_id,
-       suite_id, benchmark_tier, route_count, case_count, testbed, notes
-FROM osrs_bench.runs
-ORDER BY created_at DESC
-LIMIT 2
-FORMAT TSVWithNames'
-```
-
-For a run-to-run regression, explicitly name the candidate and baseline run
-IDs, then compare one aggregated row per route/profile (rather than joining
-all repetitions):
-
-```sh
-curl -sS "$clickhouse_url" --data-binary '
-WITH
-  candidate AS
-  (
-    SELECT route_id, profile, any(reachable) AS reachable, any(cost) AS cost
-    FROM osrs_bench.samples
-    WHERE run_id = '\''<CANDIDATE_RUN_ID>'\''
-    GROUP BY route_id, profile
-  ),
-  baseline AS
-  (
-    SELECT route_id, profile, any(reachable) AS reachable, any(cost) AS cost
-    FROM osrs_bench.samples
-    WHERE run_id = '\''<BASELINE_RUN_ID>'\''
-    GROUP BY route_id, profile
-  )
-SELECT count() AS common_cases,
-       countIf(candidate.reachable != baseline.reachable OR
-               ifNull(candidate.cost, -1) != ifNull(baseline.cost, -1)) AS changed_cases
-FROM candidate
-INNER JOIN baseline USING (route_id, profile)
-FORMAT TSVWithNames'
-```
-
-If the common-case count is unexpectedly low, stop and compare the run
-metadata before interpreting the result. Different corpus, profile set, suite,
-tier, or route selection explains missing candidates; it is not evidence of a
-pathfinding regression.
-
-For the selected Java `run_id`, classify failures before sampling them. Counts
-of rows include repetitions; `uniqExact(tuple(route_id, profile))` counts
-distinct route/profile cases:
-
-```sh
-curl -sS "$clickhouse_url" --data-binary '
-SELECT
-  count() AS samples,
-  uniqExact(tuple(route_id, profile)) AS cases,
-  countIf(correct = 0) AS bad_samples,
-  uniqExactIf(tuple(route_id, profile), correct = 0) AS bad_cases,
-  countIf(correct = 0 AND reachable != oracle_reachable) AS reachability_bad_samples,
-  countIf(correct = 0 AND reachable = oracle_reachable) AS cost_bad_samples
-FROM osrs_bench.samples
-WHERE run_id = '\''<RUN_ID>'\''
-FORMAT TSVWithNames'
-```
-
-To return the ten largest cost mismatches, with only one profile and one
-repetition per route even when several profiles/repetitions fail, use a window
-rank partitioned by `route_id`:
-
-```sh
-curl -sS "$clickhouse_url" --data-binary '
-SELECT route_id, profile, route_label, reachable, oracle_reachable,
-       cost, oracle_cost, delta
-FROM
-(
-  SELECT route_id, profile, route_label, reachable, oracle_reachable,
-         cost, oracle_cost,
-         toInt64(ifNull(cost, 0)) - toInt64(ifNull(oracle_cost, 0)) AS delta,
-         row_number() OVER
-         (
-           PARTITION BY route_id
-           ORDER BY abs(toInt64(ifNull(cost, 0)) - toInt64(ifNull(oracle_cost, 0))) DESC,
-                    profile, sample_index
-         ) AS route_rank
-  FROM osrs_bench.samples
-  WHERE run_id = '\''<RUN_ID>'\''
-    AND correct = 0
-    AND reachable = oracle_reachable
-)
-WHERE route_rank = 1
-ORDER BY abs(delta) DESC, route_id
-LIMIT 10
-FORMAT TSVWithNames'
-```
-
-If reachability failures exist, sample those separately with
-`AND reachable != oracle_reachable`; do not interpret a null cost as a cost
-mismatch. The ClickHouse `oracle_*` columns are the Haskell canonical
-expectation; they do not prove that Java and Haskell selected the same optimal
-route. For the actual route witness, run the comparison tool from the sibling
-tooling checkout:
-
-```sh
-cd ../shortest-path-tooling
-./scripts/compare-canonical-route.sh <ROUTE_ID> <PROFILE>
-
-# Several selected rows, still one profile per route:
-./scripts/compare-canonical-route.sh --batch \
-  <ROUTE_ID_1> <PROFILE_1> <ROUTE_ID_2> <PROFILE_2>
-```
-
-This prints Java and Haskell reachability/costs plus compressed walk segments
-and transport labels. Record the run ID, route ID/profile, both results, the
-cost delta, and the transport sequence in the handoff. Check config/account
-parity before changing the algorithm, especially transport toggles, POH portal
-sets, bank state, quest/var requirements, and cooldown time bases.
 
 ## Synthetic regression cases
 
@@ -472,23 +307,3 @@ Check:
 
 Prefer measuring over guessing.
 
-## Game-state profiles
-
-The account pipeline is:
-
-```text
-AccountSpec -> compileAccount -> AccountState -> RequirementContext
-            -> transportAvailability -> prepared transports -> pathfinder
-```
-
-`ShortestPath.AccountSemantics` owns semantic OSRS types and numeric game-state
-derivation. `shortest-path-corpus` owns the benchmark fixture definitions;
-`ShortestPath.BenchmarkProfiles` only decodes that neutral fixture.
-`ShortestPath.Account.transportAvailability` is the authoritative
-requirement evaluator used through `prepareQueryTransports`; routing algorithms
-must not independently interpret account facts. Raw varbit/varplayer overrides
-are exceptional and contradictory derived/raw values must be rejected.
-
-RuneLite varbit and varplayer IDs are numeric at the external GPS TSV boundary, but human-authored account/profile logic must use semantic game-variable names from the generated `ShortestPath.GameVars` modules. Do not add unexplained numeric varbit/varplayer IDs to benchmark profiles. Resolve new transport-relevant IDs through RuneLite's generated `gameval/VarbitID.java` or `gameval/VarPlayerID.java`, regenerate the semantic mapping, classify the variable as progression, permanent unlock, configuration or runtime state, and add a regression test for newly discovered routing semantics.
-
-A missing profile variable is not equivalent to value zero. New transport requirements must either be modelled or explicitly classified before relying on benchmark results involving that transport.
