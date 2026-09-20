@@ -53,8 +53,34 @@ main = do
       putStrLn ("  start " <> coordinateText (start options))
       mapM_ printStep (routeSteps route)
   when (printCounters options) $ do
-    putStrLn ("forward counters: " <> show (tileSearchCounters timings))
-    putStrLn ("reverse counters: " <> show (tileReverseCounters timings))
+    printMetrics route timings
+
+printMetrics :: Route -> TileAStarTimings -> IO ()
+printMetrics route timings = do
+  let forward = tileSearchCounters timings
+      reverseCounters = tileReverseCounters timings
+      metric name value = putStrLn ("  " <> name <> ": " <> show value)
+  putStrLn "metrics:"
+  metric "total_ms" (tileTotalMilliseconds timings)
+  metric "account_prepare_ms" (tileAccountPrepareMilliseconds timings)
+  metric "target_prepare_inclusive_ms" (tileTargetPrepareMilliseconds timings)
+  metric "reverse_ms" (tileReverseDijkstraMilliseconds timings)
+  metric "target_prepare_non_reverse_ms"
+    (tileTargetPrepareMilliseconds timings - tileReverseDijkstraMilliseconds timings)
+  metric "search_ms" (tileSearchMilliseconds timings)
+  metric "route_cost" (routeCost route)
+  metric "route_steps" (length (routeSteps route))
+  metric "nodes_expanded" (routeExpandedNodes route)
+  metric "states_popped" (tileStatesPopped forward)
+  metric "unique_states_reached" (tileUniqueStatesReached forward)
+  metric "pq_pushes" (tilePqPushes forward)
+  metric "walking_relaxations" (tileWalkingRelaxations forward)
+  metric "transport_relaxations" (tileTransportRelaxations forward)
+  metric "heuristic_evaluations" (tileHeuristicEvaluations forward)
+  metric "reverse_states_popped" (reverseStatesPopped reverseCounters)
+  metric "reverse_edges_relaxed" (reverseEdgesRelaxed reverseCounters)
+  metric "reverse_pq_pushes" (reversePqPushes reverseCounters)
+  metric "reverse_stale_pq_entries" (reverseStalePqEntries reverseCounters)
 
 printStep :: RouteStep -> IO ()
 printStep (Walk tile) = putStrLn ("  walk -> " <> coordinateText tile)

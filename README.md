@@ -307,8 +307,8 @@ profiles and prints the reconstructed route:
 nix-shell --run 'cabal run route-query -- maxed 3221 3218 0 3000 3000 0'
 ```
 
-Pass `--counters` to also print the forward and reverse search counters. Use
-`--corpus-dir DIR` to override the corpus discovery described above.
+Pass `--counters` to also print compact timing and high-level search metrics.
+Use `--corpus-dir DIR` to override the corpus discovery described above.
 
 ### `routing-artifact`
 
