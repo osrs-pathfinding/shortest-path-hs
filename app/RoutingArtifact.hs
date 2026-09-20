@@ -3,34 +3,26 @@
 
 module Main (main) where
 
-import Control.Monad (filterM)
-import Data.Binary (Binary, decodeFileOrFail, encodeFile)
 import Data.Ord (Down(..))
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
-import GHC.Generics (Generic)
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getModificationTime, listDirectory)
+import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs)
 import System.Exit (exitFailure)
-import System.FilePath ((</>))
 import System.IO (hFlush, stdout)
 import Data.List (sortOn)
 import Text.Printf (printf)
 
 import ShortestPath.Exact.TileAStar
+import ShortestPath.Exact.TileAStar.Cache (loadOrBuildTileAStar)
 import ShortestPath.Exact.TileAStar.Preprocessing (componentTileGroups)
 import ShortestPath.Exact.TileAStar.StaticArtifact
-import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Internal.DistanceTransform
 import ShortestPath.Topology
 import ShortestPath.Transport
 import ShortestPath.World
-
-data TileComponentCache = TileComponentCache Word64 NaturalComponents TileStatic
-  deriving stock (Generic)
-  deriving anyclass (Binary)
 
 main :: IO ()
 main = do
@@ -154,53 +146,3 @@ timedPhase label action = do
 
 milliseconds :: Word64 -> Word64 -> Double
 milliseconds started finished = fromIntegral (finished - started) / 1000000
-
-loadOrBuildTileAStar :: World -> IO TileAStar
-loadOrBuildTileAStar world = do
-  fresh <- tileComponentCacheIsFresh
-  cached <- if fresh then loadTileComponentCache else pure Nothing
-  case cached of
-    Just (components, static) -> case worldTopologyFromComponents productionStructuralReachabilityPolicy world components of
-      Left err -> fail (renderReachabilityError world err)
-      Right topology -> timedPhase "force cached tile astar components" (forceTileAStar (TileAStar topology static))
-    Nothing -> do
-      tileAStar@(TileAStar topology static) <- timedPhase "build tile astar components" (buildTileAStar world)
-      let components = topologyNaturalComponents topology
-      createDirectoryIfMissing True "out"
-      timedPhase "write tile astar component cache" (encodeFile tileComponentCachePath (TileComponentCache tileComponentCacheVersion components static))
-      pure tileAStar
-
-loadTileComponentCache :: IO (Maybe (NaturalComponents, TileStatic))
-loadTileComponentCache = timedPhase "load tile astar component cache" $ do
-  decoded <- decodeFileOrFail tileComponentCachePath
-  case decoded of
-    Right (TileComponentCache version components static) | version == tileComponentCacheVersion -> pure (Just (components, static))
-    Right _ -> putStrLn "tile astar component cache version mismatch; rebuilding" >> pure Nothing
-    Left (_, message) -> putStrLn ("tile astar component cache decode failed; rebuilding: " <> message) >> pure Nothing
-
-tileComponentCacheIsFresh :: IO Bool
-tileComponentCacheIsFresh = do
-  exists <- doesFileExist tileComponentCachePath
-  if not exists then pure False else do
-    inputs <- concat <$> mapM filesBelow tileComponentCacheInputRoots
-    cacheTime <- getModificationTime tileComponentCachePath
-    and <$> mapM (fmap (<= cacheTime) . getModificationTime) inputs
-
-filesBelow :: FilePath -> IO [FilePath]
-filesBelow path = do
-  directory <- doesDirectoryExist path
-  if not directory then pure [path] else do
-    entries <- map (path </>) <$> listDirectory path
-    files <- filterM doesFileExist entries
-    directories <- filterM doesDirectoryExist entries
-    nested <- concat <$> mapM filesBelow directories
-    pure (files <> nested)
-
-tileComponentCacheVersion :: Word64
-tileComponentCacheVersion = 15
-
-tileComponentCachePath :: FilePath
-tileComponentCachePath = "out/tile-astar-components.bin"
-
-tileComponentCacheInputRoots :: [FilePath]
-tileComponentCacheInputRoots = [resourcesDir defaultSourcePaths, "src/ShortestPath/Transport.hs", "src/ShortestPath/Exact/TileAStar.hs", "src/ShortestPath/Exact/TileAStar", "src/ShortestPath/Topology.hs", "src/ShortestPath/Tile.hs", "src/ShortestPath/World.hs"]

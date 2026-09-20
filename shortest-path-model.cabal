@@ -36,6 +36,7 @@ library
     ShortestPath.Items
     ShortestPath.Exact.ReferenceDijkstra
     ShortestPath.Exact.TileAStar
+    ShortestPath.Exact.TileAStar.Cache
     ShortestPath.Exact.TileAStar.Configuration
     ShortestPath.Exact.TileAStar.Heuristic
     ShortestPath.Exact.TileAStar.HeuristicScan

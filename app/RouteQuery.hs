@@ -9,6 +9,7 @@ import Text.Read (readMaybe)
 import ShortestPath.Account (RequirementMode(..))
 import ShortestPath.BenchmarkProfiles
 import ShortestPath.Exact.TileAStar
+import ShortestPath.Exact.TileAStar.Cache (loadOrBuildTileAStar)
 import ShortestPath.Exact.TileAStar.Configuration (tileAStarConfigFromEnvironment)
 import ShortestPath.Pathfinder
 import ShortestPath.Tile
@@ -33,7 +34,7 @@ main = do
     pure
     (benchmarkAccountFrom profiles (profileName options))
   world <- loadWorld defaultSourcePaths
-  astar <- buildTileAStar world
+  astar <- loadOrBuildTileAStar world
   environmentConfig <- tileAStarConfigFromEnvironment
   let config = environmentConfig {tileCollectReverseCounters = printCounters options}
       query = (defaultQuery (start options) (target options))
