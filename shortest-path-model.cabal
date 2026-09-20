@@ -135,6 +135,15 @@ executable route-bench
     time
   default-language: GHC2024
 
+executable route-query
+  import: warnings
+  main-is: RouteQuery.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    shortest-path-model
+  default-language: GHC2024
+
 executable world-facts
   import: warnings
   main-is: WorldFacts.hs

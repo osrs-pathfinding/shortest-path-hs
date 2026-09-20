@@ -224,6 +224,7 @@ The current executable surface is:
 
 ```text
 route-bench
+route-query
 routing-artifact
 separator-artifact
 world-facts
@@ -296,6 +297,18 @@ SPM_TILE_REVERSE_COUNTERS=0|1
 
 The normal/default reverse implementation used by the profiled executable path
 is `manhattan` (the sparse walking reverse graph).
+
+### `route-query`
+
+`route-query` runs an account-aware query with one of the canonical corpus
+profiles and prints the reconstructed route:
+
+```sh
+nix-shell --run 'cabal run route-query -- maxed 3221 3218 0 3000 3000 0'
+```
+
+Pass `--counters` to also print the forward and reverse search counters. Use
+`--corpus-dir DIR` to override the corpus discovery described above.
 
 ### `routing-artifact`
 
