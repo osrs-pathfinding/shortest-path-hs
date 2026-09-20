@@ -20,6 +20,7 @@ module ShortestPath.Exact.TileAStar
   , RoutingOptions(..)
   , SearchOptions(..)
   , ReverseImplementation(..)
+  , ManhattanHeuristicMode(..)
   , defaultTileAStarConfig
   , buildTileAStar
   , buildTileAStarWithPolicy
@@ -58,7 +59,7 @@ import ShortestPath.Pathfinder
 import ShortestPath.Exact.TileAStar.Heuristic
 import ShortestPath.Exact.TileAStar.HeuristicScan (forceGeneratorScan)
 import ShortestPath.Exact.TileAStar.Preprocessing
-import ShortestPath.Exact.TileAStar.RelaxedGraph (binarySearch, compileRoutingAccount, targetOverlay)
+import ShortestPath.Exact.TileAStar.RelaxedGraph (binarySearch, compileRoutingAccount, targetOverlay, targetOverlayForMode)
 import ShortestPath.Exact.TileAStar.ReverseSearch (emptyReverseCounters)
 import ShortestPath.Exact.TileAStar.Search
 import ShortestPath.Exact.TileAStar.SparseWalking
@@ -89,7 +90,7 @@ prepareTargetProfiled config astar account target =
   timedIO forcePreparedTarget
     (preparedTarget astar target overlay <$> prepareHeuristicProfiledFor config astar account overlay)
  where
-  overlay = targetOverlay astar account target
+  overlay = targetOverlayForMode (tileManhattanHeuristicMode config) astar account target
 
 preparedTarget :: TileAStar -> Tile -> TargetOverlay -> Heuristic -> PreparedTarget
 preparedTarget (TileAStar _ static) target overlay heuristic =
@@ -192,6 +193,9 @@ forceTileAStar astar@(TileAStar topology static) = do
         + Set.size (staticReachableBanks static)
         + sparseVertexCount (staticWalkingNetwork static)
         + sparseWalkingEdgeCount (staticWalkingNetwork static)
+        + Vector.length (sparseComponentRoots (staticWalkingNetwork static))
+        + Vector.length (sparseAttachmentNodeKinds (staticWalkingNetwork static))
+        + Vector.length (sparseAttachmentChainVertices (staticWalkingNetwork static))
     )
   pure astar
  where

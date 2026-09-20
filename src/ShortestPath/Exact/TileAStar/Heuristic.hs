@@ -4,6 +4,7 @@
 module ShortestPath.Exact.TileAStar.Heuristic
   ( Heuristic(..)
   , PreparedTarget(..)
+  , ManhattanHeuristicMode(..)
   , ReverseImplementation(..)
   , TileAStarConfig(..)
   , defaultTileAStarConfig
@@ -37,6 +38,7 @@ import GHC.Exts (Int(I#), Int#)
 import ShortestPath.Exact.TileAStar.RelaxedGraph
 import ShortestPath.Exact.TileAStar.HeuristicScan
 import ShortestPath.Exact.TileAStar.ReverseSearch
+import ShortestPath.Exact.TileAStar.SparseWalking
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Internal.Timing
 import ShortestPath.Tile
@@ -47,13 +49,23 @@ data ReverseImplementation = CliqueReverse | SparseWalkingReverse
 
 data TileAStarConfig = TileAStarConfig
   { tileReverseImplementation :: !ReverseImplementation
+  , tileManhattanHeuristicMode :: !ManhattanHeuristicMode
   , tileCompareReverseImplementations :: !Bool
   , tileCollectReverseCounters :: !Bool
   }
   deriving stock (Eq, Show)
 
 defaultTileAStarConfig :: TileAStarConfig
-defaultTileAStarConfig = TileAStarConfig SparseWalkingReverse False False
+defaultTileAStarConfig = TileAStarConfig SparseWalkingReverse ManhattanSeedScan False False
+
+data GatewayHeuristic = GatewayHeuristic
+  { gatewayNetwork :: SparseWalkingNetwork
+  , gatewayDistances :: Vector.Vector Int
+  , gatewayReverseNodeCount :: !Int
+  , gatewayStaticCount :: !Int
+  , gatewayTargetPacked :: !Int
+  , gatewayTargetComponents :: Vector.Vector Int
+  }
 
 data Heuristic = Heuristic
   { heuristicSeeds :: Boxed.Vector (Vector.Vector (Int, Int))
@@ -61,6 +73,7 @@ data Heuristic = Heuristic
   , heuristicGeneratorScans :: Boxed.Vector GeneratorScan
   , heuristicSiteIndex :: IntMap.IntMap Int
   , heuristicSiteDistances :: Vector.Vector Int
+  , heuristicGatewayData :: Maybe GatewayHeuristic
   , heuristicReverseMilliseconds :: !Double
   , heuristicSeedTableMilliseconds :: !Double
   , heuristicReverseCounters :: !TileReverseCounters
@@ -108,19 +121,32 @@ prepareHeuristicFor astar account overlay =
 
 prepareHeuristicProfiled :: TileAStarConfig -> TileAStar -> CompiledRoutingAccount -> Tile -> IO Heuristic
 prepareHeuristicProfiled config astar account target =
-  prepareHeuristicProfiledFor config astar account (targetOverlay astar account target)
+  prepareHeuristicProfiledFor config astar account (targetOverlayForMode (tileManhattanHeuristicMode config) astar account target)
 
 prepareHeuristicProfiledFor :: TileAStarConfig -> TileAStar -> CompiledRoutingAccount -> TargetOverlay -> IO Heuristic
-prepareHeuristicProfiledFor config astar account overlay = do
-  ((distances, counters, provenance), reverseMs) <- timedIO forceReverseResult reverseAction
-  ((table, generators), seedMs) <- timedIO forceSeedTables (pure (case provenance of
-    Nothing -> (seedTableFromDistances components graph overlay distances, emptyGeneratorTable components)
-    Just result -> seedTablesFromManhattanResult components graph overlay distances result))
-  pure (heuristicFromSeedTables table generators graph overlay distances reverseMs seedMs counters)
+prepareHeuristicProfiledFor config astar account overlay
+  | tileManhattanHeuristicMode config == ManhattanGateways = prepareGateways
+  | otherwise = prepareSeedScan
  where
   graph = compiledSiteGraph account
   components = topologyRoutingComponents (tileTopology astar)
-  reverseAction = case tileReverseImplementation config of
+  prepareGateways = case tileReverseImplementation config of
+    CliqueReverse -> fail "ManhattanGateways requires SparseWalkingReverse"
+    SparseWalkingReverse -> do
+      ((result, counters), reverseMs) <- timedIO forceGatewayReverseResult gatewayReverseAction
+      let distances = halveDistances (manhattanDistances result)
+      compareReverse distances
+      pure (heuristicFromGatewayDistances components graph overlay result reverseMs counters)
+  gatewayReverseAction
+    | tileCollectReverseCounters config = pure (reverseDijkstraManhattanGateways graph overlay)
+    | otherwise = pure (reverseDijkstraManhattanGatewaysUncounted graph overlay, emptyReverseCounters)
+  prepareSeedScan = do
+    ((distances, counters, provenance), reverseMs) <- timedIO forceReverseResult seedReverseAction
+    ((table, generators), seedMs) <- timedIO forceSeedTables (pure (case provenance of
+      Nothing -> (seedTableFromDistances components graph overlay distances, emptyGeneratorTable components)
+      Just result -> seedTablesFromManhattanResult components graph overlay distances result))
+    pure (heuristicFromSeedTables table generators graph overlay distances reverseMs seedMs counters)
+  seedReverseAction = case tileReverseImplementation config of
     CliqueReverse
       | tileCollectReverseCounters config ->
           let (distances, counters) = reverseDijkstra graph overlay
@@ -139,7 +165,10 @@ prepareHeuristicProfiledFor config astar account overlay = do
           pure (distances, emptyReverseCounters, Just result)
   compareReverse distances =
     when (tileCompareReverseImplementations config)
-      (assertReverseLabelsEqual graph overlay (reverseDijkstraUncounted graph overlay) distances)
+      (assertReverseLabelsEqual graph comparisonOverlay (reverseDijkstraUncounted graph comparisonOverlay) distances)
+  comparisonOverlay
+    | tileManhattanHeuristicMode config == ManhattanGateways = withLegacyTargetAttachments graph overlay
+    | otherwise = overlay
 
 heuristicAt :: WorldTopology -> Heuristic -> Tile -> Bool -> Maybe Int
 {-# INLINE heuristicAt #-}
@@ -197,7 +226,9 @@ heuristicAtResolvedCountedRaw heuristic packed components site banked = go 0 exa
 componentDistance :: Heuristic -> Int -> Int -> Bool -> Int
 {-# INLINE componentDistance #-}
 componentDistance heuristic packed cid banked =
-  candidateDistance (heuristicSeeds heuristic Boxed.! seedKey cid banked) packed
+  case heuristicGatewayData heuristic of
+    Nothing -> candidateDistance (heuristicSeeds heuristic Boxed.! seedKey cid banked) packed
+    Just gateway -> fst (gatewayComponentDistance gateway packed cid banked)
 
 candidateDistance :: Vector.Vector (Int, Int) -> Int -> Int
 {-# INLINE candidateDistance #-}
@@ -207,10 +238,35 @@ candidateDistance candidates packed =
 componentDistanceCounted :: Heuristic -> Int -> Int -> Bool -> (# Int#, Int# #)
 {-# INLINE componentDistanceCounted #-}
 componentDistanceCounted heuristic packed cid banked =
-  case (scanGenerators candidates (packed .&. 0x7fff) ((packed `shiftR` 15) .&. 0x7fff), generatorScanLength candidates) of
-    (I# distance#, I# count#) -> (# distance#, count# #)
+  case heuristicGatewayData heuristic of
+    Just gateway -> case gatewayComponentDistance gateway packed cid banked of
+      (I# distance#, I# count#) -> (# distance#, count# #)
+    Nothing -> case (scanGenerators candidates (packed .&. 0x7fff) ((packed `shiftR` 15) .&. 0x7fff), generatorScanLength candidates) of
+      (I# distance#, I# count#) -> (# distance#, count# #)
  where
   candidates = heuristicGeneratorScans heuristic Boxed.! seedKey cid banked
+
+gatewayComponentDistance :: GatewayHeuristic -> Int -> Int -> Bool -> (Int, Int)
+{-# INLINE gatewayComponentDistance #-}
+gatewayComponentDistance gateway packed cid banked =
+  let (distance, count) = foldGatewayAttachments network cid (Tile packed) (direct, directCount) addGateway
+   in (if distance == maxBound then maxBound else distance `div` 2, count)
+ where
+  network = gatewayNetwork gateway
+  direct
+    | Vector.elem cid (gatewayTargetComponents gateway) = twice (chebyshevPacked packed (gatewayTargetPacked gateway))
+    | otherwise = maxBound
+  directCount = if direct == maxBound then 0 else 1
+  addGateway (best, count) sparseVertex attachment =
+    (min best (addCostDefault maxBound attachment label), count + 1)
+   where
+    reverseVertex
+      | sparseVertex < gatewayStaticCount gateway = sparseVertex
+      | otherwise = gatewayReverseNodeCount gateway + sparseVertex - gatewayStaticCount gateway
+    label = gatewayDistances gateway Vector.! stateId reverseVertex banked
+  twice value
+    | value == maxBound || value > maxBound `div` 2 = maxBound
+    | otherwise = value * 2
 
 finite :: Int -> Maybe Int
 {-# INLINE finite #-}
@@ -230,6 +286,7 @@ heuristicFromSeedTables :: Boxed.Vector (Vector.Vector (Int, Int)) -> Boxed.Vect
 heuristicFromSeedTables seeds generators graph overlay distances reverseMs seedMs counters =
   Heuristic seeds generators scans siteIndex
     (Vector.generate (reverseNodeCount * 2) (distances Vector.!))
+    Nothing
     reverseMs seedMs counters seedTotal componentCount seedMax seedP50 seedP90 seedP95 seedP99
     generatorTotal generatorMax generatorP50 generatorP90 generatorP95 generatorP99
     ratioP50 ratioP90 ratioP95 ratioP99 ratioMax
@@ -244,6 +301,22 @@ heuristicFromSeedTables seeds generators graph overlay distances reverseMs seedM
   (seedTotal, componentCount, seedMax, seedP50, seedP90, seedP95, seedP99) = tableStats seeds
   (generatorTotal, _, generatorMax, generatorP50, generatorP90, generatorP95, generatorP99) = tableStats generators
   (ratioP50, ratioP90, ratioP95, ratioP99, ratioMax) = generatorRatioStats seeds generators
+
+heuristicFromGatewayDistances :: NaturalComponents -> SiteGraph -> TargetOverlay -> ManhattanReverseResult
+  -> Double -> TileReverseCounters -> Heuristic
+heuristicFromGatewayDistances components graph overlay result reverseMs counters =
+  base {heuristicGatewayData = Just gateway}
+ where
+  doubled = manhattanDistances result
+  table = emptyGeneratorTable components
+  base = heuristicFromSeedTables table table graph overlay (halveDistances doubled) reverseMs 0 counters
+  gateway = GatewayHeuristic
+    (siteSparseNetwork graph)
+    doubled
+    (routingNodeCount graph + if targetSynthetic overlay then 1 else 0)
+    (siteStaticCount graph)
+    (targetPacked overlay)
+    (targetComponents overlay)
 
 tableStats :: Boxed.Vector (Vector.Vector (Int, Int)) -> (Int, Int, Int, Int, Int, Int, Int)
 tableStats table = (sum counts, length counts, percentile 100 counts, percentile 50 counts,
@@ -384,6 +457,14 @@ forceReverseResult (distances, counters, provenance) =
         + reverseMaxSitesScannedPerPop counters
         + reverseTransportRelaxations counters
     )
+
+forceGatewayReverseResult :: (ManhattanReverseResult, TileReverseCounters) -> IO Int
+forceGatewayReverseResult (result, counters) = evaluate
+  ( Vector.sum (manhattanDistances result)
+      + reverseStatesPopped counters
+      + reverseEdgesRelaxed counters
+      + reverseTransportRelaxations counters
+  )
 
 forceSeedTables :: (Boxed.Vector (Vector.Vector (Int, Int)), Boxed.Vector (Vector.Vector (Int, Int))) -> IO Int
 forceSeedTables (seeds, generators) = evaluate (forceTable seeds + forceTable generators)

@@ -51,6 +51,8 @@ main = do
   checkPohTopology
   checkHeuristicPruning tileAStar tiles
   checkInstrumentation tileAStar tiles
+  checkGatewayBackend tileAStar tiles
+  checkGatewayNoStaticSites
   checkMultiplePointAttachments
   checkManhattanGeneratorProvenance
   checkBankGlobalHub
@@ -359,7 +361,7 @@ checkManhattanGeneratorProvenance = do
     assertExact heuristic cid componentTiles
 
   prepareManhattan astar routeQuery =
-    prepareHeuristicProfiled (TileAStarConfig SparseWalkingReverse True True) astar
+    prepareHeuristicProfiled (TileAStarConfig SparseWalkingReverse ManhattanSeedScan True True) astar
       (compileRoutingAccount astar (routingOptionsFromQuery routeQuery)) (queryTarget routeQuery)
   componentId astar tile = maybe (error "missing generator-test component") id
     (componentOfTile (topologyNaturalComponents (tileTopology astar)) tile)
@@ -373,9 +375,9 @@ checkInstrumentation tileAStar tiles = do
   let routeQuery = walkingQuery (tA0 tiles) (tA1 tiles)
   (_, timings) <- findRouteProfiledTileAStar tileAStar routeQuery
   (_, cliqueTimings) <- findRouteProfiledTileAStarWithConfig
-    (TileAStarConfig CliqueReverse False True) tileAStar routeQuery
+    (TileAStarConfig CliqueReverse ManhattanSeedScan False True) tileAStar routeQuery
   (_, sparseTimings) <- findRouteProfiledTileAStarWithConfig
-    (TileAStarConfig SparseWalkingReverse True True) tileAStar routeQuery
+    (TileAStarConfig SparseWalkingReverse ManhattanSeedScan True True) tileAStar routeQuery
   let forward = tileSearchCounters timings
       reverseCounters = tileReverseCounters cliqueTimings
   let forwardScans = (tileHeuristicCalls forward, tileHeuristicCandidatesScanned forward, tileHeuristicMaxCandidatesPerCall forward)
@@ -390,6 +392,56 @@ checkInstrumentation tileAStar tiles = do
     reverseStalePqEntries sparseReverse, reversePqMaxSize sparseReverse) == (24, 52, 26, 2, 6))
   assert (tileReverseCounters timings == TileReverseCounters 0 0 0 0 0 0 0 0 0 0 0)
   assert (tileHeuristicGeneratorCount timings == tileHeuristicGeneratorCount sparseTimings)
+
+checkGatewayBackend :: TileAStar -> Tiles -> IO ()
+checkGatewayBackend astar tiles = mapM_ checkTarget [tA8 tiles, tC0 tiles, tD1 tiles]
+ where
+  enabled = Set.fromList
+    [ "SYNTHETIC_BOAT", "SYNTHETIC_RETURN", "SYNTHETIC_GLOBAL"
+    , "SYNTHETIC_RING", "SYNTHETIC_X_1", "SYNTHETIC_X_2"
+    ]
+  samples = [tA0 tiles, tA3 tiles, tA8 tiles, tA25 tiles, tC0 tiles, tD0 tiles, tE0 tiles]
+  seedConfig = TileAStarConfig SparseWalkingReverse ManhattanSeedScan False True
+  gatewayConfig = TileAStarConfig SparseWalkingReverse ManhattanGateways True True
+  checkTarget target = do
+    let routeQuery = query (tC0 tiles) target enabled True
+        account = compileRoutingAccount astar (routingOptionsFromQuery routeQuery)
+        overlay = targetOverlay astar account target
+        gatewayOverlay = targetOverlayForMode ManhattanGateways astar account target
+        graph = compiledSiteGraph account
+        seedReverse = halveDistances (manhattanDistances (reverseDijkstraManhattanUncounted graph overlay))
+        gatewayReverse = halveDistances (manhattanDistances (reverseDijkstraManhattanGatewaysUncounted graph overlay))
+    assertReverseLabelsEqual graph overlay seedReverse gatewayReverse
+    assertMsg "gateway target overlay retained all-site attachments"
+      (Vector.null (targetAttachmentSites gatewayOverlay))
+    seedHeuristic <- prepareHeuristicProfiled seedConfig astar account target
+    gatewayHeuristic <- prepareHeuristicProfiled gatewayConfig astar account target
+    assertMsg "gateway backend built a seed table" (heuristicSeedCount gatewayHeuristic == 0)
+    assertMsg "gateway reverse scanned component sites"
+      (reverseSameComponentSiteScans (heuristicReverseCounters gatewayHeuristic) == 0)
+    mapM_ (\tile -> mapM_ (\banked ->
+      assertMsg ("gateway heuristic mismatch: " <> show (tile, target, banked))
+        (heuristicAt (tileTopology astar) seedHeuristic tile banked
+          == heuristicAt (tileTopology astar) gatewayHeuristic tile banked)) [False, True]) samples
+    assertMsg "direct target candidate changed"
+      (target /= tA8 tiles || heuristicAt (tileTopology astar) gatewayHeuristic (tA3 tiles) False == Just 5)
+    assertMsg "transport candidate changed"
+      (target /= tC0 tiles || heuristicAt (tileTopology astar) gatewayHeuristic (tB1 tiles) False == Just 2)
+    (seedRoute, _) <- findRouteProfiledTileAStarWithConfig seedConfig astar routeQuery
+    (gatewayRoute, _) <- findRouteProfiledTileAStarWithConfig gatewayConfig astar routeQuery
+    assertMsg "gateway route cost mismatch" (routeCost seedRoute == routeCost gatewayRoute)
+
+checkGatewayNoStaticSites :: IO ()
+checkGatewayNoStaticSites = do
+  let (baseWorld, tiles) = synthetic
+      start = tA3 tiles
+      target = tA8 tiles
+      world = baseWorld {worldTransports = Map.empty, worldGlobalTeleports = [], worldBanks = Set.empty}
+      routeQuery = walkingQuery start target
+      config = TileAStarConfig SparseWalkingReverse ManhattanGateways True True
+  astar <- mustRight =<< buildTileAStarWithPolicy (syntheticPolicy start) world
+  (route, _) <- findRouteProfiledTileAStarWithConfig config astar routeQuery
+  assertMsg ("gateway direct walk failed without static sites: " <> show route) (routeCost route == 5)
 
 checkMultiplePointAttachments :: IO ()
 checkMultiplePointAttachments = do
@@ -418,6 +470,8 @@ checkMultiplePointAttachments = do
     (Vector.length (targetComponents overlay) == 2 && Vector.length (targetAttachmentSites overlay) == 2)
   let (manhattan, _) = reverseDijkstraManhattan graph overlay
   assertReverseLabelsEqual graph overlay (fst (reverseDijkstra graph overlay)) (halveDistances (manhattanDistances manhattan))
+  assertReverseLabelsEqual graph overlay (halveDistances (manhattanDistances manhattan))
+    (halveDistances (manhattanDistances (reverseDijkstraManhattanGatewaysUncounted graph overlay)))
   assertResolvedHeuristic tileAStar heuristic point
 
 checkHeuristicLookup :: TileAStar -> Tiles -> IO ()
@@ -673,7 +727,7 @@ checkRoute raw tileAStar world (Case name q expectation) = do
       assert (null (routeSteps tile))
   putStrLn (name <> ": " <> show (routeCost flat) <> " / " <> show (routeCost tile))
  where
-  sparseConfig = TileAStarConfig SparseWalkingReverse True False
+  sparseConfig = TileAStarConfig SparseWalkingReverse ManhattanSeedScan True False
 
 checkHeuristicPruning :: TileAStar -> Tiles -> IO ()
 checkHeuristicPruning tileAStar tiles = do

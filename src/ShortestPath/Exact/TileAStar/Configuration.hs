@@ -10,10 +10,12 @@ import ShortestPath.Exact.TileAStar.Heuristic
 tileAStarConfigFromEnvironment :: IO TileAStarConfig
 tileAStarConfigFromEnvironment = do
   implementation <- lookupEnv "SPM_TILE_REVERSE_IMPL" >>= parseImplementation
+  gatewayMode <- enabled False "SPM_MANHATTAN_GATEWAYS"
   compareReverse <- enabled False "SPM_TILE_COMPARE_REVERSE"
   counters <- enabled False "SPM_TILE_REVERSE_COUNTERS"
   pure TileAStarConfig
     { tileReverseImplementation = implementation
+    , tileManhattanHeuristicMode = if gatewayMode then ManhattanGateways else ManhattanSeedScan
     , tileCompareReverseImplementations = compareReverse
     , tileCollectReverseCounters = counters
     }

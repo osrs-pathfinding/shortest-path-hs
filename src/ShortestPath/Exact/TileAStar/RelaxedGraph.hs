@@ -10,6 +10,8 @@ module ShortestPath.Exact.TileAStar.RelaxedGraph
   , siteComponentGroups
   , stateId
   , targetOverlay
+  , targetOverlayForMode
+  , withLegacyTargetAttachments
   , targetSeeds
   ) where
 
@@ -131,7 +133,10 @@ routingNodeCount :: SiteGraph -> Int
 routingNodeCount graph = Vector.length (siteTiles graph) + Boxed.length (siteAbstractNodes graph)
 
 targetOverlay :: TileAStar -> CompiledRoutingAccount -> Tile -> TargetOverlay
-targetOverlay (TileAStar topology _) account target =
+targetOverlay = targetOverlayForMode ManhattanSeedScan
+
+targetOverlayForMode :: ManhattanHeuristicMode -> TileAStar -> CompiledRoutingAccount -> Tile -> TargetOverlay
+targetOverlayForMode mode (TileAStar topology _) account target =
   TargetOverlay packed components attachments node synthetic
  where
   graph = compiledSiteGraph account
@@ -141,12 +146,22 @@ targetOverlay (TileAStar topology _) account target =
   node = maybe (routingNodeCount graph) id existing
   synthetic = maybe True (const False) existing
   -- Assign a multi-component site to its first shared component so the union is emitted once.
-  attachments = Vector.fromList
+  attachments
+    | mode == ManhattanGateways = Vector.empty
+    | otherwise = legacyTargetAttachments graph packed components
+
+withLegacyTargetAttachments :: SiteGraph -> TargetOverlay -> TargetOverlay
+withLegacyTargetAttachments graph overlay = overlay
+  { targetAttachmentSites = legacyTargetAttachments graph (targetPacked overlay) (targetComponents overlay) }
+
+legacyTargetAttachments :: SiteGraph -> Int -> Vector.Vector Int -> Vector.Vector (Int, Int)
+legacyTargetAttachments graph packed components = Vector.fromList
     [ (site, chebyshevPacked packed (siteTiles graph Vector.! site))
     | cid <- Vector.toList components
     , site <- Vector.toList (siteComponentSiteIds graph Boxed.! cid)
     , cid == firstSharedComponent site
     ]
+ where
   firstSharedComponent site = case Vector.find (`Vector.elem` components) (siteComponents graph Boxed.! site) of
     Just cid -> cid
     Nothing -> error "target attachment missing shared routing component"

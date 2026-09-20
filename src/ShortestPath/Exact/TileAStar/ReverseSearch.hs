@@ -5,7 +5,9 @@ module ShortestPath.Exact.TileAStar.ReverseSearch
   , ManhattanReverseResult(..)
   , reverseDijkstra
   , reverseDijkstraManhattan
+  , reverseDijkstraManhattanGateways
   , reverseDijkstraManhattanUncounted
+  , reverseDijkstraManhattanGatewaysUncounted
   , reverseDijkstraUncounted
   ) where
 
@@ -19,6 +21,7 @@ import ShortestPath.Exact.TileAStar.RelaxedGraph
 import ShortestPath.Exact.TileAStar.SparseWalking
 import ShortestPath.Exact.TileAStar.Types
 import ShortestPath.Internal.MutableHeap
+import ShortestPath.Tile (Tile(..))
 
 data ManhattanReverseResult = ManhattanReverseResult
   { manhattanDistances :: Vector.Vector Int
@@ -194,7 +197,13 @@ reverseDijkstraUncounted graph overlay = runST $ do
              in (otherSite, chebyshevPacked sourceTile (querySiteTile graph overlay otherSite))
 
 reverseDijkstraManhattan :: SiteGraph -> TargetOverlay -> (ManhattanReverseResult, TileReverseCounters)
-reverseDijkstraManhattan graph overlay = runST $ do
+reverseDijkstraManhattan = reverseDijkstraManhattanWith False
+
+reverseDijkstraManhattanGateways :: SiteGraph -> TargetOverlay -> (ManhattanReverseResult, TileReverseCounters)
+reverseDijkstraManhattanGateways = reverseDijkstraManhattanWith True
+
+reverseDijkstraManhattanWith :: Bool -> SiteGraph -> TargetOverlay -> (ManhattanReverseResult, TileReverseCounters)
+reverseDijkstraManhattanWith gateways graph overlay = runST $ do
   result <- Mutable.replicate stateCount maxBound
   generatorOrigins <- Mutable.replicate stateCount (-1)
   generatorWeights <- Mutable.replicate stateCount maxBound
@@ -232,14 +241,18 @@ reverseDijkstraManhattan graph overlay = runST $ do
   staticCount = siteStaticCount graph
   network = siteSparseNetwork graph
   stateCount = (reverseNodeCount + sparseSteinerCount network) * 2
-  seeds = targetSeeds overlay
+  seeds
+    | gateways = gatewayTargetSeeds graph overlay
+    | otherwise = [(node, cost * 2) | (node, cost) <- targetSeeds overlay]
   seed :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> (Int, Int) -> ST s ()
   seed result generatorOrigins generatorWeights queue counters (node, cost) = do
-    Mutable.write result node (cost * 2)
-    Mutable.write generatorOrigins node node
-    Mutable.write generatorWeights node (cost * 2)
-    heapPush queue (cost * 2) node (cost * 2)
-    reversePush counters
+    known <- Mutable.read result node
+    when (cost < known) $ do
+      Mutable.write result node cost
+      Mutable.write generatorOrigins node node
+      Mutable.write generatorWeights node cost
+      heapPush queue cost node cost
+      reversePush counters
   doubleEdge (next, edgeCost, startsGenerator) = (next, edgeCost * 2, startsGenerator)
   relax :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Int -> Bool -> ReverseRoutingEdge -> ST s ()
   relax result generatorOrigins generatorWeights queue counters cost from externalEdge (next, edgeCost, startsGenerator) = do
@@ -265,7 +278,8 @@ reverseDijkstraManhattan graph overlay = runST $ do
   relaxWalking :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Mutable.MVector s Int -> Int -> Int -> ST s ()
   relaxWalking result generatorOrigins generatorWeights queue counters cost state = do
     relaxSparseWalkingEdges result generatorOrigins generatorWeights queue counters cost state banked vertex
-    when (vertex < reverseNodeCount) (relaxQueryAttachments result generatorOrigins generatorWeights queue counters cost state vertex banked)
+    when (not gateways && vertex < reverseNodeCount)
+      (relaxQueryAttachments result generatorOrigins generatorWeights queue counters cost state vertex banked)
    where
     vertex = state `div` 2
     banked = odd state
@@ -316,7 +330,13 @@ reverseDijkstraManhattan graph overlay = runST $ do
       (other, edgeCost) = attachments Vector.! ix
 
 reverseDijkstraManhattanUncounted :: SiteGraph -> TargetOverlay -> ManhattanReverseResult
-reverseDijkstraManhattanUncounted graph overlay = runST $ do
+reverseDijkstraManhattanUncounted = reverseDijkstraManhattanWithUncounted False
+
+reverseDijkstraManhattanGatewaysUncounted :: SiteGraph -> TargetOverlay -> ManhattanReverseResult
+reverseDijkstraManhattanGatewaysUncounted = reverseDijkstraManhattanWithUncounted True
+
+reverseDijkstraManhattanWithUncounted :: Bool -> SiteGraph -> TargetOverlay -> ManhattanReverseResult
+reverseDijkstraManhattanWithUncounted gateways graph overlay = runST $ do
   result <- Mutable.replicate stateCount maxBound
   generatorOrigins <- Mutable.replicate stateCount (-1)
   generatorWeights <- Mutable.replicate stateCount maxBound
@@ -348,13 +368,17 @@ reverseDijkstraManhattanUncounted graph overlay = runST $ do
   staticCount = siteStaticCount graph
   network = siteSparseNetwork graph
   stateCount = (reverseNodeCount + sparseSteinerCount network) * 2
-  seeds = targetSeeds overlay
+  seeds
+    | gateways = gatewayTargetSeeds graph overlay
+    | otherwise = [(node, cost * 2) | (node, cost) <- targetSeeds overlay]
   seed :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> (Int, Int) -> ST s ()
   seed result generatorOrigins generatorWeights queue (node, cost) = do
-    Mutable.write result node (cost * 2)
-    Mutable.write generatorOrigins node node
-    Mutable.write generatorWeights node (cost * 2)
-    heapPush queue (cost * 2) node (cost * 2)
+    known <- Mutable.read result node
+    when (cost < known) $ do
+      Mutable.write result node cost
+      Mutable.write generatorOrigins node node
+      Mutable.write generatorWeights node cost
+      heapPush queue cost node cost
   doubleEdge (next, edgeCost, startsGenerator) = (next, edgeCost * 2, startsGenerator)
   relax :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> Bool -> ReverseRoutingEdge -> ST s ()
   relax result generatorOrigins generatorWeights queue cost from _externalEdge (next, edgeCost, startsGenerator) =
@@ -375,7 +399,8 @@ reverseDijkstraManhattanUncounted graph overlay = runST $ do
   relaxWalking :: Mutable.MVector s Int -> Mutable.MVector s Int -> Mutable.MVector s Int -> MutableHeap s -> Int -> Int -> ST s ()
   relaxWalking result generatorOrigins generatorWeights queue cost state = do
     relaxSparseWalkingEdges result generatorOrigins generatorWeights queue cost state banked vertex
-    when (vertex < reverseNodeCount) (relaxQueryAttachments result generatorOrigins generatorWeights queue cost state vertex banked)
+    when (not gateways && vertex < reverseNodeCount)
+      (relaxQueryAttachments result generatorOrigins generatorWeights queue cost state vertex banked)
    where
     vertex = state `div` 2
     banked = odd state
@@ -418,6 +443,23 @@ reverseDijkstraManhattanUncounted graph overlay = runST $ do
           go (ix + 1)
      where
       (other, edgeCost) = attachments Vector.! ix
+
+gatewayTargetSeeds :: SiteGraph -> TargetOverlay -> [(Int, Int)]
+gatewayTargetSeeds graph overlay
+  | not (targetSynthetic overlay) = [(stateId (targetSite overlay) banked, 0) | banked <- [False, True]]
+  | otherwise = Vector.foldl' addComponent targetStates (targetComponents overlay)
+ where
+  targetStates = [(stateId (targetSite overlay) banked, 0) | banked <- [False, True]]
+  network = siteSparseNetwork graph
+  reverseNodes = queryRoutingNodeCount graph overlay
+  staticCount = siteStaticCount graph
+  addComponent seeds cid = foldGatewayAttachments network cid (Tile (targetPacked overlay)) seeds addGateway
+  addGateway seeds sparseVertex cost =
+    (stateId vertex False, cost) : (stateId vertex True, cost) : seeds
+   where
+    vertex
+      | sparseVertex < staticCount = sparseVertex
+      | otherwise = reverseNodes + sparseVertex - staticCount
 
 queryRoutingNodeCount :: SiteGraph -> TargetOverlay -> Int
 queryRoutingNodeCount graph overlay = routingNodeCount graph + if targetSynthetic overlay then 1 else 0

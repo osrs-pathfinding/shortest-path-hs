@@ -11,6 +11,7 @@ module ShortestPath.Exact.TileAStar.Types
   , ReverseRoutingEdge
   , SiteGraph(..)
   , TargetOverlay(..)
+  , ManhattanHeuristicMode(..)
   , TileAStarCounters(..)
   , TileBankGlobalObservation(..)
   , TileReverseCounters(..)
@@ -104,6 +105,9 @@ data TargetOverlay = TargetOverlay
   , targetSite :: !Int
   , targetSynthetic :: !Bool
   }
+
+data ManhattanHeuristicMode = ManhattanSeedScan | ManhattanGateways
+  deriving stock (Eq, Show)
 
 instance Binary TileStatic where
   put value = do
