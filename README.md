@@ -340,13 +340,16 @@ walking structures.
 `export-routing-static` writes the portable static artifact documented in
 [`docs/routing-static-format-v1.md`](docs/routing-static-format-v1.md).
 
-The executable maintains a generated cache at:
+The executable maintains a generated final-topology cache at:
 
 ```text
-out/tile-astar-components.bin
+out/tile-astar-topology-v2.bin
 ```
 
-and rebuilds it when its model/resource inputs are newer.
+It contains the derived routing components, separator crossings, structural
+reachability, and compact flat search/site arrays, and rebuilds it when the
+source-world fingerprint changes. Set `SPM_CACHE_TIMINGS=1` to print cache
+startup phases to stderr.
 
 ### `separator-artifact`
 
