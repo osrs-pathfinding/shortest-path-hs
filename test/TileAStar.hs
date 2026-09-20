@@ -2,6 +2,7 @@ module Main (main) where
 
 import Control.Monad.ST (runST)
 import Data.Bits (setBit)
+import Data.List (subsequences)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -23,6 +24,7 @@ main = do
   checkSeasonalReachability
   mapM_ check cases
   mapM_ checkSparse sparseCases
+  mapM_ checkSparseGateways (sparseCases <> generatedSparseCases)
   putStrLn "tile astar transform/sparse walking: pass"
 
 checkHeapGrowth :: IO ()
@@ -114,6 +116,17 @@ checkPair :: SparseWalkingNetwork -> [Tile] -> (Int, Int) -> IO ()
 checkPair network tiles (a, b) =
   assert (sparseWalkingDistance network a b == Just (2 * cheb (tiles !! a) (tiles !! b)))
 
+checkSparseGateways :: [Tile] -> IO ()
+checkSparseGateways [] = pure ()
+checkSparseGateways tiles = do
+  let network = buildSparseWalkingNetwork (zip [0 ..] tiles)
+      queries = tiles <> [packTile 1 2 0, packTile 7 1 0, packTile 0 9 0, packTile 12 12 0]
+  mapM_ (checkQuery network tiles) [(query, target) | query <- queries, target <- [0 .. length tiles - 1]]
+
+checkQuery :: SparseWalkingNetwork -> [Tile] -> (Tile, Int) -> IO ()
+checkQuery network tiles (query, target) =
+  assert (sparseWalkingDistanceFromQuery network 0 query target == Just (2 * cheb query (tiles !! target)))
+
 cases :: [(Box, [(Tile, Int)])]
 cases =
   [ (box, take n (filter (inside box . fst) weightedSeeds))
@@ -152,6 +165,15 @@ sparseCases =
   , [packTile 0 0 0, packTile 0 0 0, packTile 2 1 0, packTile 2 1 0]
   , [packTile 10 0 0, packTile 0 10 0, packTile 9 1 0, packTile 1 9 0, packTile 5 5 0]
   ]
+
+generatedSparseCases :: [[Tile]]
+generatedSparseCases = filter (not . null) (subsequences
+  [ packTile 0 0 0
+  , packTile 1 3 0
+  , packTile 4 1 0
+  , packTile 5 5 0
+  , packTile 2 6 0
+  ])
 
 cheb :: Tile -> Tile -> Int
 cheb a b =
