@@ -14,7 +14,7 @@ import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime)
 import GHC.Clock (getMonotonicTimeNSec)
 import System.Directory (createDirectoryIfMissing)
-import System.Environment (getArgs)
+import System.Environment (getArgs, lookupEnv)
 import System.Exit (exitFailure)
 import System.FilePath ((</>), takeDirectory)
 import System.Process (readProcess)
@@ -212,6 +212,7 @@ runBench benchmarkProfiles tileConfig options astar cases = do
   now <- getCurrentTime
   createDirectoryIfMissing True (takeDirectory (outputPath options))
   LBS.writeFile (outputPath options) LBS.empty
+  progressPath <- lookupEnv "BENCHMARK_PROGRESS_FILE"
   let profiles = [(name, benchmarkAccountFrom benchmarkProfiles name) | name <- benchmarkProfileNamesFrom benchmarkProfiles]
       queries =
         [ (route, profileName, profile)
@@ -222,6 +223,7 @@ runBench benchmarkProfiles tileConfig options astar cases = do
       totalQueries = length queries
       negativeQueries = length [() | (route, profileName, _) <- queries, profileName `elem` routeNegativeProfiles route]
   when (null queries) (die "no failed benchmark cases selected")
+  forM_ progressPath $ \path -> append path options $ object ["type" .= ("phase" :: String), "phase" .= ("warming up" :: String)]
   putStrLn ("benchmark population: " <> show (totalQueries - negativeQueries) <> " positive cases, " <> show negativeQueries <> " negative cases")
   -- Warm the same code path without recording it.
   let firstRoute = case queries of (route, _, _) : _ -> route; [] -> error "checked above"
@@ -229,6 +231,7 @@ runBench benchmarkProfiles tileConfig options astar cases = do
     let profile = benchmarkAccountFrom benchmarkProfiles profileName
     (route, _) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query (benchmarkNowMinutesFrom benchmarkProfiles) firstRoute profile (heuristicWeightOption options))
     voidRoute route
+  forM_ progressPath $ \path -> append path options $ object ["type" .= ("phase" :: String), "phase" .= ("running" :: String)]
   forM_ (zip [1 :: Int ..] queries) $ \(queryNumber, (route, profileName, profile)) -> do
     putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName)
     expected <- maybe (die ("missing oracle for " <> key route profileName <> "; run route-bench --write-oracle")) pure (Map.lookup (key route profileName) oracles)
@@ -237,6 +240,7 @@ runBench benchmarkProfiles tileConfig options astar cases = do
     when (oracleReachable expected /= (expectation == "positive")) $
       die ("corpus expectation disagrees with oracle for " <> key route profileName)
     forM_ [1 .. repetitions options] $ \repetition -> do
+      forM_ progressPath $ \path -> append path options $ object ["type" .= ("case-start" :: String), "route_id" .= stableId route, "account_profile" .= profileName, "repetition" .= (repetition - 1)]
       (result, timings) <- findRouteProfiledTileAStarWithConfig tileConfig astar (query (benchmarkNowMinutesFrom benchmarkProfiles) route profile (heuristicWeightOption options))
       let cost = routeCost result
           reachable = cost /= maxBound
@@ -253,7 +257,7 @@ runBench benchmarkProfiles tileConfig options astar cases = do
       putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName <> " repetition=" <> show repetition <> " tileAStarMs=" <> show (tileTotalMilliseconds timings) <> " reachable=" <> show reachable)
       when (not correct) $
         putStrLn ("oracle mismatch for " <> key route profileName)
-      append (outputPath options) options $ object $
+      let record = object $
         [ "benchmarkVersion" .= ("v1" :: String), "generatedAt" .= show now, "gitCommit" .= commit, "gitBranch" .= branch, "gitDirty" .= dirty, "testbed" .= (os <> "-" <> arch)
         , "benchmarkTier" .= benchmarkTier options, "heuristicWeight" .= weight
         , "routeId" .= stableId route, "routeName" .= routeName route, "category" .= routeCategory route
@@ -264,6 +268,8 @@ runBench benchmarkProfiles tileConfig options astar cases = do
         , "expectedCost" .= oracleCost expected, "oracleReachable" .= oracleReachable expected, "oracleCost" .= oracleCost expected, "correct" .= correct
         , "timings" .= timingsJson timings, "expandedNodes" .= routeExpandedNodes result
         ] <> quality
+      append (outputPath options) options record
+      forM_ progressPath $ \path -> append path options $ object ["type" .= ("case-complete" :: String), "observation" .= record]
       when (diagnostic options) $ do
         started <- getMonotonicTimeNSec
         let raw = findRouteReferenceDijkstra (ReferenceDijkstra (tileTopology astar)) (query (benchmarkNowMinutesFrom benchmarkProfiles) route profile 1)
