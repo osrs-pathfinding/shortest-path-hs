@@ -47,7 +47,7 @@ data RouteCase = RouteCase
 
 instance FromJSON RouteCase where
   parseJSON = withObject "benchmark route" $ \v ->
-    RouteCase <$> v .:? "id" <*> v .: "name" <*> v .: "category" <*> v .:? "distanceTag" .!= "unknown" <*> v .:? "planeTag" .!= "unknown" <*> v .: "start" <*> v .: "target" <*> v .: "allowTransports" <*> v .:? "tiers" .!= [] <*> v .:? "negativeProfiles" .!= []
+    RouteCase <$> v .:? "id" <*> v .: "name" <*> v .:? "category" .!= "unknown" <*> v .:? "distanceTag" .!= "unknown" <*> v .:? "planeTag" .!= "unknown" <*> v .: "start" <*> v .: "target" <*> v .: "allowTransports" <*> v .:? "tiers" .!= [] <*> v .:? "negativeProfiles" .!= []
 
 data Oracle = Oracle { oracleReachable :: Bool, oracleCost :: Maybe Int }
 
@@ -258,16 +258,16 @@ runBench benchmarkProfiles tileConfig options astar cases = do
       when (not correct) $
         putStrLn ("oracle mismatch for " <> key route profileName)
       let record = object $
-        [ "benchmarkVersion" .= ("v1" :: String), "generatedAt" .= show now, "gitCommit" .= commit, "gitBranch" .= branch, "gitDirty" .= dirty, "testbed" .= (os <> "-" <> arch)
-        , "benchmarkTier" .= benchmarkTier options, "heuristicWeight" .= weight
-        , "routeId" .= stableId route, "routeName" .= routeName route, "category" .= routeCategory route
-        , "expectation" .= expectation
-        , "distanceTag" .= routeDistanceTag route, "planeTag" .= routePlaneTag route, "allowTransports" .= routeAllowTransports route
-        , "accountProfile" .= profileName, "repetition" .= repetition, "start" .= routeStart route, "target" .= routeTarget route
-        , "reachable" .= reachable, "cost" .= if reachable then Just cost else Nothing
-        , "expectedCost" .= oracleCost expected, "oracleReachable" .= oracleReachable expected, "oracleCost" .= oracleCost expected, "correct" .= correct
-        , "timings" .= timingsJson timings, "expandedNodes" .= routeExpandedNodes result
-        ] <> quality
+            [ "benchmarkVersion" .= ("v1" :: String), "generatedAt" .= show now, "gitCommit" .= commit, "gitBranch" .= branch, "gitDirty" .= dirty, "testbed" .= (os <> "-" <> arch),
+              "benchmarkTier" .= benchmarkTier options, "heuristicWeight" .= weight,
+              "routeId" .= stableId route, "routeName" .= routeName route, "category" .= routeCategory route,
+              "expectation" .= expectation,
+              "distanceTag" .= routeDistanceTag route, "planeTag" .= routePlaneTag route, "allowTransports" .= routeAllowTransports route,
+              "accountProfile" .= profileName, "repetition" .= repetition, "start" .= routeStart route, "target" .= routeTarget route,
+              "reachable" .= reachable, "cost" .= if reachable then Just cost else Nothing,
+              "expectedCost" .= oracleCost expected, "oracleReachable" .= oracleReachable expected, "oracleCost" .= oracleCost expected, "correct" .= correct,
+              "timings" .= timingsJson timings, "expandedNodes" .= routeExpandedNodes result
+            ] <> quality
       append (outputPath options) options record
       forM_ progressPath $ \path -> append path options $ object ["type" .= ("case-complete" :: String), "observation" .= record]
       when (diagnostic options) $ do
