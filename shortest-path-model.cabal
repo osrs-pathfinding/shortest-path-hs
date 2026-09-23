@@ -121,7 +121,7 @@ executable routing-artifact
 
 executable route-bench
   import: warnings
-  ghc-options: -threaded -rtsopts
+  ghc-options: -threaded -rtsopts -with-rtsopts=-A64m
   main-is: RouteBench.hs
   hs-source-dirs: app
   build-depends:
@@ -139,6 +139,7 @@ executable route-bench
 
 executable route-query
   import: warnings
+  ghc-options: -rtsopts -with-rtsopts=-A64m
   main-is: RouteQuery.hs
   hs-source-dirs: app
   build-depends:
