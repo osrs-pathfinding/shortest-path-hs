@@ -6,7 +6,7 @@ import Control.Concurrent (forkIO, setNumCapabilities)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
 import Control.Exception (SomeException, evaluate, throwIO, try)
 import Control.Monad (forM, forM_, replicateM_, when)
-import Data.Aeson (FromJSON(..), ToJSON(..), Value, eitherDecode, eitherDecodeFileStrict', encode, object, withObject, (.:), (.:?), (.!=), (.=))
+import Data.Aeson (FromJSON(..), ToJSON(..), Value, eitherDecode, eitherDecodeFileStrict', encode, object, withObject, (.:), (.:?), (.=))
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -22,6 +22,7 @@ import System.Info (arch, os)
 import System.IO (hFlush, stdout)
 
 import ShortestPath.Account (AccountState, RequirementMode(..))
+import ShortestPath.BenchmarkCorpus
 import ShortestPath.BenchmarkProfiles
 import ShortestPath.Exact.ReferenceDijkstra (ReferenceDijkstra(..), findRouteReferenceDijkstra)
 import ShortestPath.Exact.TileAStar
@@ -31,23 +32,6 @@ import ShortestPath.Tile
 import ShortestPath.Topology
 import ShortestPath.Transport (Transport, defaultSourcePaths)
 import ShortestPath.World
-
-data RouteCase = RouteCase
-  { routeId :: Maybe String
-  , routeName :: String
-  , routeCategory :: String
-  , routeDistanceTag :: String
-  , routePlaneTag :: String
-  , routeStart :: [Int]
-  , routeTarget :: [Int]
-  , routeAllowTransports :: Bool
-  , routeTiers :: [String]
-  , routeNegativeProfiles :: [String]
-  }
-
-instance FromJSON RouteCase where
-  parseJSON = withObject "benchmark route" $ \v ->
-    RouteCase <$> v .:? "id" <*> v .: "name" <*> v .:? "category" .!= "unknown" <*> v .:? "distanceTag" .!= "unknown" <*> v .:? "planeTag" .!= "unknown" <*> v .: "start" <*> v .: "target" <*> v .: "allowTransports" <*> v .:? "tiers" .!= [] <*> v .:? "negativeProfiles" .!= []
 
 data Oracle = Oracle { oracleReachable :: Bool, oracleCost :: Maybe Int }
 
@@ -132,20 +116,18 @@ parseOptions = go defaultOptions
     _ -> die "--heuristic-weight must be positive"
   go _ _ = die "usage: route-bench [--corpus-dir DIR] [--corpus PATH] [--oracle PATH] [--output PATH] [--runs N] [--tier smoke|standard|full] [--limit N] [--write-oracle] [--jobs N] [--diagnostic] [--rerun-failures JSONL] [--strict-profile-vars] [--heuristic-weight N]"
 
-loadCases :: Options -> IO [RouteCase]
+loadCases :: Options -> IO [BenchmarkRoute]
 loadCases options = do
-  decoded <- eitherDecodeFileStrict' (inputPath options)
-  case decoded of
-    Left message -> die (inputPath options <> ": " <> message)
-    Right cases
-      | any (maybe True null . routeId) cases -> die "selected corpus routes require stable ids"
-      | otherwise -> pure cases
+  cases <- loadBenchmarkRoutesFrom (inputPath options)
+  if any (maybe True null . routeId) cases
+    then die "selected corpus routes require stable ids"
+    else pure cases
 
-filterTier :: String -> [RouteCase] -> [RouteCase]
+filterTier :: String -> [BenchmarkRoute] -> [BenchmarkRoute]
 filterTier "full" = id
 filterTier tier = filter (elem tier . routeTiers)
 
-writeOracles :: BenchmarkProfiles -> Options -> WorldTopology -> [RouteCase] -> IO ()
+writeOracles :: BenchmarkProfiles -> Options -> WorldTopology -> [BenchmarkRoute] -> IO ()
 writeOracles benchmarkProfiles options topology cases = do
   let profiles = [(name, benchmarkAccountFrom benchmarkProfiles name) | name <- benchmarkProfileNamesFrom benchmarkProfiles]
       work = [(route, name, profile) | route <- indexed cases, (name, profile) <- profiles]
@@ -202,7 +184,7 @@ writeOracles benchmarkProfiles options topology cases = do
         oracle = Oracle reachable (if reachable then Just resolvedCost else Nothing)
     pure (oracle, milliseconds started finished)
 
-runBench :: BenchmarkProfiles -> TileAStarConfig -> Options -> TileAStar -> [RouteCase] -> IO ()
+runBench :: BenchmarkProfiles -> TileAStarConfig -> Options -> TileAStar -> [BenchmarkRoute] -> IO ()
 runBench benchmarkProfiles tileConfig options astar cases = do
   oracles <- loadOracle options
   failedKeys <- maybe (pure Nothing) (fmap Just . loadFailedKeys) (rerunFailures options)
@@ -297,16 +279,16 @@ loadFailedKeys path = do
       Left message -> die (path <> ": " <> message)
       Right result -> pure result
 
-indexed :: [RouteCase] -> [RouteCase]
+indexed :: [BenchmarkRoute] -> [BenchmarkRoute]
 indexed = id
 
-stableId :: RouteCase -> String
+stableId :: BenchmarkRoute -> String
 stableId route = fromMaybe (error "indexed route missing id") (routeId route)
 
-key :: RouteCase -> String -> String
+key :: BenchmarkRoute -> String -> String
 key route profile = stableId route <> "/" <> profile
 
-query :: Int -> RouteCase -> Maybe AccountState -> Double -> Query
+query :: Int -> BenchmarkRoute -> Maybe AccountState -> Double -> Query
 query now route profile weight =
   (defaultQuery (tile (routeStart route)) (tile (routeTarget route)))
     { allowTransports = routeAllowTransports route

@@ -25,6 +25,7 @@ library
   exposed-modules:
     ShortestPath.Account
     ShortestPath.AccountSemantics
+    ShortestPath.BenchmarkCorpus
     ShortestPath.BenchmarkProfiles
     ShortestPath.GameVars
     ShortestPath.GameVars.Varbits
