@@ -156,8 +156,12 @@ loadType paths tt = do
   isDestinationOnly tr = origin tr == Nothing && destination tr /= Nothing
   farEnough a b =
     case (origin a, destination b) of
-      (Just x, Just y) -> maybe False (> ttRadius tt) (chebyshev2 x y)
+      (Just x, Just y) -> distance2D x y > ttRadius tt
       _ -> False
+  distance2D a b =
+    let (ax, ay, _) = unpackTile a
+        (bx, by, _) = unpackTile b
+     in max (abs (ax - bx)) (abs (ay - by))
 
 fromRow :: TransportType -> FilePath -> Int -> Row -> Either String Transport
 fromRow tt path lineNo r =

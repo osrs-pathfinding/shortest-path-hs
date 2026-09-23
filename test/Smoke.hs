@@ -97,6 +97,10 @@ itemNormalizationChecks = do
   let routingNames = symbolicNames transports
   putStrLn ("symbolic item names: " <> show (Set.toAscList routingNames))
   assert (all (isRight . resolveItemName) (Set.toList routingNames))
+  assert (any (\transport ->
+    transportType transport == "GNOME_GLIDER"
+      && origin transport == Just (packTile 2465 3501 3)
+      && destination transport == Just (packTile 2850 3498 0)) transports)
  where
   parsed raw = case parseItems raw of
     Right (Just expression) -> expression
