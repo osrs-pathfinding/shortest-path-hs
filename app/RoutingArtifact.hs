@@ -4,6 +4,7 @@
 module Main (main) where
 
 import Data.Ord (Down(..))
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
 import Data.Word (Word64)
@@ -70,6 +71,17 @@ writeTileStaticReport astar = do
 writeRoutingStaticReport :: FilePath -> TileAStar -> IO ()
 writeRoutingStaticReport path astar = do
   (bytes, artifact) <- writeRoutingStaticV1 path astar
+  let metadataPath = path <> ".meta"
+      topology = tileTopology astar
+      metadata = unlines
+        [ "schema_version=1"
+        , "artifact_format_version=1"
+        , "walking_topology_identity=" <> walkingTopologyIdentity (topologyWorld topology)
+        , "search_tile_count=" <> show (Vector.length (artifactSearchTiles artifact))
+        , "site_count=" <> show (Vector.length (artifactSiteTiles artifact))
+        , "effective_collision_fingerprint=" <> effectiveCollisionFingerprint (worldCollision (topologyWorld topology)) artifact
+        ]
+  writeFile metadataPath metadata
   let searchCount = Vector.length (artifactSearchTiles artifact)
       siteCount = Vector.length (artifactSiteTiles artifact)
       componentCount = artifactRoutingComponentCount artifact
@@ -82,6 +94,7 @@ writeRoutingStaticReport path astar = do
       sparseEdges = artifactSparseUndirectedEdgeCount artifact
       sparseAdjacency = artifactSparseAdjacencyCount artifact
   printf "routing static v1 written: %s\n" path
+  printf "routing static metadata written: %s\n" metadataPath
   printf "bytes: %d\n" bytes
   printf "search tiles: %d\n" searchCount
   printf "sites: %d\n" siteCount

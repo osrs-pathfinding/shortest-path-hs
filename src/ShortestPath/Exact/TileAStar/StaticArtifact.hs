@@ -8,9 +8,11 @@ module ShortestPath.Exact.TileAStar.StaticArtifact
   , validateRoutingStaticV1
   , writeRoutingStaticV1
   , routingStaticPointAttachments
+  , effectiveCollisionFingerprint
   ) where
 
 import Control.Monad (when)
+import Data.List (foldl')
 import Data.Binary.Get
   ( Get
   , getByteString
@@ -38,7 +40,9 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as Boxed
 import qualified Data.Vector.Unboxed as Vector
-import Data.Word (Word32, Word8)
+import Data.Word (Word32, Word64, Word8)
+import Data.Bits (xor, shiftR)
+import Numeric (showHex)
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (takeDirectory)
 
@@ -551,3 +555,26 @@ writeRoutingStaticV1 path astar = do
   decoded <- either fail pure . decodeRoutingStaticV1 =<< BL.readFile path
   when (decoded /= artifact) (fail "routing-static-v1 round-trip differs from source")
   pure (toInteger (BL.length bytes), decoded)
+
+effectiveCollisionFingerprint :: CollisionMap -> RoutingStaticV1 -> String
+effectiveCollisionFingerprint collision artifact = "fnv1a64:" <> pad (showHex digest "")
+ where
+  digest = hashCrossings (foldl' hashTile offset (Vector.toList (artifactSearchTiles artifact)))
+    [0 .. Vector.length (artifactCrossingFromSite artifact) - 1]
+  hashTile hash tile = hashByte (hashWord32 hash tile) (ordinaryWalkingMask collision (Tile (fromIntegral tile)))
+  hashCrossings hash [] = hash
+  hashCrossings hash (ix:rest) = hashCrossings
+    (hashInt32 (hashWord32 (hashWord32 hash from) to) (artifactCrossingCosts artifact Vector.! ix)) rest
+   where
+    from = artifactSiteTiles artifact Vector.! fromIntegral (artifactCrossingFromSite artifact Vector.! ix)
+    to = artifactSiteTiles artifact Vector.! fromIntegral (artifactCrossingToSite artifact Vector.! ix)
+  hashWord32 :: Word64 -> Word32 -> Word64
+  hashWord32 hash value = foldl' hashByte hash
+    [fromIntegral (value `shiftR` shift) :: Word8 | shift <- [0, 8 .. 24]]
+  hashInt32 :: Word64 -> Int32 -> Word64
+  hashInt32 hash value = hashWord32 hash (fromIntegral value)
+  hashByte :: Word64 -> Word8 -> Word64
+  hashByte hash value = (hash `xor` fromIntegral value) * prime
+  offset = 14695981039346656037 :: Word64
+  prime = 1099511628211 :: Word64
+  pad value = replicate (16 - length value) '0' <> value

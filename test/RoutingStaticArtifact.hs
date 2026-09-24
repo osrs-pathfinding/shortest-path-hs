@@ -47,6 +47,16 @@ checkSyntheticRoundTrip = do
         (Vector.map fromIntegral (artifactSparseOffsets decoded))
         (Vector.map fromIntegral (artifactSparseDestinations decoded))
         (Vector.map fromIntegral (artifactSparseWeights decoded))
+        (Vector.fromList [0])
+        (Vector.fromList [0])
+        (Vector.fromList [0])
+        (Vector.fromList [0])
+        (Vector.fromList [0])
+        (Vector.fromList [-1])
+        (Vector.fromList [-1])
+        (Vector.fromList [0])
+        Vector.empty
+        Vector.empty
   assert (sparseWalkingDistance network 0 1 == Just 4) "round-tripped sparse network has the wrong distance"
 
 checkRealRoundTripAndAttachments :: IO ()

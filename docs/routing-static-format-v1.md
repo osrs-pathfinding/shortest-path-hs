@@ -7,6 +7,13 @@ for the prepared Tile A* world. It contains the static search tiles, static
 sites, topology attachments, separator crossings, reachable banks, and sparse
 same-component walking network. It does not contain account state or a query.
 
+The exporter also writes `routing-static-v1.bin.meta` beside the binary. It is
+a deterministic UTF-8 `key=value` sidecar with schema version, artifact
+version, walking-topology identity, search/site counts, and an effective
+collision fingerprint. The fingerprint is FNV-1a 64-bit over each search
+tile's packed `u32` and ordinary walking mask `u8`, followed by each crossing's
+source packed `u32`, destination packed `u32`, and cost `i32`, all little-endian.
+
 All multi-byte values are little-endian. There is no compression, alignment
 padding, Haskell constructor tag, list encoding, or machine-sized integer.
 
