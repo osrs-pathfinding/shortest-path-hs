@@ -147,6 +147,17 @@ executable route-query
     shortest-path-model
   default-language: GHC2024
 
+executable parity-report
+  import: warnings
+  main-is: ParityReport.hs
+  hs-source-dirs: app
+  build-depends:
+    base,
+    containers,
+    shortest-path-model,
+    vector
+  default-language: GHC2024
+
 executable world-facts
   import: warnings
   main-is: WorldFacts.hs

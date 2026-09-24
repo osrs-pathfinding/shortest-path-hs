@@ -1,5 +1,6 @@
 module ShortestPath.Exact.TileAStar.RelaxedGraph
   ( SiteGraph(..)
+  , TargetOverlay(..)
   , compileRoutingAccount
   , addCost
   , addCostDefault
