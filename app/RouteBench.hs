@@ -13,7 +13,7 @@ import qualified Data.Set as Set
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime)
 import GHC.Clock (getMonotonicTimeNSec)
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (exitFailure)
 import System.FilePath ((</>), takeDirectory)
@@ -50,6 +50,8 @@ instance ToJSON Oracle where
 data Options = Options
   { inputPath :: FilePath
   , oraclePath :: FilePath
+  -- | The default corpus oracle may be absent; an explicit --oracle must exist.
+  , oracleOptional :: Bool
   , outputPath :: FilePath
   , repetitions :: Int
   , writeOracle :: Bool
@@ -64,7 +66,7 @@ data Options = Options
   }
 
 defaultOptions :: Options
-defaultOptions = Options "" "" "out/route-benchmark.jsonl" 3 False False Nothing "full" 4 Nothing False 1 Nothing
+defaultOptions = Options "" "" False "out/route-benchmark.jsonl" 3 False False Nothing "full" 4 Nothing False 1 Nothing
 
 main :: IO ()
 main = do
@@ -74,6 +76,7 @@ main = do
   let options = parsed
         { inputPath = if null (inputPath parsed) then corpusDir </> "corpus/routes-v1.json" else inputPath parsed
         , oraclePath = if null (oraclePath parsed) then corpusDir </> "oracle/oracle-v1.json" else oraclePath parsed
+        , oracleOptional = null (oraclePath parsed)
         }
   cases <- maybe id take (routeLimit options) . filterTier (benchmarkTier options) <$> loadCases options
   when (null cases) (die "no benchmark routes; select routes from the corpus first")
@@ -187,6 +190,8 @@ writeOracles benchmarkProfiles options topology cases = do
 runBench :: BenchmarkProfiles -> TileAStarConfig -> Options -> TileAStar -> [BenchmarkRoute] -> IO ()
 runBench benchmarkProfiles tileConfig options astar cases = do
   oracles <- loadOracle options
+  when (null oracles) $
+    putStrLn ("no oracle at " <> oraclePath options <> "; expecting reachability from corpus negativeProfiles and not checking costs")
   failedKeys <- maybe (pure Nothing) (fmap Just . loadFailedKeys) (rerunFailures options)
   commit <- gitCommit
   branch <- gitBranch
@@ -216,9 +221,11 @@ runBench benchmarkProfiles tileConfig options astar cases = do
   forM_ progressPath $ \path -> append path options $ object ["type" .= ("phase" :: String), "phase" .= ("running" :: String)]
   forM_ (zip [1 :: Int ..] queries) $ \(queryNumber, (route, profileName, profile)) -> do
     putProgress ("benchmark: " <> show queryNumber <> "/" <> show totalQueries <> " " <> stableId route <> " " <> profileName)
-    expected <- maybe (die ("missing oracle for " <> key route profileName <> "; run route-bench --write-oracle")) pure (Map.lookup (key route profileName) oracles)
     let expectation :: String
         expectation = if profileName `elem` routeNegativeProfiles route then "negative" else "positive"
+    expected <- case oracles of
+      Nothing -> pure (Oracle (expectation == "positive") Nothing)
+      Just loaded -> maybe (die ("missing oracle for " <> key route profileName <> "; run route-bench --write-oracle")) pure (Map.lookup (key route profileName) loaded)
     when (oracleReachable expected /= (expectation == "positive")) $
       die ("corpus expectation disagrees with oracle for " <> key route profileName)
     forM_ [1 .. repetitions options] $ \repetition -> do
@@ -227,7 +234,7 @@ runBench benchmarkProfiles tileConfig options astar cases = do
       let cost = routeCost result
           reachable = cost /= maxBound
           weight = heuristicWeightOption options
-          correct = reachable == oracleReachable expected && (weight > 1 || not reachable || Just cost == oracleCost expected)
+          correct = reachable == oracleReachable expected && (weight > 1 || not reachable || maybe True (== cost) (oracleCost expected))
           quality = case (reachable, oracleCost expected) of
             (True, Just optimalCost) ->
               [ "optimalCost" .= optimalCost
@@ -261,12 +268,16 @@ runBench benchmarkProfiles tileConfig options astar cases = do
         append (outputPath options) options $ object ["routeId" .= stableId route, "accountProfile" .= profileName, "repetition" .= repetition, "diagnosticRawMs" .= milliseconds started finished]
   putStrLn ("wrote " <> outputPath options)
 
-loadOracle :: Options -> IO (Map.Map String Oracle)
+loadOracle :: Options -> IO (Maybe (Map.Map String Oracle))
 loadOracle options = do
-  decoded <- eitherDecodeFileStrict' (oraclePath options)
-  case decoded of
-    Left message -> die (oraclePath options <> ": " <> message)
-    Right value -> pure value
+  exists <- doesFileExist (oraclePath options)
+  if not exists && oracleOptional options
+    then pure Nothing
+    else do
+      decoded <- eitherDecodeFileStrict' (oraclePath options)
+      case decoded of
+        Left message -> die (oraclePath options <> ": " <> message)
+        Right value -> pure (Just value)
 
 loadFailedKeys :: FilePath -> IO (Set.Set String)
 loadFailedKeys path = do
